@@ -2,18 +2,63 @@
 
 [官网](https://llmdoc.tokenroll.ai/) · [English](README.md)
 
-持久化工程上下文，让 coding agent 不必在每次会话中重新恢复仓库架构。
+**Detached Engineering Knowledge Base（独立工程知识库）。** llmdoc 维护一份由人和
+Agent 共同维护、独立于源码生命周期的持久工程知识库。Source Git 的 commit 定义事实；
+Knowledge Git 的 commit 保存对这些事实经过验证的理解。
 
-- 保存源码难以低成本解释的决策、约束和跨模块契约。
-- 只检索当前任务需要的上下文，再回到实时仓库核对精确事实。
-- 代码演进后做语义复核，而不是不断堆积过时的实现笔记。
+- 源码仓库只读；知识保存在它自己的 Git 仓库中。
+- 文档保存源码难以低成本解释的决策、约束、理由和跨模块契约。
+- 代码变化产生复核义务，而不是自动改写。
+- 检索按任务收窄，并始终报告每篇文档背后的 source revision 与有效性状态。
 
-## 60 秒开始
+## 双仓库模型
 
-你需要 Node.js 18 或更新版本，以及一个 Git 仓库。请选择与你的仓库和 Agent
-匹配的路径。
+```mermaid
+flowchart LR
+    S[Source Git<br/>只读] --> A[人或 Agent]
+    A -->|语义复核| K[Knowledge Git<br/>docs + meta]
+    K --> R[按任务检索]
+    R --> S
+```
 
-### 新仓库 + Claude Code
+一个 Source Git worktree 绑定到一个独立的 Knowledge Git worktree。Knowledge Git
+是唯一的持久写入边界。CLI 读取源码时禁用可选 index 写入，绝不修改源码文件、
+index 或 history，也绝不会把知识回退写入源码仓库。绑定关系记录在用户级 registry，
+而不是源码仓库内部。
+
+`llmdoc` 保存的是难以从代码低成本重建、会影响未来决策、并跨多个 commit 成立的
+理解。它不是 Code Wiki Generator：代码变化只触发复核，而复核可能只更新验证依据，
+不改动正文。
+
+## 八条硬边界
+
+1. **源码只读。** 知识工作流绝不修改源码仓库的文件、index、history 或配置。源码
+   开发是另一条工作流。
+2. **独立 Knowledge Git。** Knowledge Repository 必须是自己的 Git 仓库。默认外置；
+   嵌套独立 Git 仅在显式选择时支持。
+3. **禁止向上回退。** 持久知识写入绝不回退到 Source Git。没有绑定或没有独立 Git
+   时 CLI 明确失败。只读检索可以读取显式指定的无 Git 知识目录。
+4. **有效且 clean 的已提交 source 快照。** 只有 HEAD 有效且 worktree/index 全仓
+   clean 的 source commit 才算数。Source revision 是验证依据，Knowledge revision
+   是 Knowledge Git commit。
+5. **Review Manifest 搭配临时 index 与 CAS。** Review Manifest 绑定 source
+   revision、内容 digest 与 scope。正文、关系与 meta 通过临时 index 和 ref 的
+   compare-and-swap 一次发布；知识 index 不得有任何 staged 内容，成功后与
+   llmdoc 自有生成文件一起同步。
+6. **语义验证由人或 Agent 负责。** CLI 执行确定性的结构、范围与提交检查。
+   `validate` 通过并不证明知识正确。
+7. **可重建索引。** AST、符号与依赖图是可重建索引，不是可提交的代码百科。
+8. **面向所有人使用标准 Markdown。** 人和 Agent 编辑同一份 Markdown，并经过相同的
+   验证声明与提交协议。知识是 reference data，不是可执行 rules/skills。
+
+“唯一写入边界”指知识内容及其 Git。`bind` 可以写用户级 registry，临时文件和缓存
+写在知识目录或用户级缓存下。这些都是明确例外，且都不能写入源码仓库。嵌套模式只写
+独立知识子树，绝不改动外层 Git、ignore 规则或其他源码文件。若要求源码目录字节级
+完全不变，请使用外置模式。
+
+## 安装
+
+### Claude Code
 
 添加 marketplace 并安装插件：
 
@@ -23,13 +68,10 @@
 ```
 
 如果安装摘要提示 `Run /reload-plugins to activate.`，请运行该命令；如果 reload
-警告需要重新读取对话，请改用 `/reload-plugins --force`。插件生效后，初始化仓库：
+警告需要重新读取对话，请改用 `/reload-plugins --force`。插件生效后，用
+`/llmdoc:init` 初始化仓库。
 
-```text
-/llmdoc:init
-```
-
-### 新仓库 + Codex
+### Codex
 
 添加 marketplace，然后从仓库目录启动 Codex：
 
@@ -38,205 +80,282 @@ codex plugin marketplace add TokenRollAI/llmdoc
 codex
 ```
 
-在 Codex 中运行 `/plugins`，打开 `llmdoc-plugin` marketplace 并安装
-`llmdoc`。启用前先审查插件及其 hooks，然后在仓库中打开新的 Codex 会话并提出：
+在 Codex 中运行 `/plugins`，打开 `llmdoc-plugin` marketplace 并安装 `llmdoc`。
+启用前先审查插件及其 hooks，然后在新会话中要求使用 `llmdoc:init` skill。
+
+### 直接使用 CLI
+
+不需要插件。在你需要工作的仓库中运行外部 CLI：
+
+```bash
+npx -y @tokenroll/llmdoc --help
+npx -y @tokenroll/llmdoc tree --source .
+```
+
+`@tokenroll/llmdoc` 是项目外部工具。不要把它加入消费项目的 `package.json` 或
+lockfile，也不要使用会解析到无关第三方包的裸命令 `npx llmdoc`。需要可复现运行时，
+请在包名中固定版本：`npx -y @tokenroll/llmdoc@<version> <command>`。
+
+## 知识布局
 
 ```text
-Use the llmdoc:init skill to initialize this repository.
+knowledge/
+├── .git/
+├── llmdoc.yaml            # 共享身份与布局版本
+├── README.md              # 机器生成的导航区
+├── docs/
+│   ├── architecture.md
+│   └── lifecycle/task-recovery.md
+├── inbox/                 # 未验证候选
+├── .llmdoc/meta.json      # 每篇文档的验证证据
+└── .llmdoc-cache/         # 可重建，由知识仓 .gitignore 排除
 ```
 
-### 已有 `llmdoc/` 的仓库
+文档 ID 是相对 docs 的 POSIX `.md` 路径，`docs/` 可以任意层级嵌套。`README.md`
+的导航区由标题、description 和路径生成，永远不是知识节点，也不是验证对象。
 
-可以直接打开知识地图——只使用 CLI 不需要先安装插件：
+## 操作走查
+
+### 1. 创建与绑定
 
 ```bash
-npx -y @tokenroll/llmdoc tree
-npx -y @tokenroll/llmdoc search "revision"
+# 创建外置知识仓并绑定到源码
+npx -y @tokenroll/llmdoc init --source ./app --knowledge ../app-knowledge
+
+# 或绑定已有的独立知识仓
+npx -y @tokenroll/llmdoc bind --source ./app --knowledge ../app-knowledge
 ```
 
-`@tokenroll/llmdoc` 是项目外部工具。不要把它加入消费项目的
-`package.json` 或 lockfile，也不要使用会解析到无关第三方包的裸命令
-`npx llmdoc`。需要可复现运行时，请在包名中固定版本：
-`npx -y @tokenroll/llmdoc@<version> <command>`。这个包暴露的 bin 名为
-`llmdoc`；使用 scoped npx 形式可以让它留在消费仓库的依赖之外。
+`--nested` 显式把知识仓放进源码 worktree 内；只有外层 Git 未跟踪该子树时才使用。
+`init` 绝不覆盖非空目标，也绝不修改源码。
 
-## 工作原理
-
-```mermaid
-flowchart LR
-    K[llmdoc/ 中的稳定知识] --> R[按任务检索]
-    R --> S[源码精确核对]
-    S --> U[语义维护]
-    U --> K
-```
-
-`llmdoc/` 保存的是持久化工程语义，不是仓库副本。Agent 先检索最小且足够的
-知识集，再用源码和测试核对当前事实，最后复核受影响的知识。
-代码变化会产生复核义务，但不会自动产生文档改写。
-
-## 两层操作面
-
-- **Agent workflows** 负责判断和安全收尾，通过宿主的命令或 skill 接口调用。
-- **Runtime CLI** 负责检索和确定性操作，直接或由 workflow 通过 scoped npx
-  命令调用。
-
-四条 workflow 不是四个等价的 CLI 命令：
-
-- `init` 在仓库没有 llmdoc 时创建一小组高价值 V3 知识。
-- `update` 对受影响知识做语义复核；仍然成立的文档可以标记为已验证，无需制造
-  正文改动。
-- `prune` 收敛重复、碎片化或可低成本重建的知识；CLI 只提供只读报告。
-- `upgrade` 迁移 legacy/V2 知识。它只能在用户显式要求时运行，绝不能被主动
-  建议或折入其他 workflow。
-
-每条显式 workflow 只报告一种结果状态：`success`、`no_change`、`dry_run`、
-`incomplete` 或 `failed`。
-
-## 日常使用
-
-在广泛探索之前，以及每次进入新子系统时，先应用下面的路由门：
-
-- 概念、契约、术语或“X 在哪里？” → `search <query>`
-- 具体源码文件的背景或影响面 → `context --files <path...>`
-- 冷启动或范围不明 → `tree`
-- 已知 topic 或文档 kind → `index --topic <topic>` / `index --kind <kind>`
-- 已经定位的文档正文 → `show <path...>`
-
-这些入口是备选关系，不是固定步骤。llmdoc 圈定工作集后，再使用原生工具核对
-源码原文、行号、测试行为、计数和 Git 状态。
-
-`context --files` 会逐个判断输入并报告 `unmappedFiles`；非空的 impacted
-结果不会再掩盖同批查询中未映射的其他路径。
-
-插件生命周期 hook 会通过 npm package alias 调用同一个 scoped CLI，避免宿主仓库中
-同名但尚未构建 bin 的本地或 `file:` 依赖遮蔽 hook runtime；日常交互命令仍使用上面的短写法。
+### 2. 检索
 
 ```bash
-# 展开知识地图
-npx -y @tokenroll/llmdoc tree --docs
+npx -y @tokenroll/llmdoc tree                       # 知识地图（topic 与根文档）
+npx -y @tokenroll/llmdoc index --topic lifecycle    # 不含正文的元数据
+npx -y @tokenroll/llmdoc search "重试策略"          # 词法搜索
+npx -y @tokenroll/llmdoc context --files src/api/client.ts
+npx -y @tokenroll/llmdoc show lifecycle/task-recovery.md
+```
 
-# 查找相关知识
-npx -y @tokenroll/llmdoc search "revision" --limit 5
-npx -y @tokenroll/llmdoc context --files cli/src/cli.ts
+这些入口是备选关系，不是固定步骤。`status` 与 `delta` 报告复核义务和源码阻断原因，
+不是检索步骤。
 
-# 只读取已经选中的正文
-npx -y @tokenroll/llmdoc show architecture.mdx cli-runtime/retrieval-and-mutation.mdx
+### 3. 捕获候选
 
-# 在本地浏览知识面
+```bash
+npx -y @tokenroll/llmdoc capture --title "lease vs timeout" \
+  --note "incident review 时观察到" --from notes.md
+```
+
+`capture` 只写 `inbox/`，绝不触碰 `docs/`、meta、导航 README 或源码仓库，不带验证
+trailer，也不要求源码 worktree clean。正式检索永不返回候选。
+
+### 4. 更新：复核候选
+
+```bash
+npx -y @tokenroll/llmdoc update --promote inbox/lease-vs-timeout.md \
+  --to lifecycle/task-recovery.md --kind decision \
+  --description "任务恢复为什么联合 lease 与 timeout 判断 owner 失效。" \
+  --source-path "internal/task/**" --requires lifecycle/architecture.md
+```
+
+`update` 把显式的 `--promote` / `--reject` 决定应用到知识 worktree，并形成一个未
+确认的 Review Manifest。它绝不把任何文档标为 current；发布仍需确认和提交。
+
+### 5. 复核与确认
+
+```bash
+npx -y @tokenroll/llmdoc review
+npx -y @tokenroll/llmdoc review --confirm <reviewId> --set lifecycle/task-recovery.md=unchanged
+```
+
+`review` 要求有效且全仓 clean 的 source 快照，并生成临时 Review Manifest，绑定固定
+source revision、每篇文档的 digest 与 scope，以及完整写集。随后由人或 Agent 逐项确认
+语义结论：`changed`、`unchanged` 或 `insufficient`。确认之后的任何编辑都会使 manifest
+失效。
+
+### 6. 提交（seal）
+
+```bash
+npx -y @tokenroll/llmdoc commit --review <reviewId>
+```
+
+`commit` 消费已确认的 manifest，把写集 seal 成一次知识提交。不存在裸的 verified
+参数。知识 staging、dirty 或无效的 source 快照，以及任何内容漂移，都会使 manifest
+失效。
+
+### 7. 收敛
+
+```bash
+npx -y @tokenroll/llmdoc prune --report
+npx -y @tokenroll/llmdoc prune --remove decisions/old.md
+```
+
+`prune --report` 列出保守的收敛候选。`prune --remove` 删除合格文档、修复所有入链与
+链接，并形成未确认的 Review Manifest，再用 `commit --review` 发布。仅有碎片证据的
+候选会被保守保留。
+
+### 8. 迁移旧 V3
+
+```bash
+npx -y @tokenroll/llmdoc migrate --dry-run --knowledge ../app-knowledge
+npx -y @tokenroll/llmdoc migrate --knowledge ../app-knowledge
+```
+
+`migrate` 是唯一读取旧 V3 布局（`.mdx`、`CodeRef`、`code.paths`、
+`llmdoc/meta.json` 与 `llmdoc.config.json`）的命令。它把可无损转换的文档复制到新的
+独立 Knowledge Git，建立新的迁移 baseline 而不抽取旧 history，绝不修改旧仓库或源码
+worktree，并且只在目标完整校验通过后才写入用户绑定。
+
+### 9. Hooks 与 viewer
+
+```bash
+npx -y @tokenroll/llmdoc hook session-start
 npx -y @tokenroll/llmdoc serve
 ```
 
-完整且最新的 CLI reference 以 `npx -y @tokenroll/llmdoc --help` 和
-`npx -y @tokenroll/llmdoc help <command>` 为准。`status` 与 `delta`
-用于评估有效性和影响面，不是检索步骤。
+`hook session-start | stop | compact` 只读且 fail-open：它报告复核义务与源码阻断
+原因，绝不写 source 或 knowledge，也绝不初始化绑定。`serve` 启动固定 Knowledge HEAD
+的只读 viewer，三态与双 revision 与 CLI 一致。
 
-### 启动上下文配置
+## Front matter 与源码证据
 
-启用 lifecycle hooks 的仓库可以在 llmdoc workspace 根目录增加可选的
-`llmdoc.config.json`；在 Git 仓库中，它就是拥有 `llmdoc/` 的最近 Git 根：
+每篇正式文档都必须声明非空的 `source.paths`（相对 source 根的 glob）。绝对路径与
+`..` 会被拒绝，每个具体路径都必须在指定 snapshot 中存在。
+
+```yaml
+---
+kind: decision
+description: 任务恢复为什么联合 lease 与 timeout 判断 owner 失效。
+source:
+  paths:
+    - internal/task/**
+    - pkg/lease/**
+relations:
+  requires:
+    - lifecycle/architecture.md
+  supersedes:
+    - decisions/old-recovery.md
+---
+```
+
+`kind` 为 `architecture`、`decision`、`guide` 或 `reference`。`relations` 支持
+`requires`、`related` 与 `supersedes`。`supersedes` 从新决策指向它替代的旧决策，不
+改变任一文档的验证状态。`requires` 构成无环依赖图：上游文档变化并重新 seal 后，其
+依赖方会变为 `needs_review`，直到针对新 digest 重新验证。
+
+## 有效性：双 revision 与三态
+
+`.llmdoc/meta.json`（schema `llmdoc.meta/v3-ng`）保存每篇文档的验证证据。未验证文档
+使用 `null/null/[]/{}`：
 
 ```json
 {
-  "$schema": "https://llmdoc.tokenroll.ai/schemas/config.schema.json",
-  "schema": "llmdoc.config/v1",
-  "startup": {
-    "remindSkill": true,
-    "preload": [
-      "architecture.mdx",
-      "plugin-packaging/claude-and-codex.mdx"
-    ]
+  "schema": "llmdoc.meta/v3-ng",
+  "source": {
+    "repositoryId": "project-id",
+    "lastGlobalReviewRevision": "<full-source-commit-oid>"
+  },
+  "documents": {
+    "lifecycle/task-recovery.md": {
+      "validatedSourceRevision": "<full-source-commit-oid>",
+      "validatedContentDigest": "sha256:<hex>",
+      "validatedSourcePaths": ["internal/task/**", "pkg/lease/**"],
+      "validatedRequires": {
+        "lifecycle/architecture.md": "sha256:<dependency-hex>"
+      }
+    }
   }
 }
 ```
 
-- `remindSkill` 控制 SessionStart 是否注入最小操作守则：加载 llmdoc skill、
-  经过 CLI retrieval gate，并委派给 llmdoc roles。默认值为 `true`；显式设为
-  `false` 才关闭。
-- `preload` 按顺序列出精确文档 ID，可以带或不带 `llmdoc/` 前缀。冷启动会按
-  声明顺序直接注入完整正文，llmdoc 不设置字符或 token 预算。只有最终完成标记
-  可见时才表示宿主提供了完整 preload；若标记缺失，只对缺少的正文执行 `show`。
-- compact 重入只列出配置的文档 ID，不会再次注入完整正文；优先延续
-  `LLMDOC_STATE`，确有需要时才重新读取。
-- `validate` 会报告非法配置、不存在的路径与路径越界；规范化后指向同一文档的
-  别名会去重并产生 warning。hook 保持 fail-open：JSON/schema 无法读取时使用
-  默认提醒；如果只有 preload 项无效，合法的 `remindSkill` 选择仍会保留。
-- `mv` 会事务性重写匹配的 preload 路径；`prune --report` 会列出手工合并或删除
-  文档前必须同步的 preload 引用。
+四个 `validated*` 字段是 seal 时的证据快照：source revision、文档 digest、源码证据
+范围与上游知识 digest。digest 覆盖规范化后的完整 UTF-8 文档，包含 front matter、
+scope、关系与正文。
 
-没有该文件时，SessionStart 输出状态和默认操作守则，但不预载文档。
+文档状态只有三种：
 
-CLI 自身的固定界面文案全部使用英文，包括 help、诊断、hook message 与本地
-Viewer；中文查询与仓库文档正文仍完整支持，并保持原文返回。
+| 状态 | 含义 |
+|---|---|
+| `unverified` | 没有验证声明；不能当作当前事实。 |
+| `current` | digest 匹配、验证 revision 仍可解释，且所有 `requires` 目标 current 且 digest 与记录一致。 |
+| `needs_review` | 相关源码、知识正文或关系发生变化，需要语义复核。 |
 
-## 知识与安全边界
+Source 阻断原因与文档状态分开报告：`unbound`、`invalid_head`、`source_dirty`、
+`history_unavailable`、`diverged`。正式 update、review 与 seal 要求有效 source HEAD
+且 source worktree/index 全仓 clean。源码尚未提交时可以检索已有知识或 capture 候选，
+但不能正式复核或 seal。
 
-- 稳定知识属于 tracked `llmdoc/`；调查、缓存和反思候选属于本地 `.llmdoc-tmp/`。
-- V3 文档是带 YAML front matter 的纯 Markdown `.mdx`，可以包含可选的 `<CodeRef>`
-  锚点。路径就是文档 ID，`kind` 位于 front matter，而不是目录名。
-- 文档树由根级单例和一层 topic 文件夹组成；不设 `index.mdx` topic 节点，也不
-  允许嵌套 topic。
-- `llmdoc/meta.json` 是基于 Git revision 的有效性台账，不是文档。dirty
-  worktree 只是附加信号，不是第二套真相系统。不要手工编辑台账；结构变化和
-  提交应使用 CLI 的受保护操作。
-- 在 Agent workflows 中，`investigator` 收集临时证据，`reflector` 捕获隐私
-  安全的经验候选，`recorder` 是唯一写入 tracked knowledge 的角色。
-- 每条 workflow 都只授权知识维护，不授权源码编辑。结构写入会经过校验，并被限制在
-  仓库的 `llmdoc/` 边界内。
-- Hooks 通过 scoped CLI 发出只读、fail-open 的信号。SessionStart 还会注入
-  可配置的最小操作守则，因此项目无需在 CLAUDE.md/AGENTS.md 重复该引导。
-  启用前先审查 hooks，并确认插件来源可信。
-- `delta` 命中表示“复核这条结论”，不是“改写这篇文档”。保留决策及理由、
-  边界、不变量、契约和非显然失败语义；可重建事实应留在源码、schema、help、
-  测试或生成配置中。
+## 命令参考
+
+完整且最新的 CLI reference 以 `npx -y @tokenroll/llmdoc --help` 和
+`npx -y @tokenroll/llmdoc help <command>` 为准。所有检索命令都支持 `--json`、
+`--budget` 与 `--limit`；`--cursor` 用于继续截断的输出。
+
+| 命令 | 用途 |
+|---|---|
+| `bind --source <dir> --knowledge <dir> [--nested]` | 把源码仓与独立知识仓关联起来。 |
+| `init --source <dir> --knowledge <dir> [--nested]` | 创建新的独立知识仓并绑定。 |
+| `tree` | 按 topic 展示知识地图。 |
+| `index [--topic] [--kind]` | 不含正文的文档元数据。 |
+| `show <path...>` | 读取选中的文档正文。 |
+| `search <query>` | 词法搜索，含中文分词与 CJK bigram 降级。 |
+| `context --files <files...>` | 把源码文件映射到文档，包含 `requires` 闭包。 |
+| `validate` | 确定性的 front matter、链接、关系、source scope 与 schema 检查。 |
+| `status` | 源码阻断原因、知识状态与复核义务。 |
+| `delta [--scope <id...>]` | 源码或知识变化后需要语义复核的文档。 |
+| `review [--confirm <reviewId>] [--set <id>=<conclusion>...] [--global]` | 生成或确认 Review Manifest。 |
+| `commit --review <reviewId>` | 把已确认的 manifest seal 成一次知识提交。 |
+| `capture [--title] [--note] [--from] [--body] [--source-revision]` | 把未验证候选持久化到 `inbox/`。 |
+| `update [--promote ...] [--reject ...] [--prepare] [--global]` | 复核候选并形成未确认的 manifest。 |
+| `prune [--report] [--remove <id...>] [--global]` | 报告收敛候选或准备合格删除。 |
+| `migrate --knowledge <dir> [--source] [--legacy] [--dry-run] [--nested]` | 显式把旧 V3 布局迁移到新的独立知识仓。 |
+| `hook <session-start\|stop\|compact>` | 只读、fail-open 的宿主诊断。 |
+| `serve [--port]` | 在 `127.0.0.1` 上查看固定 Knowledge HEAD 的只读 viewer。 |
 
 ## 平台集成
 
-### Claude Code
+- **Claude Code：** 仓库根的插件提供 operating skill、工作流、角色与 lifecycle
+  hooks。参见
+  [Claude Code 插件文档](https://code.claude.com/docs/en/discover-plugins)。
+- **Codex：** Codex 插件提供等价的 skills、角色与 hooks。参见
+  [OpenAI 官方 Codex 插件文档](https://developers.openai.com/codex/plugins)。
+- **其他 Agents：** 使用可移植的
+  [`AGENTS.md` 集成配方](docs/agent-integration.md)和同一个外部 CLI。
 
-仓库根的 Claude 插件是手工维护的 canonical surface，包含 operating skill、
-四条显式 workflows、三个角色和 lifecycle hooks。使用上面的安装流程，或通过
-Claude Code 插件 UI 管理。安装行为以
-[Claude Code 插件文档](https://code.claude.com/docs/en/discover-plugins)为准。
-
-### Codex
-
-Codex 插件由 Claude surface 生成，提供等价的 skills、角色和 hooks。也可以在
-Codex CLI 中运行 `/plugins` 浏览 Plugins Directory。安装后请打开新会话，并在
-信任第三方 hooks 前先审查它们。Codex IDE extension 当前不支持 plugins。
-安装行为以
-[OpenAI 官方 Codex 插件文档](https://developers.openai.com/codex/plugins)为准。
-
-### 其他 Agents
-
-没有原生插件系统的 Agent 也可以使用相同的 runtime 和操作契约。把可移植的
-[`AGENTS.md` 集成配方](docs/agent-integration.md)复制到消费仓库即可。
+CLI 自身的固定界面文案全部使用英文，包括 help、诊断、hook message 与本地 viewer。
+中文查询与仓库文档正文仍完整支持，并保持原文返回。
 
 ## 开发本仓库
 
 仓库根目录是私有开发工作区；面向消费方的公开产物是 `@tokenroll/llmdoc` CLI。
-Claude skills 和 agents 是准源，Codex surface 是生成产物——不要手工编辑生成的
-打包文件。
 
 ```bash
 npm install
 npm run typecheck
 npm run lint
 npm test
+npm run test:integration
 npm run build
 npm run validate:dogfood
 npm run check:prompts
 ```
 
-请从仓库根目录安装依赖，确保本地 `llmdoc` bin 在校验前已建立链接。CLI
-语义变化必须与两端宿主 surface、双语 README、设计文档和 dogfood knowledge
-保持同步。
+`npm test` 是日常快速门禁，覆盖协议契约、宿主 surface、选定读取路径和一次真实的
+review/seal 冒烟事务。`npm run test:integration` 执行完整双 Git、CAS、锁、迁移、
+回滚与故障注入套件；CI 只在 Node 22 完整执行一次，同时在受支持 Node 矩阵运行快速门禁。
+
+请从仓库根目录安装依赖，确保本地 `llmdoc` bin 在校验前已建立链接。CLI 语义变化
+必须与两端宿主 surface、双语 README、设计文档和 dogfood knowledge 保持同步。
 
 ## 参考
 
 - [可移植 Agent 集成配方](docs/agent-integration.md)
-- [V3 设计说明](docs/v3-design/README.md)（目前标记为 draft）
+- [架构与协议](docs/v3-ng-design/architecture.md)
 - [Operating protocol](skills/llmdoc/SKILL.md)
 - Workflow contracts：[`init`](skills/init/SKILL.md)、
   [`update`](skills/update/SKILL.md)、[`prune`](skills/prune/SKILL.md) 和
-  [`upgrade`](skills/upgrade/SKILL.md)
+  [`migrate`](skills/migrate/SKILL.md)
 - Runtime reference：`npx -y @tokenroll/llmdoc --help`

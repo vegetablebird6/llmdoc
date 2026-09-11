@@ -4,11 +4,11 @@ import DocsLayout from "../../../layouts/DocsLayout.astro";
 
 <DocsLayout
   title="Workflows"
-  description="Use llmdoc's daily retrieval loop and explicit init, update, prune, and upgrade workflows with the correct authorization and safety boundaries."
+  description="Use llmdoc's daily retrieval loop and the explicit init, update, prune, and migrate workflows with the correct authorization and safety boundaries."
   section="workflows"
 >
   <h1>Workflows</h1>
-  <p>Daily retrieval is lightweight and read-only. Knowledge mutations are explicit workflows with validation, Git boundaries, and clear result states.</p>
+  <p>Daily retrieval is lightweight and read-only. Knowledge mutations are explicit workflows with validation, a clean source gate, and a single knowledge commit.</p>
 
   <h2>Daily retrieval</h2>
   <ol>
@@ -19,25 +19,40 @@ import DocsLayout from "../../../layouts/DocsLayout.astro";
   </ol>
 
   <h2>Initialize</h2>
-  <p>Use the <strong>init</strong> workflow only when a repository has no valid V3 knowledge surface. It designs domain and topic boundaries, writes the smallest sufficient set of owner documents, and classifies every first-class subsystem as documented, intentionally reconstructable, or a blocking gap.</p>
-  <p>After drafting the initial documents, an unborn repository first creates a real HEAD commit. Then <code>init-state</code> seeds the ledger, <code>validate</code> checks structure, Context Floor probes verify routing, and <code>commit --all</code> completes the Git-backed bootstrap.</p>
+  <p>Use <code>init</code> when a source repository has no independent knowledge repository yet. It creates the Knowledge Git, the layout, the initial knowledge commit, and the user binding, and it never overwrites a non-empty target or modifies the source.</p>
+  <pre><code>npx -y @tokenroll/llmdoc init --source ./app --knowledge ../app-knowledge</code></pre>
+  <p>To attach an existing independent knowledge repository instead, use <code>bind</code>. Both commands accept <code>--nested</code> only when the knowledge repository lives inside the source worktree and the outer Git does not track that subtree.</p>
 
   <h2>Update</h2>
-  <p><strong>Update</strong> semantically verifies existing knowledge against code deltas and authorized reflection candidates. A document that is still correct is verified unchanged; it does not accumulate a change log.</p>
-  <p>Prose and routing are reviewed independently: true prose may still need <code>description</code>, <code>code.paths</code>, or relations repaired.</p>
+  <p><strong>Update</strong> semantically re-verifies existing knowledge against committed source changes and captured candidates. It applies explicit <code>--promote</code> or <code>--reject</code> decisions and forms an unconfirmed Review Manifest. It never marks anything current by itself.</p>
+  <p>A document that is still correct is verified unchanged; it does not accumulate a change log. Prose and evidence are reviewed together: true prose may still need <code>description</code>, <code>source.paths</code>, or relations repaired.</p>
   <div class="callout"><p>An update signal is a review set, not a prose-writing list.</p></div>
 
-  <h2>Prune</h2>
-  <p><strong>Prune</strong> converges the knowledge surface by removing duplication, fragmentation, and cheaply reconstructable inventory. Mechanical reports provide signals; a recorder still makes the semantic judgment.</p>
+  <h2>The Review Manifest protocol</h2>
+  <p>A Review Manifest binds the fixed source revision, the knowledge base revision, each document digest and old/new source scope, the old and candidate dependency digests, and the complete write set, including deletions, promotions, and relation changes. It is stored in a rebuildable cache and is never committed.</p>
+  <ol>
+    <li><code>capture</code> saves an unverified candidate under <code>inbox/</code>.</li>
+    <li><code>update --promote</code> / <code>--reject</code> prepares the worktree and an unconfirmed manifest.</li>
+    <li><code>review</code> generates the manifest for the fixed source snapshot.</li>
+    <li>A human or agent confirms each conclusion with <code>review --confirm &lt;reviewId&gt;</code>, optionally overriding with <code>--set &lt;id&gt;=&lt;conclusion&gt;</code>.</li>
+    <li><code>commit --review &lt;reviewId&gt;</code> re-checks everything and seals one knowledge commit through a temporary index and a compare-and-swap ref update.</li>
+  </ol>
+  <p>Any edit after confirmation, any knowledge staging, a dirty or invalid source snapshot, or content drift invalidates the manifest with <code>E_REVIEW_INVALIDATED</code>. The CLI never treats generating a manifest as proof that the semantics are correct.</p>
 
-  <h2>Upgrade</h2>
-  <p><strong>Upgrade</strong> is only for an explicitly requested V2-to-V3 migration. It is never an implicit part of update or prune.</p>
+  <h2>The source-clean gate</h2>
+  <p>A formal update, review, or seal requires a valid source HEAD and a fully clean source worktree/index, measured over the whole repository. There is no per-document dirty exemption. If the source is not yet committed, you can still retrieve existing knowledge or capture candidates, but you cannot formally re-verify or seal. Source blockers such as <code>invalid_head</code>, <code>source_dirty</code>, <code>history_unavailable</code>, and <code>diverged</code> are reported separately from the document tri-state.</p>
+
+  <h2>Prune</h2>
+  <p><strong>Prune</strong> converges the knowledge surface by removing exact duplicates and superseded decisions. <code>prune --report</code> is read-only and lists conservative candidates; <code>prune --remove</code> removes eligible documents, repairs every inbound relation and link, and forms an unconfirmed Review Manifest. Fragment-only candidates stay <code>insufficient</code> and are conservatively retained.</p>
+
+  <h2>Migrate</h2>
+  <p><strong>Migrate</strong> is the only reader of the legacy V3 layout. <code>migrate --dry-run</code> reports the complete per-file mapping, extension collisions, lossless-conversion failures, and the validation evidence that cannot be preserved. It copies losslessly convertible documents into a new independent knowledge Git with a fresh migration baseline, never modifies the legacy repository or the source worktree, and writes the user binding only after the target fully validates. Migrated content is never automatically treated as verified.</p>
 
   <h2>Safety and completion</h2>
   <ul>
-    <li>Mutation workflows require confirmation and a clean llmdoc write boundary.</li>
-    <li>Validation happens before completion; failed writes are reverted through Git.</li>
-    <li><code>commit</code> excludes unrelated user-staged files and refreshes validity separately.</li>
-    <li>Workflows report one result: <code>success</code>, <code>no_change</code>, <code>dry_run</code>, <code>incomplete</code>, or <code>failed</code>.</li>
+    <li>Mutation workflows require a valid, fully clean source snapshot and a knowledge index with nothing staged.</li>
+    <li>Validation happens before completion; a failed pre-publish step leaves HEAD untouched.</li>
+    <li><code>commit</code> publishes one knowledge commit and synchronizes the real index and llmdoc-owned generated files without overwriting out-of-scope drafts.</li>
+    <li>Hooks are read-only and fail-open, and never initialize a binding.</li>
   </ul>
 </DocsLayout>

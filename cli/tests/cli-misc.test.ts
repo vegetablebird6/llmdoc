@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
+
+vi.setConfig({ testTimeout: 120000 });
 
 import { runCli } from "../src/cli.js";
 import { commitFile, initRepo, makeTempDir } from "./knowledge-helpers.js";
@@ -22,16 +24,20 @@ describe("llmdoc cli", () => {
     const consumerDir = fs.mkdtempSync(path.join(process.cwd(), "llmdoc-consumer-"));
     try {
       const { spawnSync } = await import("node:child_process");
-      spawnSync("npm", ["init", "-y"], { cwd: consumerDir, encoding: "utf8", shell: process.platform === "win32" });
       const packageJsonPath = path.join(consumerDir, "package.json");
-      const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as {
-        dependencies?: Record<string, string>;
-      };
-      packageJson.dependencies = {
-        ...(packageJson.dependencies ?? {}),
-        "@tokenroll/llmdoc": `file:${packageDir}`
-      };
-      fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
+      fs.writeFileSync(
+        packageJsonPath,
+        `${JSON.stringify(
+          {
+            name: "llmdoc-consumer",
+            version: "1.0.0",
+            private: true,
+            dependencies: { "@tokenroll/llmdoc": `file:${packageDir}` }
+          },
+          null,
+          2
+        )}\n`
+      );
       const install = spawnSync("npm", ["install", "--no-audit", "--no-fund"], {
         cwd: consumerDir,
         encoding: "utf8",

@@ -2,18 +2,6 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://llmdoc.dev/schemas/output.schema.json",
   "$defs": {
-    "kind": {
-      "type": "string",
-      "enum": [
-        "architecture",
-        "guide",
-        "reference"
-      ]
-    },
-    "path": {
-      "type": "string",
-      "minLength": 1
-    },
     "pagination": {
       "type": "object",
       "additionalProperties": false,
@@ -46,109 +34,6 @@
             "string",
             "null"
           ]
-        }
-      }
-    },
-    "docRef": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "path",
-        "kind",
-        "description"
-      ],
-      "properties": {
-        "path": {
-          "$ref": "#/$defs/path"
-        },
-        "kind": {
-          "$ref": "#/$defs/kind"
-        },
-        "description": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
-    },
-    "issue": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "severity",
-        "code",
-        "message"
-      ],
-      "properties": {
-        "severity": {
-          "type": "string",
-          "enum": [
-            "error",
-            "warning"
-          ]
-        },
-        "code": {
-          "type": "string",
-          "minLength": 1
-        },
-        "message": {
-          "type": "string",
-          "minLength": 1
-        },
-        "path": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
-    },
-    "growth": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "currentDocumentCount",
-        "currentTotalEstimatedTokens",
-        "baselineDocumentCount",
-        "baselineTotalEstimatedTokens",
-        "documentDelta",
-        "tokenDelta",
-        "exceedsGate"
-      ],
-      "properties": {
-        "currentDocumentCount": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "currentTotalEstimatedTokens": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "baselineDocumentCount": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "minimum": 0
-        },
-        "baselineTotalEstimatedTokens": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "minimum": 0
-        },
-        "documentDelta": {
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "tokenDelta": {
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "exceedsGate": {
-          "type": "boolean"
         }
       }
     },
@@ -2181,6 +2066,146 @@
         },
         "message": {
           "type": "string"
+        }
+      }
+    },
+    "hook": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "event",
+        "continue",
+        "mode",
+        "repositoryId",
+        "sourceRevision",
+        "knowledgeRevision",
+        "lastGlobalReviewRevision",
+        "historyAvailable",
+        "sourceBlockers",
+        "documents",
+        "reviewObligations",
+        "systemMessage",
+        "diagnostic"
+      ],
+      "properties": {
+        "schema": {
+          "const": "llmdoc.hook/v1"
+        },
+        "event": {
+          "type": "string",
+          "enum": [
+            "session-start",
+            "stop",
+            "compact"
+          ]
+        },
+        "continue": {
+          "const": true
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "bound",
+            "explicit",
+            "unbound",
+            "diagnostic"
+          ]
+        },
+        "repositoryId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sourceRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "knowledgeRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lastGlobalReviewRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "historyAvailable": {
+          "type": "boolean"
+        },
+        "sourceBlockers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/knowledgeSourceBlocker"
+          }
+        },
+        "documents": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "total",
+            "current",
+            "needsReview",
+            "unverified"
+          ],
+          "properties": {
+            "total": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "current": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "needsReview": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unverified": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "reviewObligations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "systemMessage": {
+          "type": "string"
+        },
+        "diagnostic": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "serve": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "url",
+        "port"
+      ],
+      "properties": {
+        "schema": {
+          "const": "llmdoc.serve/v1"
+        },
+        "url": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     }

@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "llmdoc",
-      "description": "Persistent engineering context powered by the llmdoc CLI and progressive MDX knowledge retrieval",
+      "description": "Detached engineering knowledge base powered by the llmdoc CLI: a read-only Source Git plus an independent Knowledge Git maintained through a review and commit protocol",
       "source": {
         "source": "local",
         "path": "./"

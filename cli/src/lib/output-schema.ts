@@ -24,6 +24,8 @@ export type OutputSchemaName =
   | "migrate"
   | "bind"
   | "init"
+  | "hook"
+  | "serve"
   | "knowledgeError";
 
 type AjvConstructor = new (options: { allErrors: boolean; strict: boolean }) => {

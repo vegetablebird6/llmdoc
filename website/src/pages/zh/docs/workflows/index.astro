@@ -4,12 +4,12 @@ import DocsLayout from "../../../../layouts/DocsLayout.astro";
 
 <DocsLayout
   title="工作流"
-  description="以正确的授权与安全边界使用 llmdoc 的日常检索，以及显式的 init、update、prune 和 upgrade 工作流。"
+  description="以正确的授权与安全边界使用 llmdoc 的日常检索，以及显式的 init、update、prune 和 migrate 工作流。"
   locale="zh"
   section="workflows"
 >
   <h1>工作流</h1>
-  <p>日常检索轻量且只读。知识改写则通过带校验、Git 边界与明确结果状态的显式工作流完成。</p>
+  <p>日常检索轻量且只读。知识改写则是带校验、clean source 门控与单次知识提交的显式工作流。</p>
 
   <h2>日常检索</h2>
   <ol>
@@ -20,25 +20,40 @@ import DocsLayout from "../../../../layouts/DocsLayout.astro";
   </ol>
 
   <h2>初始化</h2>
-  <p>只有仓库不存在有效 V3 知识面时，才使用 <strong>init</strong>。它设计 domain 与 topic 边界、写入最小充分的 owner 文档，并把每个 first-class 子系统归类为“已文档化”“有意由源码重建”或阻塞缺口。</p>
-  <p>首批文档完成后，unborn 仓库先创建真实 HEAD commit；随后由 <code>init-state</code> 建立 ledger、<code>validate</code> 校验结构、Context Floor 探针验证路由，最后用 <code>commit --all</code> 完成 Git 收尾。</p>
+  <p>当源码仓还没有独立知识仓时，使用 <code>init</code>。它创建 Knowledge Git、布局、初始知识提交与用户绑定，绝不覆盖非空目标，也绝不修改源码。</p>
+  <pre><code>npx -y @tokenroll/llmdoc init --source ./app --knowledge ../app-knowledge</code></pre>
+  <p>若改为挂接已有的独立知识仓，请使用 <code>bind</code>。只有当知识仓位于源码 worktree 内且外层 Git 未跟踪该子树时，两个命令才接受 <code>--nested</code>。</p>
 
   <h2>更新</h2>
-  <p><strong>update</strong> 对照代码 delta 与已授权的 reflection candidate，语义复核现有知识。仍然正确的文档会被标记为 verified unchanged，不会累积变更日志。</p>
-  <p>正文与路由必须独立复核：正文仍然正确时，<code>description</code>、<code>code.paths</code> 或 relations 仍可能需要修复。</p>
+  <p><strong>update</strong> 对照已提交的源码变化与已捕获候选，语义复核现有知识。它应用显式的 <code>--promote</code> 或 <code>--reject</code> 决定，并形成未确认的 Review Manifest，自身绝不把任何文档标为 current。</p>
+  <p>仍然正确的文档会被验证为 unchanged，不会累积变更日志。正文与证据一起复核：正文仍然正确时，<code>description</code>、<code>source.paths</code> 或 relations 仍可能需要修复。</p>
   <div class="callout"><p>update 信号产生的是复核集合，不是正文写入列表。</p></div>
 
+  <h2>Review Manifest 协议</h2>
+  <p>Review Manifest 绑定固定 source revision、知识库 revision、每篇文档的 digest 与旧新 source scope、旧与候选依赖 digest，以及完整写集（含删除、晋升与关系修改）。它存放在可重建缓存中，绝不提交。</p>
+  <ol>
+    <li><code>capture</code> 把未验证候选保存到 <code>inbox/</code>。</li>
+    <li><code>update --promote</code> / <code>--reject</code> 准备 worktree 与未确认 manifest。</li>
+    <li><code>review</code> 针对固定 source 快照生成 manifest。</li>
+    <li>由人或 Agent 用 <code>review --confirm &lt;reviewId&gt;</code> 逐项确认结论，可用 <code>--set &lt;id&gt;=&lt;conclusion&gt;</code> 覆盖。</li>
+    <li><code>commit --review &lt;reviewId&gt;</code> 重新检查一切，通过临时 index 与 ref 的 compare-and-swap 一次 seal 成知识提交。</li>
+  </ol>
+  <p>确认之后的任何编辑、任何知识 staged 内容、dirty 或无效的 source 快照，以及内容漂移，都会以 <code>E_REVIEW_INVALIDATED</code> 使 manifest 失效。CLI 绝不把“生成了 manifest”当作语义正确的证明。</p>
+
+  <h2>Source-clean 门控</h2>
+  <p>正式 update、review 或 seal 要求有效 source HEAD 且 source worktree/index 全仓 clean，按整个仓库衡量，不存在按文档的 dirty 豁免。源码尚未提交时可以检索已有知识或 capture 候选，但不能正式复核或 seal。<code>invalid_head</code>、<code>source_dirty</code>、<code>history_unavailable</code>、<code>diverged</code> 等 source 阻断原因与文档三态分开报告。</p>
+
   <h2>收敛</h2>
-  <p><strong>prune</strong> 删除重复、碎片与可低成本重建的库存。机械 report 只提供信号；真正的知识价值仍由 recorder 判断。</p>
+  <p><strong>prune</strong> 通过删除完全重复的文档与被替代的决策来收敛知识面。<code>prune --report</code> 只读，列出保守候选；<code>prune --remove</code> 删除合格文档、修复所有入链与链接，并形成未确认的 Review Manifest。仅有碎片证据的候选保持 <code>insufficient</code>，被保守保留。</p>
 
   <h2>迁移</h2>
-  <p><strong>upgrade</strong> 只用于用户显式要求的 V2 到 V3 迁移。它绝不会隐式包含在 update 或 prune 中。</p>
+  <p><strong>migrate</strong> 是旧 V3 布局的唯一读取者。<code>migrate --dry-run</code> 报告逐文件目标、扩展名碰撞、无法无损转换的内容以及无法保留的验证证据。它把可无损转换的文档复制到带有全新迁移 baseline 的独立 Knowledge Git，绝不修改旧仓库或源码 worktree，并且只在目标完整校验通过后才写入用户绑定。迁移内容绝不自动视为已验证。</p>
 
   <h2>安全与完成</h2>
   <ul>
-    <li>改写工作流需要确认，以及干净的 llmdoc 写入边界。</li>
-    <li>完成前必须校验；失败的写入通过 Git 回滚。</li>
-    <li><code>commit</code> 不会卷入用户 staged 的无关文件，并单独刷新有效性。</li>
-    <li>工作流只报告一种结果：<code>success</code>、<code>no_change</code>、<code>dry_run</code>、<code>incomplete</code> 或 <code>failed</code>。</li>
+    <li>改写工作流要求有效且全仓 clean 的 source 快照，以及没有任何 staged 内容的知识 index。</li>
+    <li>完成前必须校验；发布前的失败步骤不会移动 HEAD。</li>
+    <li><code>commit</code> 发布一次知识提交，并同步真实 index 与 llmdoc 自有生成文件，不覆盖范围外草稿。</li>
+    <li>Hooks 只读且 fail-open，绝不初始化绑定。</li>
   </ul>
 </DocsLayout>

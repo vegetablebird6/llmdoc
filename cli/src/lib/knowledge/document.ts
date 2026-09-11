@@ -205,7 +205,7 @@ function dedupe(values: string[]): string[] {
   return [...new Set(values)];
 }
 
-/** Serializes a canonical v3-ng document with the four allowed relation keys. */
+/** Serializes a canonical knowledge document with the four allowed relation keys. */
 export function renderKnowledgeDocumentContent(input: {
   kind: KnowledgeKind;
   description: string;

@@ -2,22 +2,78 @@
 
 [Website](https://llmdoc.tokenroll.ai/) · [简体中文](README.zh-CN.md)
 
-Persistent engineering context that helps coding agents understand a repository
-without rediscovering its architecture every session.
+**Detached Engineering Knowledge Base.** llmdoc keeps a durable engineering
+knowledge base that is maintained by humans and agents and stays independent of
+the source-code lifecycle. Source Git commits define facts; Knowledge Git commits
+preserve verified understanding of those facts.
 
-- Preserve decisions, constraints, and cross-module contracts that source code
-  does not explain cheaply.
-- Retrieve only the context a task needs, then verify exact facts against the
-  live repository.
-- Recheck knowledge semantically as code evolves instead of accumulating stale
-  implementation notes.
+- The source repository is read-only. Knowledge lives in its own Git repository.
+- Documents preserve decisions, constraints, rationale, and cross-module
+  contracts that source code does not explain cheaply.
+- A code change creates a review obligation, not an automatic rewrite.
+- Retrieval is task-scoped and always reports the source revision and validity
+  status behind each document.
 
-## Start in 60 seconds
+## The dual-repository model
 
-You need Node.js 18 or newer and a Git repository. Choose the path that matches
-your repository and agent.
+```mermaid
+flowchart LR
+    S[Source Git<br/>read-only] --> A[Human or Agent]
+    A -->|semantic review| K[Knowledge Git<br/>docs + meta]
+    K --> R[Task-scoped retrieval]
+    R --> S
+```
 
-### New repository with Claude Code
+One Source Git worktree is bound to one independent Knowledge Git worktree. The
+Knowledge Git is the only persistent write boundary. The CLI reads the source
+with optional index writes disabled, never modifies source files, index, or
+history, and never falls back to writing knowledge into the source repository.
+The association is recorded in a user-level registry, not inside the source.
+
+`llmdoc` stores understanding that is expensive to reconstruct from code, changes
+future decisions, and holds across many commits. It is not a code-wiki generator:
+a code change only triggers re-verification, and a re-verification may update
+only the validation evidence without touching the prose.
+
+## Eight hard boundaries
+
+1. **Read-only source.** The knowledge workflow never modifies the source
+   repository's files, index, history, or configuration. Source development is a
+   separate workflow.
+2. **Independent knowledge Git.** The Knowledge Repository must be its own Git
+   repository. It is external by default; a nested independent Git is supported
+   only when explicitly selected.
+3. **No upward fallback.** Persistent knowledge writes never fall back to the
+   source Git. With no binding or no independent Git, the CLI fails explicitly.
+   Read-only retrieval may read an explicitly named no-Git knowledge directory.
+4. **Valid, clean committed source snapshot.** Only a source commit with a valid
+   HEAD and a fully clean worktree/index counts. The source revision is the
+   validation basis; the knowledge revision is the Knowledge Git commit.
+5. **Review Manifest with a temporary index and CAS.** A Review Manifest binds
+   the source revision, content digests, and scope. Bodies, relations, and meta
+   are published in one step through a temporary index and a compare-and-swap ref
+   update; the knowledge index must have nothing staged, and it is synchronized
+   on success together with llmdoc-owned generated files.
+6. **Semantic validation is human or agent work.** The CLI performs deterministic
+   structure, scope, and commit checks. A passing `validate` does not prove that
+   the knowledge is correct.
+7. **Rebuildable indexes.** AST, symbol, and dependency graphs are rebuildable
+   indexes, not a committable code encyclopedia.
+8. **Standard Markdown for everyone.** Humans and agents edit the same Markdown
+   and go through the same validation declaration and commit protocol. Knowledge
+   is reference data, not executable rules or skills.
+
+The "only write boundary" means the knowledge content and its Git. `bind` may
+write a user-level registry, and temporary files and caches are written under the
+knowledge directory or a user-level cache. Those are explicit exceptions, and
+none of them may write into the source repository. Nested mode only writes the
+independent knowledge subtree; it never changes the outer Git, ignore rules, or
+other source files. If the source directory must remain byte-for-byte unchanged,
+use external mode.
+
+## Install
+
+### Claude Code
 
 Add the marketplace and install the plugin:
 
@@ -26,15 +82,12 @@ Add the marketplace and install the plugin:
 /plugin install llmdoc@llmdoc-plugin
 ```
 
-If the install summary says `Run /reload-plugins to activate.`, run that
-command. If the reload warns about rereading the conversation, rerun it as
-`/reload-plugins --force`. Once the plugin is active, initialize the repository:
+If the install summary says `Run /reload-plugins to activate.`, run that command.
+If the reload warns about rereading the conversation, rerun it as
+`/reload-plugins --force`. Once the plugin is active, initialize a repository
+with `/llmdoc:init`.
 
-```text
-/llmdoc:init
-```
-
-### New repository with Codex
+### Codex
 
 Add the marketplace and start Codex from the repository:
 
@@ -44,229 +97,306 @@ codex
 ```
 
 Inside Codex, run `/plugins`, open the `llmdoc-plugin` marketplace, and install
-`llmdoc`. Review the plugin and its hooks before enabling them. Then start a new
-Codex session in the repository and ask:
+`llmdoc`. Review the plugin and its hooks before enabling them, then ask a new
+session to use the `llmdoc:init` skill.
 
-```text
-Use the llmdoc:init skill to initialize this repository.
-```
+### Direct CLI
 
-### Repository that already has `llmdoc/`
-
-Open its knowledge map immediately—no plugin is required for direct CLI use:
+No plugin is required. Run the external CLI from the repository you want to work
+on:
 
 ```bash
-npx -y @tokenroll/llmdoc tree
-npx -y @tokenroll/llmdoc search "revision"
+npx -y @tokenroll/llmdoc --help
+npx -y @tokenroll/llmdoc tree --source .
 ```
 
 `@tokenroll/llmdoc` is external tooling. Do not add it to the consumer project's
 `package.json` or lockfile, and never use the unrelated bare package name
 `npx llmdoc`. For reproducible runs, pin the package spec:
-`npx -y @tokenroll/llmdoc@<version> <command>`. The package exposes the `llmdoc`
-bin; the scoped npx form keeps it outside the consumer repository.
+`npx -y @tokenroll/llmdoc@<version> <command>`.
 
-## How it works
+## Knowledge layout
 
-```mermaid
-flowchart LR
-    K[Stable knowledge in llmdoc/] --> R[Task-scoped retrieval]
-    R --> S[Source verification]
-    S --> U[Semantic maintenance]
-    U --> K
+```text
+knowledge/
+├── .git/
+├── llmdoc.yaml            # shared identity and layout version
+├── README.md              # machine-generated navigation region
+├── docs/
+│   ├── architecture.md
+│   └── lifecycle/task-recovery.md
+├── inbox/                 # unverified candidates
+├── .llmdoc/meta.json      # per-document validation evidence
+└── .llmdoc-cache/         # rebuildable, excluded by the knowledge .gitignore
 ```
 
-`llmdoc/` stores durable engineering meaning—not a copy of the repository. An
-agent first retrieves the smallest useful knowledge set, uses source and tests
-for current facts, and later verifies affected knowledge. A code change creates
-a review obligation; it does not automatically create a documentation rewrite.
+Document IDs are docs-relative POSIX `.md` paths, and `docs/` may be nested to
+any depth. The `README.md` navigation region is generated from titles,
+descriptions, and paths, and is never a knowledge node or a validation target.
 
-## Two operating layers
+## Walkthrough
 
-- **Agent workflows** own judgment and safe closeout. Invoke them through the
-  host's command or skill interface.
-- **Runtime CLI** owns retrieval and deterministic mechanics. Call it with the
-  scoped npx command, directly or from a workflow.
-
-The workflows are not four equivalent CLI commands:
-
-- `init` creates a small, high-value V3 knowledge surface when none exists.
-- `update` semantically verifies affected knowledge; unchanged documents can be
-  recorded as verified without inventing prose changes.
-- `prune` reduces duplicate, fragmented, or cheaply reconstructable knowledge;
-  the CLI only supplies a read-only report.
-- `upgrade` migrates legacy/V2 knowledge. It runs only when the user explicitly
-  asks for it and must never be suggested or folded into another workflow.
-
-Every explicit workflow reports exactly one result state: `success`,
-`no_change`, `dry_run`, `incomplete`, or `failed`.
-
-## Daily use
-
-Apply this routing gate before broad exploration and again when entering a new
-subsystem:
-
-- Concept, contract, term, or “where is X?” → `search <query>`
-- Context for concrete source files → `context --files <path...>`
-- Cold start or unclear scope → `tree`
-- Known topic or kind → `index --topic <topic>` / `index --kind <kind>`
-- Bodies already identified → `show <path...>`
-
-These are alternatives, not a fixed sequence. Once llmdoc narrows the working
-set, use native tools for exact source text, line numbers, test behavior,
-counts, and Git state.
-
-`context --files` evaluates every input independently and reports
-`unmappedFiles`; a non-empty impacted set never hides unmapped siblings.
-
-Plugin lifecycle hooks invoke the same scoped CLI through an npm package alias.
-This prevents a same-name local or `file:` dependency without a built bin from
-shadowing the hook runtime; normal interactive commands keep the shorter form.
+### 1. Create and bind
 
 ```bash
-# Map the knowledge surface
-npx -y @tokenroll/llmdoc tree --docs
+# Create an external knowledge repository and bind it to the source
+npx -y @tokenroll/llmdoc init --source ./app --knowledge ../app-knowledge
 
-# Find relevant knowledge
-npx -y @tokenroll/llmdoc search "revision" --limit 5
-npx -y @tokenroll/llmdoc context --files cli/src/cli.ts
+# Or bind an existing independent knowledge repository
+npx -y @tokenroll/llmdoc bind --source ./app --knowledge ../app-knowledge
+```
 
-# Read only the selected bodies
-npx -y @tokenroll/llmdoc show architecture.mdx cli-runtime/retrieval-and-mutation.mdx
+`--nested` explicitly places the knowledge repository inside the source worktree;
+use it only when the outer Git does not track that subtree. `init` never
+overwrites a non-empty target and never modifies the source.
 
-# Browse the knowledge surface locally
+### 2. Retrieve
+
+```bash
+npx -y @tokenroll/llmdoc tree                       # knowledge map (topics and root docs)
+npx -y @tokenroll/llmdoc index --topic lifecycle    # metadata without bodies
+npx -y @tokenroll/llmdoc search "retry policy"      # lexical search
+npx -y @tokenroll/llmdoc context --files src/api/client.ts
+npx -y @tokenroll/llmdoc show lifecycle/task-recovery.md
+```
+
+These entry points are alternatives, not a fixed sequence. `status` and `delta`
+report review obligations and source blockers; they are not retrieval steps.
+
+### 3. Capture a candidate
+
+```bash
+npx -y @tokenroll/llmdoc capture --title "lease vs timeout" \
+  --note "observed during incident review" --from notes.md
+```
+
+`capture` writes only `inbox/`. It never touches `docs/`, meta, the navigation
+README, or the source repository, carries no verification trailer, and does not
+require a clean source worktree. Formal retrieval never returns candidates.
+
+### 4. Update: review candidates
+
+```bash
+npx -y @tokenroll/llmdoc update --promote inbox/lease-vs-timeout.md \
+  --to lifecycle/task-recovery.md --kind decision \
+  --description "Why task recovery joins lease and timeout checks." \
+  --source-path "internal/task/**" --requires lifecycle/architecture.md
+```
+
+`update` applies explicit `--promote` / `--reject` decisions to the knowledge
+worktree and forms an unconfirmed Review Manifest. It never marks anything
+current; publication still requires confirmation and a commit.
+
+### 5. Review and confirm
+
+```bash
+npx -y @tokenroll/llmdoc review
+npx -y @tokenroll/llmdoc review --confirm <reviewId> --set lifecycle/task-recovery.md=unchanged
+```
+
+`review` requires a valid, fully clean source snapshot and generates a temporary
+Review Manifest that binds the fixed source revision, each document digest and
+scope, and the write set. A human or agent then confirms the semantic conclusion
+for each item: `changed`, `unchanged`, or `insufficient`. Any edit after
+confirmation invalidates the manifest.
+
+### 6. Commit (seal)
+
+```bash
+npx -y @tokenroll/llmdoc commit --review <reviewId>
+```
+
+`commit` consumes a confirmed manifest and seals the write set into one knowledge
+commit. There is no bare verified flag. Knowledge staging, a dirty or invalid
+source snapshot, and any content drift invalidate the manifest.
+
+### 7. Prune
+
+```bash
+npx -y @tokenroll/llmdoc prune --report
+npx -y @tokenroll/llmdoc prune --remove decisions/old.md
+```
+
+`prune --report` lists conservative convergence candidates. `prune --remove`
+removes eligible documents, repairs every inbound relation and link, and forms an
+unconfirmed Review Manifest to publish with `commit --review`. Fragment-only
+candidates are conservatively retained.
+
+### 8. Migrate legacy V3
+
+```bash
+npx -y @tokenroll/llmdoc migrate --dry-run --knowledge ../app-knowledge
+npx -y @tokenroll/llmdoc migrate --knowledge ../app-knowledge
+```
+
+`migrate` is the only command that reads the legacy V3 layout (`.mdx`, `CodeRef`,
+`code.paths`, `llmdoc/meta.json`, and `llmdoc.config.json`). It copies
+losslessly convertible documents into a new independent knowledge Git, creates a
+new migration baseline without extracting old history, never modifies the legacy
+repository or the source worktree, and writes the user binding only after the
+target fully validates.
+
+### 9. Hooks and viewer
+
+```bash
+npx -y @tokenroll/llmdoc hook session-start
 npx -y @tokenroll/llmdoc serve
 ```
 
-Use `npx -y @tokenroll/llmdoc --help` or
-`npx -y @tokenroll/llmdoc help <command>` for the complete, current CLI
-reference. `status` and `delta` assess validity and impact; they are not
-retrieval steps.
+`hook session-start | stop | compact` is read-only and fail-open: it reports
+review obligations and source blockers, never writes source or knowledge, and
+never initializes a binding. `serve` starts a read-only viewer of the fixed
+Knowledge HEAD with the same tri-state and double revision as the CLI.
 
-### Startup context configuration
+## Front matter and source evidence
 
-Repositories that use the lifecycle hooks can add an optional
-`llmdoc.config.json` at the llmdoc workspace root. In a Git repository, this is
-the nearest Git root that owns `llmdoc/`:
+Every formal document requires a non-empty `source.paths` list of repo-relative
+globs. Absolute paths and `..` are rejected, and each concrete path must exist in
+the specified snapshot.
+
+```yaml
+---
+kind: decision
+description: Why task recovery joins lease and timeout to decide owner expiry.
+source:
+  paths:
+    - internal/task/**
+    - pkg/lease/**
+relations:
+  requires:
+    - lifecycle/architecture.md
+  supersedes:
+    - decisions/old-recovery.md
+---
+```
+
+`kind` is one of `architecture`, `decision`, `guide`, or `reference`. `relations`
+supports `requires`, `related`, and `supersedes`. `supersedes` points from a new
+decision to the older one it replaces; it does not change either document's
+validation state. `requires` forms an acyclic dependency graph: when an upstream
+document changes and is re-sealed, its dependents become `needs_review` until
+they are re-verified against the new digest.
+
+## Validity: double revision and tri-state
+
+`.llmdoc/meta.json` (schema `llmdoc.meta/v3-ng`) stores per-document validation
+evidence. Unverified documents use `null/null/[]/{}`:
 
 ```json
 {
-  "$schema": "https://llmdoc.tokenroll.ai/schemas/config.schema.json",
-  "schema": "llmdoc.config/v1",
-  "startup": {
-    "remindSkill": true,
-    "preload": [
-      "architecture.mdx",
-      "plugin-packaging/claude-and-codex.mdx"
-    ]
+  "schema": "llmdoc.meta/v3-ng",
+  "source": {
+    "repositoryId": "project-id",
+    "lastGlobalReviewRevision": "<full-source-commit-oid>"
+  },
+  "documents": {
+    "lifecycle/task-recovery.md": {
+      "validatedSourceRevision": "<full-source-commit-oid>",
+      "validatedContentDigest": "sha256:<hex>",
+      "validatedSourcePaths": ["internal/task/**", "pkg/lease/**"],
+      "validatedRequires": {
+        "lifecycle/architecture.md": "sha256:<dependency-hex>"
+      }
+    }
   }
 }
 ```
 
-- `remindSkill` controls the SessionStart operating guidance: load the llmdoc
-  skill, use the CLI retrieval gate, and delegate to the llmdoc roles. It
-  defaults to `true`; set it to `false` to opt out.
-- `preload` lists exact document IDs, with an optional `llmdoc/` prefix. Cold
-  SessionStart inserts their bodies directly in the listed order with no llmdoc
-  character or token budget. A final completion marker confirms that the host
-  supplied the full preload; without it, retrieve only the missing body with
-  `show`.
-- Compact re-entry lists configured document IDs but does not inject their full
-  bodies again. Continue from `LLMDOC_STATE` and retrieve a body only if needed.
-- `validate` reports malformed config, missing paths, and path escapes.
-  Normalized aliases of the same document are deduplicated with a warning.
-  Lifecycle hooks stay fail-open: unreadable schema/JSON uses the default
-  reminder, while a valid `remindSkill` choice survives preload-only errors.
-- `mv` rewrites matching preload paths transactionally. `prune --report` lists
-  preload references that must be updated before a manual merge or deletion.
+The four `validated*` fields are a snapshot of the evidence at seal time: the
+source revision, the document digest, the source evidence scope, and the upstream
+knowledge digests. The digest covers the whole normalized UTF-8 document,
+including front matter, scope, relations, and body.
 
-Without this file, SessionStart emits its state plus the default operating
-guidance and does not preload documents.
+A document status is only one of:
 
-All fixed CLI interface text is English, including help, diagnostics, hook
-messages, and the local Viewer. Chinese queries and repository document content
-remain fully supported and are returned unchanged.
+| Status | Meaning |
+|---|---|
+| `unverified` | No validation declaration; not current fact. |
+| `current` | The digest matches, the validated revision is still explainable, and every `requires` target is current with the recorded digest. |
+| `needs_review` | Related source, knowledge prose, or a relation changed and needs semantic review. |
 
-## Knowledge and safety boundaries
+Source blockers are reported separately from document status: `unbound`,
+`invalid_head`, `source_dirty`, `history_unavailable`, and `diverged`. Formal
+update, review, and seal require a valid source HEAD and a fully clean source
+worktree/index. If the source is not yet committed you can still retrieve
+existing knowledge or capture candidates, but you cannot formally re-verify or
+seal.
 
-- Stable knowledge belongs in tracked `llmdoc/`; investigations, caches, and
-  reflection candidates belong in local `.llmdoc-tmp/`.
-- V3 documents are pure Markdown `.mdx` with YAML front matter and optional
-  `<CodeRef>` anchors. The path is the document ID, and `kind` lives in front
-  matter rather than directory names.
-- The tree contains root singleton documents and one level of topic folders. It
-  has no `index.mdx` topic nodes and no nested topic folders.
-- `llmdoc/meta.json` is a Git-revision validity ledger, not documentation. Dirty
-  worktree state is an additional signal, not a second truth system. Never
-  hand-edit the ledger; use the CLI's guarded mutation and commit operations.
-- Within agent workflows, `investigator` gathers temporary evidence, `reflector`
-  captures privacy-safe lesson candidates, and `recorder` is the only role that
-  writes tracked knowledge.
-- Every workflow authorizes knowledge maintenance only, not source-code edits.
-  Structural writes are validated and confined to the repository's `llmdoc/`
-  boundary.
-- Hooks emit read-only, fail-open signals through the scoped CLI. SessionStart
-  also injects the configurable operating guidance, so projects do not need to
-  repeat it in CLAUDE.md/AGENTS.md. Review hooks and trust the plugin source
-  before enabling them.
-- A `delta` match means “review this claim,” not “rewrite this document.”
-  Preserve decisions, rationale, boundaries, invariants, contracts, and
-  non-obvious failure semantics; leave reconstructable facts in source, schemas,
-  help, tests, or generated configuration.
+## Command reference
+
+Run `npx -y @tokenroll/llmdoc --help` or
+`npx -y @tokenroll/llmdoc help <command>` for the current CLI reference. All
+retrieval commands support `--json`, `--budget`, and `--limit`; `--cursor`
+continues truncated output.
+
+| Command | Purpose |
+|---|---|
+| `bind --source <dir> --knowledge <dir> [--nested]` | Associate a source repository with an independent knowledge repository. |
+| `init --source <dir> --knowledge <dir> [--nested]` | Create a new independent knowledge repository and bind it. |
+| `tree` | Knowledge map by topic. |
+| `index [--topic] [--kind]` | Document metadata without bodies. |
+| `show <path...>` | Read selected document bodies. |
+| `search <query>` | Lexical search with Chinese segmentation and a CJK-bigram fallback. |
+| `context --files <files...>` | Map source files to documents, including the `requires` closure. |
+| `validate` | Deterministic front matter, link, relation, source-scope, and schema checks. |
+| `status` | Source blockers, knowledge state, and review obligations. |
+| `delta [--scope <id...>]` | Documents needing semantic review after source or knowledge changes. |
+| `review [--confirm <reviewId>] [--set <id>=<conclusion>...] [--global]` | Generate or confirm a Review Manifest. |
+| `commit --review <reviewId>` | Seal a confirmed manifest into one knowledge commit. |
+| `capture [--title] [--note] [--from] [--body] [--source-revision]` | Persist an unverified candidate under `inbox/`. |
+| `update [--promote ...] [--reject ...] [--prepare] [--global]` | Review candidates and form an unconfirmed manifest. |
+| `prune [--report] [--remove <id...>] [--global]` | Report convergence candidates or prepare eligible removals. |
+| `migrate --knowledge <dir> [--source] [--legacy] [--dry-run] [--nested]` | Explicitly migrate a legacy V3 layout into a new independent knowledge repository. |
+| `hook <session-start\|stop\|compact>` | Read-only, fail-open host diagnostics. |
+| `serve [--port]` | Read-only viewer of the fixed Knowledge HEAD on `127.0.0.1`. |
 
 ## Platform integration
 
-### Claude Code
+- **Claude Code:** the repository-root plugin provides the operating skill, the
+  workflows, roles, and lifecycle hooks. See the
+  [Claude Code plugin documentation](https://code.claude.com/docs/en/discover-plugins).
+- **Codex:** the Codex plugin exposes equivalent skills, roles, and hooks. See
+  the [official Codex plugin documentation](https://developers.openai.com/codex/plugins).
+- **Other agents:** use the portable
+  [`AGENTS.md` integration recipe](docs/agent-integration.md) and the same
+  external CLI.
 
-The repository-root Claude plugin is the canonical authored surface. It provides
-the operating skill, four explicit workflows, three roles, and lifecycle hooks.
-Use the installation flow above, or manage it from Claude Code's plugin UI. See
-the [Claude Code plugin documentation](https://code.claude.com/docs/en/discover-plugins)
-for current installation behavior.
-
-### Codex
-
-The Codex plugin is generated from the Claude surface and exposes equivalent
-skills, roles, and hooks. You can also run `/plugins` in Codex CLI to browse the
-Plugins Directory. Start a new session after installation, and inspect
-third-party hooks before trusting them. Codex IDE extensions do not currently
-support plugins. See the
-[official Codex plugin documentation](https://developers.openai.com/codex/plugins)
-for current installation behavior.
-
-### Other agents
-
-Agents without a native plugin system can use the same runtime and operating
-contract. Copy the portable
-[`AGENTS.md` integration recipe](docs/agent-integration.md) into the consumer
-repository.
+All fixed CLI interface text is English, including help, diagnostics, hook
+messages, and the local viewer. Chinese queries and repository document content
+remain fully supported and are returned unchanged.
 
 ## Develop this repository
 
 The repository root is a private development workspace; the public consumer
-artifact is the `@tokenroll/llmdoc` CLI. Claude skills and agents are canonical,
-while the Codex surface is generated—do not hand-edit generated packaging.
+artifact is the `@tokenroll/llmdoc` CLI.
 
 ```bash
 npm install
 npm run typecheck
 npm run lint
 npm test
+npm run test:integration
 npm run build
 npm run validate:dogfood
 npm run check:prompts
 ```
 
+`npm test` is the quick development gate: protocol contracts, host surfaces,
+selected read paths, and one real review/seal smoke transaction. Run
+`npm run test:integration` for the complete dual-Git, CAS, lock, migration,
+rollback, and fault-injection suite; CI runs it once on Node 22 while the quick
+gate runs across the supported Node matrix.
+
 Install from the repository root so the local `llmdoc` bin is linked before
-validation. Changes to CLI semantics must remain synchronized with both host
-surfaces, the bilingual READMEs, design documentation, and dogfood knowledge.
+validation. CLI semantics changes must stay synchronized with the host surfaces,
+the bilingual READMEs, the design documentation, and dogfood knowledge.
 
 ## Reference
 
 - [Portable Agent integration recipe](docs/agent-integration.md)
-- [V3 design notes](docs/v3-design/README.md) (currently marked draft)
+- [architecture and protocol](docs/v3-ng-design/architecture.md)
 - [Operating protocol](skills/llmdoc/SKILL.md)
 - Workflow contracts: [`init`](skills/init/SKILL.md),
   [`update`](skills/update/SKILL.md), [`prune`](skills/prune/SKILL.md), and
-  [`upgrade`](skills/upgrade/SKILL.md)
+  [`migrate`](skills/migrate/SKILL.md)
 - Runtime reference: `npx -y @tokenroll/llmdoc --help`

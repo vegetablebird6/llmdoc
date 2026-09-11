@@ -59,7 +59,7 @@ async function loadState() {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const nextState = await response.json();
     if (!Array.isArray(nextState.nodes) || !Array.isArray(nextState.edges)) throw new Error("The server returned invalid state");
-    state = nextState;
+    state = adaptState(nextState);
     topicColors = createTopicColors(state.nodes);
     if (selectedDocument && !state.nodes.some((node) => node.path === selectedDocument)) selectedDocument = null;
     if (selectedTopic && !state.nodes.some((node) => node.topic === selectedTopic)) selectedTopic = null;
@@ -76,22 +76,40 @@ async function loadState() {
   }
 }
 
+function adaptState(nextState) {
+  const nodes = (nextState.nodes ?? []).map((node) => ({
+    ...node,
+    path: node.id,
+    codePaths: node.sourcePaths ?? []
+  }));
+  const issues = nextState.issues ?? [];
+  const errors = issues.filter((issue) => issue.severity === "error").length;
+  const warnings = issues.filter((issue) => issue.severity === "warning").length;
+  return {
+    ...nextState,
+    nodes,
+    edges: nextState.edges ?? [],
+    growth: { currentTotalEstimatedTokens: nodes.reduce((sum, node) => sum + (node.estimatedTokens ?? 0), 0) },
+    validate: { ok: errors === 0, errors, warnings, issues }
+  };
+}
+
 function renderHeader() {
-  elements.repo.textContent = `/ ${state.repository}`;
+  elements.repo.textContent = `/ ${state.repository ?? "knowledge"}`;
   elements.statDocs.textContent = `${state.nodes.length} docs · ~${state.growth.currentTotalEstimatedTokens} tokens`;
 
-  const baseline = state.baseline;
-  const shortRevision = baseline.revision?.slice(0, 7);
-  if (!baseline.revision) {
-    setChip(elements.statBaseline, "baseline missing", "bad");
-  } else if (baseline.degradedReason || baseline.relevantBehindHead === null) {
-    setChip(elements.statBaseline, `baseline ${shortRevision} · status unknown`, "warn");
-  } else if (baseline.relevantBehindHead > 0) {
-    setChip(elements.statBaseline, `baseline ${shortRevision} · ${baseline.relevantBehindHead} source commit(s) need review`, "warn");
-  } else if (baseline.metadataOnlyBehind) {
-    setChip(elements.statBaseline, `baseline ${shortRevision} · metadata-only, knowledge clean`, "ok");
+  const knowledgeRevision = state.knowledgeRevision?.slice(0, 7);
+  const sourceRevision = state.sourceRevision?.slice(0, 7);
+  if (state.mode === "diagnostic" || !state.repositoryId) {
+    setChip(elements.statBaseline, state.diagnostic ? `diagnostic · ${state.diagnostic.code}` : "no binding", "bad");
+  } else if (state.sourceBlockers?.length) {
+    setChip(elements.statBaseline, `source blocked · ${state.sourceBlockers.map((blocker) => blocker.code).join(", ")}`, "warn");
   } else {
-    setChip(elements.statBaseline, `baseline ${shortRevision} · current`, "ok");
+    setChip(
+      elements.statBaseline,
+      `K ${knowledgeRevision ?? "unborn"} · S ${sourceRevision ?? "invalid"}`,
+      state.historyAvailable ? "ok" : "warn"
+    );
   }
 
   const validation = state.validate;
@@ -101,10 +119,9 @@ function renderHeader() {
     validation.ok ? "ok" : "bad"
   );
 
-  const stale = state.nodes.filter((node) => node.status !== "fresh").length;
-  const unmapped = state.delta.unmappedCommittedPaths.length + state.delta.unmappedDirtyPaths.length;
-  if (stale) setChip(elements.statDelta, `${stale} document(s) pending · ${state.delta.suggestedMode} recommended`, "warn");
-  else if (unmapped) setChip(elements.statDelta, `${unmapped} unmapped change(s) · ${state.delta.suggestedMode} recommended`, "warn");
+  const pending = state.nodes.filter((node) => node.status !== "current").length;
+  if (state.mode === "diagnostic") setChip(elements.statDelta, "diagnostic only", "warn");
+  else if (pending) setChip(elements.statDelta, `${pending} document(s) need review`, "warn");
   else setChip(elements.statDelta, "knowledge is current", "ok");
 }
 

@@ -147,14 +147,14 @@ for (const rel of ["skills/llmdoc/SKILL.md", ".agents/skills/llmdoc/SKILL.md"]) 
 }
 for (const rel of ["skills/update/SKILL.md", ".agents/skills/update/SKILL.md"]) {
   const content = fs.readFileSync(path.join(root, rel), "utf8");
-  if (!content.includes("--reflection") || !content.includes("pending candidate is an update signal")) {
+  if (!content.includes(".llmdoc-tmp/reflections/pending/") || !content.includes("pending candidate is an update signal")) {
     errors.push(`${rel}: update skill 缺少 reflection 候选触发契约`);
   }
 }
 
 // 5) Claude 是 canonical authoring surface；生成的 Codex skill/agent 正文必须保持一致。
 // 宿主 front matter / TOML 包装可以不同，只比较实际指令正文。
-for (const name of ["llmdoc", "init", "update", "prune", "upgrade"]) {
+for (const name of ["llmdoc", "init", "update", "prune", "migrate"]) {
   const claudePath = `skills/${name}/SKILL.md`;
   const codexPath = `.agents/skills/${name}/SKILL.md`;
   const claudeBody = readMarkdownBody(claudePath);
@@ -186,7 +186,9 @@ for (const rel of [
   "skills/update/SKILL.md",
   ".agents/skills/update/SKILL.md",
   "skills/prune/SKILL.md",
-  ".agents/skills/prune/SKILL.md"
+  ".agents/skills/prune/SKILL.md",
+  "skills/migrate/SKILL.md",
+  ".agents/skills/migrate/SKILL.md"
 ]) {
   const content = readText(rel);
   if (content !== null && !content.includes("../llmdoc/references/knowledge-topology.md")) {
@@ -194,7 +196,7 @@ for (const rel of [
   }
 }
 
-for (const name of ["init", "update", "prune"]) {
+for (const name of ["init", "update", "prune", "migrate"]) {
   for (const rel of [`skills/${name}/SKILL.md`, `.agents/skills/${name}/SKILL.md`]) {
     const content = readText(rel);
     if (content !== null && !content.includes("../llmdoc/references/startup-config.md")) {
@@ -233,24 +235,40 @@ for (const name of ["investigator", "reflector", "recorder"]) {
   }
 }
 
-// 6) hooks.json:合法 JSON；npm alias 强制从 scoped registry package 解析 runtime，
+// 6) hooks.json:合法 JSON；命令经插件根定位 hooks/llmdoc-hook-launcher.mjs（fail-open 包装），
+// 启动器内部继续用 npm alias 强制从 scoped registry package 解析 runtime，
 // 避免消费仓库中同名但缺少 bin 的本地/file dependency 遮蔽 hook CLI。
 const hooks = readJson("hooks/hooks.json");
 if (hooks) {
-  const runtime = "npx -y --package=@tokenroll/llmdoc-hook-runtime@npm:@tokenroll/llmdoc -- llmdoc hook";
+  const pluginRoot = "${CLAUDE_PLUGIN_ROOT}";
+  const launcher = `node "${pluginRoot}/hooks/llmdoc-hook-launcher.mjs"`;
   const expectedCommands = new Set([
-    `${runtime} session-start`,
-    `${runtime} stop`,
-    `${runtime} compact`
+    `${launcher} session-start`,
+    `${launcher} stop`,
+    `${launcher} compact`
   ]);
-  const commands = (JSON.stringify(hooks).match(/"command":"([^"]+)"/g) ?? []).map((raw) => raw.slice(11, -1));
+  const commands = [];
+  for (const groups of Object.values(hooks.hooks ?? {})) {
+    for (const group of groups ?? []) {
+      for (const hook of group.hooks ?? []) {
+        if (typeof hook.command === "string") commands.push(hook.command);
+      }
+    }
+  }
   for (const command of commands) {
     if (!expectedCommands.delete(command)) {
-      errors.push(`hooks.json: 非法或重复 hook runtime 命令: ${command}`);
+      errors.push(`hooks.json: 非法或重复 hook launcher 命令: ${command}`);
     }
   }
   for (const missing of expectedCommands) {
-    errors.push(`hooks.json: 缺少防本地遮蔽的 hook runtime 命令: ${missing}`);
+    errors.push(`hooks.json: 缺少经插件根定位的 hook launcher 命令: ${missing}`);
+  }
+  const launcherSource = readText("hooks/llmdoc-hook-launcher.mjs");
+  if (launcherSource !== null && !launcherSource.includes("@tokenroll/llmdoc-hook-runtime@npm:@tokenroll/llmdoc")) {
+    errors.push("hooks/llmdoc-hook-launcher.mjs: 缺少防本地遮蔽的 scoped npm alias");
+  }
+  if (launcherSource !== null && !launcherSource.includes("npx")) {
+    errors.push("hooks/llmdoc-hook-launcher.mjs: 未通过 npx 启动 scoped runtime");
   }
 }
 

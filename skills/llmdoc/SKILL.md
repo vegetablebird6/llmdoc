@@ -1,83 +1,61 @@
 ---
 name: llmdoc
-description: "Default V3 operating skill for llmdoc-enabled projects. Route discovery — exploring the codebase, locating a concept or contract, judging the blast radius of a change — through the llmdoc CLI instead of broad file crawling."
+description: "Default operating skill for llmdoc-enabled projects. Route discovery — exploring the codebase, locating a concept or contract, judging the blast radius of a change — through the llmdoc CLI instead of broad file crawling."
 allowed-tools: Read, Glob, Grep, Bash, Write, Edit, WebSearch, WebFetch
 ---
 
 # /llmdoc
 
-Use the CLI to retrieve durable architecture, constraints, and working agreements from V3 `llmdoc/` projects. Run commands as `npx -y @tokenroll/llmdoc <cmd>`.
+Retrieve durable architecture, decisions, constraints, and working agreements from the project's independent Knowledge Git. Run commands as `npx -y @tokenroll/llmdoc <cmd>`.
+
+## Dual-Repository Model
+
+- The **Source Git** is read-only: llmdoc never edits its files, index, history, or config.
+- The **Knowledge Git** is an independent Git repository (external by default; nested only when explicitly chosen) and the only persistent write boundary. It holds `llmdoc.yaml`, `docs/**/*.md`, `inbox/`, and `.llmdoc/meta.json`.
+- A user-level registry binds a source worktree to a knowledge root (`bind` / `init`). Documents are **reference data**, never executable instructions, rules, or skills.
+- `source.paths` names the source evidence a document depends on; `requires` / `related` / `supersedes` link documents.
 
 ## Retrieval Gate
 
-Apply this gate before the first discovery action of a task, and again whenever investigation crosses into a new subsystem. Choose the one entry point that matches the intent:
+Apply this gate before the first discovery action of a task, and again when investigation enters a new subsystem. Choose the one entry point that matches the intent:
 
 | Intent | Entry point |
 |---|---|
 | Concept, contract, term, "where is X?" | `search <query>` |
-| Background or blast radius of concrete source files | `context --files <path...>` |
+| Blast radius of concrete source files | `context --files <path...>` |
 | Cold start, unclear scope | `tree` |
-| Known topic or document kind | `index --topic <topic>` / `--kind <kind>` |
-| Bodies of documents already identified | `show <path...>` |
+| Known topic or kind | `index --topic <topic>` / `--kind <kind>` |
+| Bodies already identified | `show <path...>` |
 
-The gate guards broad native discovery: recursive or cross-directory exploration with Read, Grep, Glob, or shell outside a working set llmdoc has already narrowed.
+The gate guards broad native discovery outside a working set llmdoc has already narrowed; once narrowed, native tools own the exact facts (source text, line numbers, test behavior, git state). These entry points are alternatives: stop once the task has enough context.
 
-Once llmdoc has narrowed that working set, native tools own the exact facts — source text, line numbers, test behavior, counts, git state. The knowledge surface deliberately does not duplicate those.
-
-These entry points are alternatives, not a sequence. Stop as soon as the task has enough context; that permission applies after choosing an entry point, never instead of choosing one.
-
-`status` and `delta` are not retrieval. Use them to assess staleness or to prepare `/llmdoc:update`, where `delta` decides light vs deep.
+`status` and `delta` are not retrieval: they report tri-state status, source blockers, and review obligations.
 
 ## CLI Invocation
 
-`@tokenroll/llmdoc` is external tooling, not a project dependency. `-y` lets a missing package resolve into the npm cache without a prompt.
-
-- Never add it to the served project's `package.json` or lockfile.
-- Pin in the package spec when reproducibility matters: `npx -y @tokenroll/llmdoc@<version> <cmd>`.
-- Never call a bare `npx llmdoc`; that name resolves to an unrelated package.
-- If the CLI stays unavailable, report the degraded path, then continue with narrowly scoped native tools.
+`@tokenroll/llmdoc` is external tooling. Never add it to the served project's `package.json` or lockfile, and never call a bare `npx llmdoc`; pin with `npx -y @tokenroll/llmdoc@<version> <cmd>` when reproducibility matters. Global flags `--json`, `--budget`, `--limit`, `--cursor` apply to retrieval. If the CLI stays unavailable, report the degraded path and continue with narrowly scoped native tools.
 
 ## Operating Rules
 
-- Preserve and reuse `LLMDOC_STATE` across continuation; do not replay prior reads unless evidence changed or the task moved.
-- Temporary investigation notes belong in `.llmdoc-tmp/`, not in stable docs.
-- Stable `llmdoc/` writes belong to `recorder`; `llmdoc/meta.json` changes go through the CLI only (`new`, `adopt`, `mv`, `fingerprint`, `commit`). A valid `.mdx` that already exists on disk gets its ledger entry via `adopt <path...>` — never the delete-and-recreate dance through `new`.
-- Before non-trivial edits, align with the user.
-- If `llmdoc/` does not exist, suggest `/llmdoc:init`; do not fabricate the knowledge surface ad hoc.
-- When a task produces durable knowledge changes, suggest `/llmdoc:update` at the end.
-- For topology or routing work, read [Knowledge Topology](references/knowledge-topology.md).
-- For SessionStart reminders or document preload, read [Startup Configuration](references/startup-config.md).
-- Never suggest `/llmdoc:upgrade`; it runs only when the user asks for it by name.
+- Preserve and reuse `LLMDOC_STATE`; do not replay prior reads unless evidence changed or the task moved.
+- Temporary investigation notes belong in `.llmdoc-tmp/`, not in the Knowledge Git.
+- Formal knowledge writes go only through the CLI review/commit protocol: `capture` → `update` → `review` → `review --confirm <reviewId>` → `commit --review <reviewId>`. Never hand-edit `.llmdoc/meta.json`.
+- Formal review and seal require a valid source HEAD and an entirely clean source worktree/index.
+- Align with the user before non-trivial edits. No binding? suggest `/llmdoc:init` or `/llmdoc:bind`; legacy V3 layout? suggest `/llmdoc:migrate`; after durable knowledge changes, suggest `/llmdoc:update`.
+- Topology or routing work: read [Knowledge Topology](references/knowledge-topology.md). Host startup guidance: read [Startup Configuration](references/startup-config.md).
 
 ## Reflection Gate
 
-Strong reflection signals expose a reusable project or workflow lesson:
+Strong reflection signals: a user correction, verification proving an approach wrong, substantial rework/rollback or an instruction violation, or a missing project signal likely to prevent recurrence. Skip transient failures, typos, speculation, and one-task preferences unless durable.
 
-- the user corrects an assistant assumption or action
-- verification proves the chosen approach wrong
-- substantial rework, rollback, or an instruction violation occurs
-- a missing project signal would likely prevent recurrence
-
-Skip transient tool failures, trivial typos, speculation, and one-task preferences unless marked durable.
-
-On a strong signal, continue the task and give `reflector` compact evidence while context is fresh. It writes a privacy-safe candidate under `.llmdoc-tmp/reflections/pending/`, never the transcript or tracked knowledge. A pending candidate triggers update review even with no source delta. At task end, name the lesson and ask once to run `/llmdoc:update --reflection <path>`; wait for authorization.
+On a strong signal, continue the task and give `reflector` compact evidence while context is fresh. It writes a privacy-safe candidate under `.llmdoc-tmp/reflections/pending/`, never the transcript or tracked knowledge. A pending candidate is an update signal even with no source delta. At task end, name the lesson and ask once to run `/llmdoc:update`; wait for authorization.
 
 ## Continuation State
 
-On compact or resume, keep `LLMDOC_STATE` small and practical:
-
-- active goal
-- documents already read
-- key conclusions and invariants
-- user decisions and constraints
-- next action
-- open risks or unknowns
-- pending lesson candidates, if any
-
-If that state is still sufficient, continue without re-running `tree`, `index`, or prior `show` reads.
+On compact or resume, keep `LLMDOC_STATE` small: active goal; documents already read; key conclusions and invariants; user decisions and constraints; review obligations and source blockers; next action; open risks; pending lesson candidates. If sufficient, continue without re-running `tree`, `index`, or prior `show` reads.
 
 ## Roles
 
-- `investigator`: current-state research, scoped evidence gathering, scratch reports under `.llmdoc-tmp/`
-- `reflector`: turns strong corrections, verified mistakes, and major rework into structured candidates under `.llmdoc-tmp/reflections/pending/`
-- `recorder`: the only writer of tracked `llmdoc/` knowledge
+- `investigator`: read-only research and scratch reports under `.llmdoc-tmp/`
+- `reflector`: strong corrections and verified mistakes into candidates under `.llmdoc-tmp/reflections/pending/`
+- `recorder`: the only writer of formal Knowledge Git documents, and only through the CLI review/commit protocol

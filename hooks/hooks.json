@@ -1,12 +1,12 @@
 {
-  "description": "V3 llmdoc hooks delegated to the scoped llmdoc CLI through an npm alias that cannot be shadowed by a same-name local dependency. Missing packages are installed non-interactively; SessionStart may return plain text (delta status, configurable operating guidance, cold-start document preload, or compact re-entry document IDs), while Stop and PreCompact return JSON on success.",
+  "description": "llmdoc lifecycle hooks run through the plugin-side hooks/llmdoc-hook-launcher.mjs wrapper (located via the plugin root, not the consumer cwd). The wrapper delegates to the scoped llmdoc CLI through an npm alias that cannot be shadowed by a same-name local dependency, and stays fail-open even if that launch cannot install/resolve/start or times out: SessionStart emits a plain diagnostic, Stop and PreCompact emit {continue:true,systemMessage} JSON, and all three exit 0. Hooks are read-only and fail-open: they report the bound knowledge protocol's review obligations and source blockers, never write the source or knowledge repository, and never initialize a binding.",
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "npx -y --package=@tokenroll/llmdoc-hook-runtime@npm:@tokenroll/llmdoc -- llmdoc hook session-start"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/llmdoc-hook-launcher.mjs\" session-start"
           }
         ]
       }
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "npx -y --package=@tokenroll/llmdoc-hook-runtime@npm:@tokenroll/llmdoc -- llmdoc hook stop"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/llmdoc-hook-launcher.mjs\" stop"
           }
         ]
       }
@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "npx -y --package=@tokenroll/llmdoc-hook-runtime@npm:@tokenroll/llmdoc -- llmdoc hook compact"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/llmdoc-hook-launcher.mjs\" compact"
           }
         ]
       }

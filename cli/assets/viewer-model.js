@@ -1,13 +1,12 @@
 export const PALETTE = ["#4c5fd5", "#0e8f6f", "#c26a12", "#7a4bc9", "#0d84ab", "#b13d72", "#5f8016", "#96591f"];
 
 export const STATUS_COLOR = {
-  fresh: "#aab2bd",
-  impacted: "#e8890c",
-  dirty: "#d6453d",
-  "needs-review": "#c9a227"
+  current: "#2f9e5b",
+  unverified: "#aab2bd",
+  needs_review: "#c9a227"
 };
 
-const STATUS_RANK = { fresh: 0, "needs-review": 1, impacted: 2, dirty: 3 };
+const STATUS_RANK = { current: 0, unverified: 1, needs_review: 2 };
 
 export function createTopicColors(nodes) {
   const topics = [...new Set(nodes.map((node) => node.topic).filter(Boolean))].sort();
@@ -21,12 +20,12 @@ export function colorOf(topicColors, topic) {
 export function worstStatus(nodes) {
   return nodes.reduce(
     (worst, node) => (STATUS_RANK[node.status] > STATUS_RANK[worst] ? node.status : worst),
-    "fresh"
+    "current"
   );
 }
 
 export function documentName(path) {
-  return path.split("/").pop()?.replace(/\.mdx$/, "") ?? path;
+  return path.split("/").pop()?.replace(/\.md$/, "") ?? path;
 }
 
 export function compactLabel(label, limit = 24) {
@@ -66,7 +65,7 @@ export function buildTopicGraph(state, topicColors) {
     nodes.push({
       id: `doc:${node.path}`,
       isTopic: false,
-      label: compactLabel(node.path.replace(/\.mdx$/, "")),
+      label: compactLabel(node.path.replace(/\.md$/, "")),
       radius: 10 + Math.min(9, Math.sqrt(node.estimatedTokens)),
       fill: colorOf(topicColors, null),
       status: node.status,

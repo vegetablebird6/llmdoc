@@ -25,7 +25,7 @@ describe("output schemas", () => {
       })
     ).not.toThrow();
 
-    // A legacy V3 status payload must not satisfy the v3-ng contract.
+    // A legacy V3 status payload must not satisfy the knowledge status contract.
     expect(() =>
       assertOutputSchema("status", {
         baseline: null,
@@ -48,7 +48,7 @@ describe("output schemas", () => {
   });
 
   test("the removed V3 runtime output contracts are no longer registered", () => {
-    for (const name of ["fingerprint", "upgrade", "new", "adopt", "mv", "hook", "initState"]) {
+    for (const name of ["fingerprint", "upgrade", "new", "adopt", "mv", "initState"]) {
       expect(() => assertByName(name as OutputSchemaName, {})).toThrow();
     }
   });

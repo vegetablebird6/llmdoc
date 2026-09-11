@@ -7,7 +7,7 @@ const isZh = locale === "zh";
 
 <section class="hero shell">
   <div class="hero-copy">
-    <p class="eyebrow">Persistent external context · V3</p>
+    <p class="eyebrow">Detached engineering knowledge base</p>
     <h1 class="display">{isZh ? "让代码库拥有可持续的记忆。" : "Give your codebase a memory that lasts."}</h1>
     <p class="lede">
       {isZh
@@ -22,7 +22,7 @@ const isZh = locale === "zh";
   <aside class="manifesto" aria-label={isZh ? "设计原则" : "Design principle"}>
     <span>CONTEXT / 001</span>
     <blockquote>{isZh ? "Context window 不是长期存储。" : "A context window is not long-term storage."}</blockquote>
-    <p>{isZh ? "持久知识留在仓库，按需检索进入会话。" : "Durable knowledge stays with the repository and enters a session only when needed."}</p>
+    <p>{isZh ? "持久知识保存在独立仓库，按需进入会话。" : "Durable knowledge lives in its own repository and enters a session only when needed."}</p>
   </aside>
 </section>
 
@@ -55,16 +55,16 @@ const isZh = locale === "zh";
         <code>tree → context → show</code>
       </article>
       <article>
-        <span>02 / REFLECT</span>
-        <h3>{isZh ? "反思门" : "Reflection Gate"}</h3>
-        <p>{isZh ? "只捕获用户纠正、验证证伪和重大返工等高信号教训，绝不保存完整会话。" : "Capture high-signal corrections and verified failures—not transcripts, trivia, or every turn."}</p>
-        <code>signal → candidate</code>
+        <span>02 / CAPTURE</span>
+        <h3>{isZh ? "候选门" : "Candidate Gate"}</h3>
+        <p>{isZh ? "高信号纠错与经验先进入 inbox，保持未验证；正式检索不会返回它们。" : "High-signal corrections and lessons enter inbox unverified; formal retrieval never returns them."}</p>
+        <code>capture → inbox</code>
       </article>
       <article>
-        <span>03 / STABILIZE</span>
-        <h3>{isZh ? "稳定知识门" : "Stable Knowledge Gate"}</h3>
-        <p>{isZh ? "只有会改变未来选择、足够持久且难以快速重建的结论，才进入跟踪知识。" : "Promote only durable conclusions that change future choices and are expensive to reconstruct."}</p>
-        <code>verify → llmdoc/</code>
+        <span>03 / VERIFY</span>
+        <h3>{isZh ? "语义提交门" : "Semantic Commit Gate"}</h3>
+        <p>{isZh ? "只有人或 Agent 确认语义结论后，才通过单次知识提交 seal 进 Knowledge Git。" : "Only after a human or agent confirms the semantic conclusion is it sealed into Knowledge Git in one commit."}</p>
+        <code>review → commit</code>
       </article>
     </div>
   </div>
@@ -108,7 +108,7 @@ const isZh = locale === "zh";
       <pre><code>npx -y @tokenroll/llmdoc tree
 npx -y @tokenroll/llmdoc context --files src/api/client.ts</code></pre>
       <div class="command-notes">
-        <span>Markdown / MDX</span><span>Git-native validity</span><span>Claude + Codex</span>
+        <span>Standard Markdown</span><span>Git-native validity</span><span>Claude + Codex</span>
       </div>
       <a href={isZh ? "/zh/docs/getting-started/" : "/docs/getting-started/"}>{isZh ? "查看安装与宿主配置 →" : "Installation and host setup →"}</a>
     </div>

@@ -4,58 +4,58 @@ import DocsLayout from "../../../layouts/DocsLayout.astro";
 
 <DocsLayout
   title="CLI reference"
-  description="Reference for llmdoc V3 discovery, validity, safe document mutation, convergence, migration, and host hook commands."
+  description="Reference for the llmdoc dual-repository CLI: binding, retrieval, diagnostics, semantic commit, candidate capture, convergence, migration, and host integration."
   section="cli"
 >
   <h1>CLI reference</h1>
-  <p>Invoke the external CLI as <code>npx -y @tokenroll/llmdoc &lt;command&gt;</code>. Pin the version in the package spec when a workflow must be reproducible.</p>
+  <p>Invoke the external CLI as <code>npx -y @tokenroll/llmdoc &lt;command&gt;</code>. Pin the version in the package spec when a workflow must be reproducible. Retrieval commands accept <code>--json</code>, <code>--budget</code>, and <code>--limit</code>; <code>--cursor</code> continues truncated output.</p>
+
+  <h2>Bind and initialize</h2>
+  <dl class="commands">
+    <div><dt><code>bind --source &lt;dir&gt; --knowledge &lt;dir&gt; [--nested]</code></dt><dd>Associate a source repository with an existing independent knowledge repository. The association is recorded in the user-level registry, and llmdoc never writes to the source repository.</dd></div>
+    <div><dt><code>init --source &lt;dir&gt; --knowledge &lt;dir&gt; [--nested]</code></dt><dd>Create the knowledge Git repository, the layout, the initial knowledge commit, and the user binding. Existing non-empty targets are never overwritten.</dd></div>
+  </dl>
 
   <h2>Discover and read</h2>
   <dl class="commands">
-    <div><dt><code>tree</code></dt><dd>Dynamic map of root documents and topics.</dd></div>
-    <div><dt><code>index [--topic …] [--kind …]</code></dt><dd>Front-matter projection for document discovery.</dd></div>
-    <div><dt><code>search &lt;query&gt;</code></dt><dd>Lexical search across tracked knowledge, with Chinese word segmentation and an explicitly reported CJK-bigram fallback after zero lexical recall.</dd></div>
-    <div><dt><code>context --files &lt;src…&gt;</code></dt><dd>Map each source path to owner documents and required prerequisites, while reporting unmapped inputs explicitly.</dd></div>
+    <div><dt><code>tree</code></dt><dd>Knowledge map by topic, with root documents.</dd></div>
+    <div><dt><code>index [--topic …] [--kind …]</code></dt><dd>Document metadata without reading bodies.</dd></div>
     <div><dt><code>show &lt;path…&gt;</code></dt><dd>Read selected document bodies.</dd></div>
-    <div><dt><code>serve</code></dt><dd>Start the local Viewer on <code>127.0.0.1</code> to inspect document structure, relations, and status.</dd></div>
+    <div><dt><code>search &lt;query&gt;</code></dt><dd>Lexical search with Chinese word segmentation and an explicitly reported CJK-bigram fallback after zero lexical recall.</dd></div>
+    <div><dt><code>context --files &lt;src…&gt;</code></dt><dd>Map each source file to the documents to read, including the <code>requires</code> closure, while reporting unmapped inputs explicitly.</dd></div>
   </dl>
 
-  <h2>Inspect validity</h2>
+  <h2>Diagnose state</h2>
   <dl class="commands">
-    <div><dt><code>status</code></dt><dd>Validity, baseline, dirty, and growth signals.</dd></div>
-    <div><dt><code>delta</code></dt><dd>Changed code to impacted-document closure.</dd></div>
-    <div><dt><code>validate</code></dt><dd>Schema, structure, relations, links, code paths—including zero-match globs—ledger consistency, and optional startup config.</dd></div>
+    <div><dt><code>validate</code></dt><dd>Deterministic front matter, link, relation, source-scope, and schema checks against the fixed source snapshot. It never advances a revision.</dd></div>
+    <div><dt><code>status</code></dt><dd>Source blockers, knowledge state, and review obligations. Source blockers are reported separately from document status.</dd></div>
+    <div><dt><code>delta [--scope &lt;id…&gt;]</code></dt><dd>Documents that need semantic review after source or knowledge changes.</dd></div>
   </dl>
 
-  <h2>Mutate safely</h2>
+  <h2>Commit semantically</h2>
   <dl class="commands">
-    <div><dt><code>new &lt;path&gt; --kind &lt;kind&gt;</code></dt><dd>Scaffold a V3 document, creating the first <code>llmdoc/</code> directory at the nearest Git root when needed.</dd></div>
-    <div><dt><code>adopt &lt;path…&gt;</code></dt><dd>Register valid existing documents without rewriting their bodies.</dd></div>
-    <div><dt><code>mv &lt;from&gt; &lt;to&gt;</code></dt><dd>Move a document and transactionally rewrite internal references, ledger identity, and matching startup preload entries.</dd></div>
-    <div><dt><code>init-state</code></dt><dd>Seed the first ledger on a real Git HEAD; an unborn repository must create its initial commit first.</dd></div>
-    <div><dt><code>commit [--verified &lt;path…&gt; | --all]</code></dt><dd>Validate, commit changed prose, and refresh changed or verified revisions.</dd></div>
-    <div><dt><code>fingerprint --update &lt;path…&gt; | --all</code></dt><dd>Refresh validated revisions in the ledger.</dd></div>
+    <div><dt><code>review [--confirm &lt;reviewId&gt;] [--set &lt;id&gt;=&lt;conclusion&gt;…] [--global]</code></dt><dd>Generate a temporary Review Manifest for the fixed source and knowledge revisions, or confirm its semantic conclusions. Conclusions are <code>changed</code>, <code>unchanged</code>, or <code>insufficient</code>.</dd></div>
+    <div><dt><code>commit --review &lt;reviewId&gt;</code></dt><dd>Seal a confirmed Review Manifest into a single knowledge commit. There is no bare verified flag.</dd></div>
   </dl>
 
-  <h2>Explicit operations and hooks</h2>
+  <h2>Candidates and maintenance</h2>
   <dl class="commands">
-    <div><dt><code>prune --report</code></dt><dd>Read-only convergence signals, including startup preload references that a manual merge or deletion must preserve.</dd></div>
-    <div><dt><code>upgrade</code></dt><dd>Explicit V2 migration diagnostics.</dd></div>
-    <div><dt><code>hook session-start | stop | compact</code></dt><dd>Read-only, fail-open host signals.</dd></div>
+    <div><dt><code>capture [--title] [--note] [--from] [--body] [--source-revision]</code></dt><dd>Persist an unverified candidate under <code>inbox/</code> without touching formal knowledge or the source repository.</dd></div>
+    <div><dt><code>update [--promote …] [--reject …] [--prepare] [--global]</code></dt><dd>Review inbox candidates and apply promote/reject decisions, forming an unconfirmed Review Manifest. It never marks anything current.</dd></div>
+    <div><dt><code>prune [--report] [--remove &lt;id…&gt;] [--global]</code></dt><dd>Report conservative convergence candidates, or remove eligible documents and repair every inbound relation and link.</dd></div>
+    <div><dt><code>migrate --knowledge &lt;dir&gt; [--source] [--legacy] [--dry-run] [--nested]</code></dt><dd>Explicitly migrate a legacy V3 layout into a new independent knowledge repository. This is the only command that reads <code>.mdx</code>, <code>CodeRef</code>, <code>code.paths</code>, <code>llmdoc/meta.json</code>, or <code>llmdoc.config.json</code>.</dd></div>
   </dl>
 
-  <h2>Startup context config</h2>
-  <p>An optional <code>llmdoc.config.json</code> at the llmdoc workspace root—the nearest Git root that owns <code>llmdoc/</code> in a Git repository—can make SessionStart proactively remind the agent to use the llmdoc skill and preload exact documents:</p>
-  <pre><code>&#123;
-  "$schema": "https://llmdoc.tokenroll.ai/schemas/config.schema.json",
-  "schema": "llmdoc.config/v1",
-  "startup": &#123;
-    "remindSkill": true,
-    "preload": ["architecture.mdx", "api-client/contracts.mdx"]
-  &#125;
-&#125;</code></pre>
-  <p>The <a href="/schemas/config.schema.json">published schema</a> enables editor validation. Operating guidance is enabled by default; set <code>remindSkill</code> to <code>false</code> to disable it. Cold-start preload order is preserved and has no llmdoc character or token budget. A final completion marker exposes likely host-side truncation; compact re-entry lists document IDs without injecting their bodies again.</p>
-  <p><code>validate</code> rejects invalid or missing paths and warns while deduplicating normalized aliases. The hook remains fail-open: unreadable JSON/schema uses the default reminder, while preload-only errors preserve a valid <code>remindSkill</code> choice and skip preload.</p>
+  <h2>Host integration</h2>
+  <dl class="commands">
+    <div><dt><code>hook session-start | stop | compact</code></dt><dd>Read-only, fail-open diagnostics. It reports review obligations and source blockers, never writes source or knowledge, and never initializes a binding.</dd></div>
+    <div><dt><code>serve [--port &lt;port&gt;]</code></dt><dd>Start the read-only viewer of the fixed Knowledge HEAD on <code>127.0.0.1</code>, with the same tri-state and double revision as the CLI.</dd></div>
+  </dl>
+
+  <h2>Write flow</h2>
+  <pre><code>capture → update --promote/--reject → review → review --confirm &lt;reviewId&gt; → commit --review &lt;reviewId&gt;</code></pre>
+  <p>A formal update, review, or seal requires a valid source HEAD and a fully clean source worktree/index. The knowledge worktree may be dirty; the knowledge index may not have anything staged. Any edit after confirmation invalidates the manifest.</p>
+
   <p>All fixed CLI interface text is English. Chinese queries and repository document content remain supported and are returned unchanged.</p>
 </DocsLayout>
 

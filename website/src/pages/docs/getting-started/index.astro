@@ -4,15 +4,19 @@ import DocsLayout from "../../../layouts/DocsLayout.astro";
 
 <DocsLayout
   title="Getting started"
-  description="Start using llmdoc through its external CLI, Claude Code plugin, Codex plugin, or a thin AGENTS.md recipe."
+  description="Start using llmdoc through its external dual-repository CLI, Claude Code plugin, Codex plugin, or a thin AGENTS.md recipe."
   section="getting-started"
 >
   <h1>Getting started</h1>
-  <p>llmdoc requires Node.js 18 or newer and Git. The CLI is external tooling: do not add it to the repository you are working on.</p>
+  <p>llmdoc requires Node.js 18 or newer and Git. The CLI is external tooling: do not add it to the repository you are working on. A knowledge base is a second, independent Git repository that is bound to your source repository.</p>
 
-  <h2>Try the knowledge map</h2>
-  <pre><code>npx -y @tokenroll/llmdoc tree</code></pre>
-  <p><code>-y</code> lets npx resolve a missing package into the machine cache without editing the consumer repository's <code>package.json</code> or lockfile.</p>
+  <h2>Create and bind a knowledge repository</h2>
+  <pre><code># Create an external knowledge repository and bind it to the source
+npx -y @tokenroll/llmdoc init --source ./app --knowledge ../app-knowledge
+
+# Or bind an existing independent knowledge repository
+npx -y @tokenroll/llmdoc bind --source ./app --knowledge ../app-knowledge</code></pre>
+  <p>The source repository is never modified. The knowledge repository is external by default; use <code>--nested</code> only when it must live inside the source worktree and the outer Git does not track that subtree.</p>
 
   <div class="callout">
     <p>Always use the full scoped package name. A bare <code>npx llmdoc</code> resolves to an unrelated package.</p>
@@ -22,13 +26,14 @@ import DocsLayout from "../../../layouts/DocsLayout.astro";
   <p>Add the repository-verified marketplace, then install the plugin:</p>
   <pre><code>/plugin marketplace add https://github.com/TokenRollAI/llmdoc
 /plugin install llmdoc@llmdoc-plugin</code></pre>
+  <p>Once the plugin is active, initialize the repository with <code>/llmdoc:init</code>.</p>
 
   <h2>Codex</h2>
   <p>Add llmdoc as a plugin marketplace source, then install it from the Plugins Directory. Review the plugin hooks before trusting them.</p>
   <pre><code>codex plugin marketplace add TokenRollAI/llmdoc</code></pre>
 
   <h2>Other coding agents</h2>
-  <p>Use a thin <code>AGENTS.md</code> rule that routes discovery through the external CLI. Keep the durable knowledge in <code>llmdoc/</code>; never hand-edit <code>llmdoc/meta.json</code>.</p>
+  <p>Use a thin <code>AGENTS.md</code> rule that routes discovery through the external CLI. Keep durable knowledge in the independent Knowledge Git; never hand-edit <code>.llmdoc/meta.json</code>.</p>
 
   <h2>Your first retrieval</h2>
   <pre><code># Unclear scope
@@ -41,7 +46,16 @@ npx -y @tokenroll/llmdoc search "retry policy"
 npx -y @tokenroll/llmdoc context --files src/api/client.ts</code></pre>
   <p>These are alternatives, not a mandatory sequence. Read document bodies with <code>show</code> only after identifying what matters.</p>
 
+  <h2>Capture and publish</h2>
+  <pre><code>npx -y @tokenroll/llmdoc capture --title "retry budget" --from notes.md
+npx -y @tokenroll/llmdoc update --promote inbox/retry-budget.md --to guides/retry.md \
+  --kind guide --description "How retry budgets are chosen." --source-path "src/retry/**"
+npx -y @tokenroll/llmdoc review
+npx -y @tokenroll/llmdoc review --confirm &lt;reviewId&gt;
+npx -y @tokenroll/llmdoc commit --review &lt;reviewId&gt;</code></pre>
+  <p>Publishing requires a valid source HEAD and a fully clean source worktree/index. A code change creates a review obligation; <code>delta</code> and <code>status</code> report what needs re-verification.</p>
+
   <h2>Browse locally</h2>
-  <p>Launch the built-in local Viewer to inspect the current repository's document structure, relations, and status. The server binds only to <code>127.0.0.1</code>.</p>
+  <p>Launch the read-only viewer to inspect the fixed Knowledge HEAD. The server binds only to <code>127.0.0.1</code>.</p>
   <pre><code>npx -y @tokenroll/llmdoc serve</code></pre>
 </DocsLayout>

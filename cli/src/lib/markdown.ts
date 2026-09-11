@@ -1,7 +1,5 @@
 import path from "node:path";
 
-import { CodeRef } from "../types.js";
-
 const LINK_PATTERN = /(?<!!)\[[^\]]*]\(([^)]+)\)/g;
 const CODE_REF_PATTERN = /<CodeRef\b([\s\S]*?)\/>/g;
 const INLINE_CODE_PATTERN = /`[^`\n]*`/g;
@@ -40,9 +38,10 @@ export function extractLinks(body: string): string[] {
   return links;
 }
 
-export function extractCodeRefs(body: string): CodeRef[] {
+/** Migrate-only: extracts legacy `<CodeRef />` evidence scope while importing a V3 layout. */
+export function extractCodeRefs(body: string): { path: string; symbol?: string }[] {
   const text = stripMarkdownLiterals(body);
-  const refs: CodeRef[] = [];
+  const refs: { path: string; symbol?: string }[] = [];
   for (const match of text.matchAll(CODE_REF_PATTERN)) {
     const attributes = parseCodeRefAttributes(match[1] ?? "");
     const codePath = attributes.path?.trim();
@@ -68,40 +67,6 @@ export function stripFencedCodeBlocks(input: string): string {
 
 export function stripMarkdownLiterals(input: string): string {
   return stripFencedCodeBlocks(input).replace(INLINE_CODE_PATTERN, "");
-}
-
-export function validateCodeRefTags(body: string): string[] {
-  const text = stripMarkdownLiterals(body);
-  const issues: string[] = [];
-  for (const match of text.matchAll(/<CodeRef\b([\s\S]*?)\/?>/g)) {
-    const raw = match[0] ?? "";
-    const attributes = match[1] ?? "";
-    if (!raw.endsWith("/>")) {
-      issues.push("CodeRef must use the self-closing form <CodeRef ... />.");
-      continue;
-    }
-    const attrMatches = [...attributes.matchAll(/([A-Za-z]+)="([^"]*)"/g)];
-    const consumed = attrMatches.map((attr) => attr[0]).join(" ").trim();
-    const normalized = attributes.replace(/\s+/g, " ").trim().replace(/\/$/, "").trim();
-    if (normalized && consumed !== normalized) {
-      issues.push("CodeRef allows only the double-quoted path attribute and optional symbol attribute.");
-      continue;
-    }
-    const names = attrMatches.map((attr) => attr[1]!);
-    const duplicates = names.filter((name, index) => names.indexOf(name) !== index);
-    if (duplicates.length > 0) {
-      issues.push(`CodeRef contains duplicate attributes: ${[...new Set(duplicates)].join(", ")}`);
-    }
-    if (!names.includes("path")) {
-      issues.push("CodeRef is missing the required path attribute.");
-    }
-    for (const name of names) {
-      if (name !== "path" && name !== "symbol") {
-        issues.push(`CodeRef contains an unknown attribute: ${name}`);
-      }
-    }
-  }
-  return [...new Set(issues)];
 }
 
 function parseCodeRefAttributes(input: string): Record<string, string> {

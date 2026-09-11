@@ -398,80 +398,88 @@ describe("review manifest and seal transaction", () => {
     expect(global.lastGlobalReviewRevision).toBe(head(fixture.source));
   });
 
-  it("physically writes add/update and removes delete regardless of the conclusion label", async () => {
-    const updateFixture = await makeFixture("llmdoc-seal-update-unchanged-", [{ id: "a.md", content: docA(), scope: ["src/a.ts"] }]);
+  it("physically updates a document even when the conclusion label is unchanged", async () => {
+    const fixture = await makeFixture("llmdoc-seal-update-unchanged-", [{ id: "a.md", content: docA(), scope: ["src/a.ts"] }]);
     const nextA = docA("# A\n\nv2\n");
-    writeFile(updateFixture.knowledgeRoot, "docs/a.md", nextA);
-    const updateManifest = await generate(updateFixture);
-    await confirm(updateFixture, updateManifest, { "a.md": "unchanged" });
-    const updateResult = await seal(updateFixture, updateManifest.reviewId);
-    expect(updateResult.status).toBe("success");
-    expect(updateResult.changedDocuments).toContain("a.md");
-    expect(committedDigest(updateFixture, "a.md")).toBe(contentDigest(nextA));
-    expect(metaOf(updateFixture).documents["a.md"]!.validatedContentDigest).toBe(contentDigest(nextA));
-    expect(fs.readFileSync(path.join(updateFixture.knowledgeRoot, "docs", "a.md"), "utf8")).toBe(nextA);
-    expect(await validityStatus(updateFixture, "a.md")).toBe("current");
-    expect(git(updateFixture.knowledgeRoot, ["status", "--porcelain"]).trim()).toBe("");
+    writeFile(fixture.knowledgeRoot, "docs/a.md", nextA);
+    const manifest = await generate(fixture);
+    await confirm(fixture, manifest, { "a.md": "unchanged" });
+    const result = await seal(fixture, manifest.reviewId);
+    expect(result.status).toBe("success");
+    expect(result.changedDocuments).toContain("a.md");
+    expect(committedDigest(fixture, "a.md")).toBe(contentDigest(nextA));
+    expect(metaOf(fixture).documents["a.md"]!.validatedContentDigest).toBe(contentDigest(nextA));
+    expect(fs.readFileSync(path.join(fixture.knowledgeRoot, "docs", "a.md"), "utf8")).toBe(nextA);
+    expect(await validityStatus(fixture, "a.md")).toBe("current");
+    expect(git(fixture.knowledgeRoot, ["status", "--porcelain"]).trim()).toBe("");
+  });
 
-    const addFixture = await makeFixture("llmdoc-seal-add-unchanged-", [{ id: "a.md", content: docA(), scope: ["src/a.ts"] }]);
+  it("physically adds a document even when the conclusion label is unchanged", async () => {
+    const fixture = await makeFixture("llmdoc-seal-add-unchanged-", [{ id: "a.md", content: docA(), scope: ["src/a.ts"] }]);
     const newDoc = knowledgeDoc("guide", "New", { paths: ["src/a.ts"], body: "# New\n" });
-    writeFile(addFixture.knowledgeRoot, "docs/new.md", newDoc);
-    const addManifest = await generate(addFixture);
-    await confirm(addFixture, addManifest, { "new.md": "unchanged" });
-    const addResult = await seal(addFixture, addManifest.reviewId);
-    expect(addResult.changedDocuments).toContain("new.md");
-    expect(committedDigest(addFixture, "new.md")).toBe(contentDigest(newDoc));
-    expect(metaOf(addFixture).documents["new.md"]).toBeTruthy();
-    expect(await validityStatus(addFixture, "new.md")).toBe("current");
+    writeFile(fixture.knowledgeRoot, "docs/new.md", newDoc);
+    const manifest = await generate(fixture);
+    await confirm(fixture, manifest, { "new.md": "unchanged" });
+    const result = await seal(fixture, manifest.reviewId);
+    expect(result.changedDocuments).toContain("new.md");
+    expect(committedDigest(fixture, "new.md")).toBe(contentDigest(newDoc));
+    expect(metaOf(fixture).documents["new.md"]).toBeTruthy();
+    expect(await validityStatus(fixture, "new.md")).toBe("current");
+  });
 
-    const deleteFixture = await makeFixture("llmdoc-seal-delete-unchanged-", [
+  it("physically removes a deleted document even when the conclusion label is unchanged", async () => {
+    const fixture = await makeFixture("llmdoc-seal-delete-unchanged-", [
       { id: "a.md", content: docA(), scope: ["src/a.ts"] },
       { id: "b.md", content: docB(), scope: ["src/b.ts"] }
     ]);
-    fs.rmSync(path.join(deleteFixture.knowledgeRoot, "docs", "a.md"));
-    const deleteManifest = await generate(deleteFixture);
-    await confirm(deleteFixture, deleteManifest, { "a.md": "unchanged" });
-    const deleteResult = await seal(deleteFixture, deleteManifest.reviewId);
-    expect(deleteResult.deletedDocuments).toContain("a.md");
-    expect(committedExists(deleteFixture, "a.md")).toBe(false);
-    expect(metaOf(deleteFixture).documents["a.md"]).toBeUndefined();
-
-    const insufficientFixture = await makeFixture("llmdoc-seal-delete-insufficient-", [{ id: "a.md", content: docA(), scope: ["src/a.ts"] }]);
-    fs.rmSync(path.join(insufficientFixture.knowledgeRoot, "docs", "a.md"));
-    const insufficientManifest = await generate(insufficientFixture);
-    await confirm(insufficientFixture, insufficientManifest, { "a.md": "insufficient" });
-    const insufficientResult = await seal(insufficientFixture, insufficientManifest.reviewId);
-    expect(insufficientResult.status).toBe("no_change");
-    expect(committedExists(insufficientFixture, "a.md")).toBe(true);
-    expect(metaOf(insufficientFixture).documents["a.md"]).toBeTruthy();
+    fs.rmSync(path.join(fixture.knowledgeRoot, "docs", "a.md"));
+    const manifest = await generate(fixture);
+    await confirm(fixture, manifest, { "a.md": "unchanged" });
+    const result = await seal(fixture, manifest.reviewId);
+    expect(result.deletedDocuments).toContain("a.md");
+    expect(committedExists(fixture, "a.md")).toBe(false);
+    expect(metaOf(fixture).documents["a.md"]).toBeUndefined();
   });
 
-  it("aborts before CAS when body, front matter, deletion or an unreviewed addition lands after confirmation", async () => {
-    const bodyFixture = await makeFixture("llmdoc-seal-race-body-", [{ id: "a.md", content: docA(), scope: ["src/a.ts"] }]);
-    writeFile(bodyFixture.knowledgeRoot, "docs/a.md", docA("# A\n\nreviewed\n"));
-    const bodyManifest = await generate(bodyFixture);
-    await confirm(bodyFixture, bodyManifest);
+  it("keeps a deleted document labelled insufficient out of the commit", async () => {
+    const fixture = await makeFixture("llmdoc-seal-delete-insufficient-", [{ id: "a.md", content: docA(), scope: ["src/a.ts"] }]);
+    fs.rmSync(path.join(fixture.knowledgeRoot, "docs", "a.md"));
+    const manifest = await generate(fixture);
+    await confirm(fixture, manifest, { "a.md": "insufficient" });
+    const result = await seal(fixture, manifest.reviewId);
+    expect(result.status).toBe("no_change");
+    expect(committedExists(fixture, "a.md")).toBe(true);
+    expect(metaOf(fixture).documents["a.md"]).toBeTruthy();
+  });
+
+  it("aborts before CAS when the body lands after confirmation", async () => {
+    const fixture = await makeFixture("llmdoc-seal-race-body-", [{ id: "a.md", content: docA(), scope: ["src/a.ts"] }]);
+    writeFile(fixture.knowledgeRoot, "docs/a.md", docA("# A\n\nreviewed\n"));
+    const manifest = await generate(fixture);
+    await confirm(fixture, manifest);
     await expectKnowledgeError(
       () =>
-        seal(bodyFixture, bodyManifest.reviewId, {
-          beforePublish: () => writeFile(bodyFixture.knowledgeRoot, "docs/a.md", docA("# A\n\nraced\n"))
+        seal(fixture, manifest.reviewId, {
+          beforePublish: () => writeFile(fixture.knowledgeRoot, "docs/a.md", docA("# A\n\nraced\n"))
         }),
       "E_REVIEW_INVALIDATED",
       3
     );
-    expect(head(bodyFixture.knowledgeRoot)).toBe(bodyFixture.knowledgeHead);
-    expect(fs.readFileSync(path.join(bodyFixture.knowledgeRoot, "docs", "a.md"), "utf8")).toContain("raced");
+    expect(head(fixture.knowledgeRoot)).toBe(fixture.knowledgeHead);
+    expect(fs.readFileSync(path.join(fixture.knowledgeRoot, "docs", "a.md"), "utf8")).toContain("raced");
+  });
 
-    const scopeFixture = await makeFixture("llmdoc-seal-race-scope-", [{ id: "a.md", content: docA(), scope: ["src/a.ts"] }]);
-    writeFile(scopeFixture.knowledgeRoot, "docs/a.md", docA("# A\n\nreviewed\n"));
-    const scopeManifest = await generate(scopeFixture);
-    await confirm(scopeFixture, scopeManifest);
+  it("aborts before CAS when the front matter scope lands after confirmation", async () => {
+    const fixture = await makeFixture("llmdoc-seal-race-scope-", [{ id: "a.md", content: docA(), scope: ["src/a.ts"] }]);
+    writeFile(fixture.knowledgeRoot, "docs/a.md", docA("# A\n\nreviewed\n"));
+    const manifest = await generate(fixture);
+    await confirm(fixture, manifest);
     await expectKnowledgeError(
       () =>
-        seal(scopeFixture, scopeManifest.reviewId, {
+        seal(fixture, manifest.reviewId, {
           beforePublish: () =>
             writeFile(
-              scopeFixture.knowledgeRoot,
+              fixture.knowledgeRoot,
               "docs/a.md",
               knowledgeDoc("guide", "Document A", { paths: ["src/a.ts", "src/b.ts"], body: "# A\n\nreviewed\n" })
             )
@@ -479,33 +487,37 @@ describe("review manifest and seal transaction", () => {
       "E_REVIEW_INVALIDATED",
       3
     );
+  });
 
-    const deleteFixture = await makeFixture("llmdoc-seal-race-delete-", [
+  it("aborts before CAS when a deletion lands after confirmation", async () => {
+    const fixture = await makeFixture("llmdoc-seal-race-delete-", [
       { id: "a.md", content: docA(), scope: ["src/a.ts"] },
       { id: "b.md", content: docB(), scope: ["src/b.ts"] }
     ]);
-    writeFile(deleteFixture.knowledgeRoot, "docs/a.md", docA("# A\n\nreviewed\n"));
-    writeFile(deleteFixture.knowledgeRoot, "docs/b.md", docB("# B\n\nreviewed\n"));
-    const deleteManifest = await generate(deleteFixture);
-    await confirm(deleteFixture, deleteManifest);
+    writeFile(fixture.knowledgeRoot, "docs/a.md", docA("# A\n\nreviewed\n"));
+    writeFile(fixture.knowledgeRoot, "docs/b.md", docB("# B\n\nreviewed\n"));
+    const manifest = await generate(fixture);
+    await confirm(fixture, manifest);
     await expectKnowledgeError(
       () =>
-        seal(deleteFixture, deleteManifest.reviewId, {
-          beforePublish: () => fs.rmSync(path.join(deleteFixture.knowledgeRoot, "docs", "b.md"))
+        seal(fixture, manifest.reviewId, {
+          beforePublish: () => fs.rmSync(path.join(fixture.knowledgeRoot, "docs", "b.md"))
         }),
       "E_REVIEW_INVALIDATED",
       3
     );
+  });
 
-    const addFixture = await makeFixture("llmdoc-seal-race-add-", [{ id: "a.md", content: docA(), scope: ["src/a.ts"] }]);
-    writeFile(addFixture.knowledgeRoot, "docs/a.md", docA("# A\n\nreviewed\n"));
-    const addManifest = await generate(addFixture);
-    await confirm(addFixture, addManifest);
+  it("aborts before CAS when an unreviewed addition lands after confirmation", async () => {
+    const fixture = await makeFixture("llmdoc-seal-race-add-", [{ id: "a.md", content: docA(), scope: ["src/a.ts"] }]);
+    writeFile(fixture.knowledgeRoot, "docs/a.md", docA("# A\n\nreviewed\n"));
+    const manifest = await generate(fixture);
+    await confirm(fixture, manifest);
     await expectKnowledgeError(
       () =>
-        seal(addFixture, addManifest.reviewId, {
+        seal(fixture, manifest.reviewId, {
           beforePublish: () =>
-            writeFile(addFixture.knowledgeRoot, "docs/race.md", knowledgeDoc("guide", "Race", { paths: ["src/a.ts"], body: "# Race\n" }))
+            writeFile(fixture.knowledgeRoot, "docs/race.md", knowledgeDoc("guide", "Race", { paths: ["src/a.ts"], body: "# Race\n" }))
         }),
       "E_REVIEW_INVALIDATED",
       3

@@ -1,30 +1,30 @@
 # Knowledge Topology and Context Floor
 
-Use this reference when bootstrapping llmdoc, creating or moving a topic or document, repairing unmapped code, or judging whether the knowledge surface reaches the Context Floor. It expands the mandatory gates in the operating skills; it is not a checklist for routine retrieval.
+Use this reference when bootstrapping the Knowledge Git, creating or moving a topic or document, repairing unmapped source, or judging whether the knowledge surface reaches the Context Floor. It expands the mandatory gates in the operating skills; it is not a checklist for routine retrieval.
 
 ## Design model
 
-llmdoc is a task-oriented semantic routing graph, not a compressed copy of the repository. Its job is to make the right durable context reachable before broad source exploration while leaving live implementation facts in their canonical sources.
+The Knowledge Git is a task-oriented semantic routing graph, not a compressed copy of the source repository. Its job is to make the right durable context reachable before broad source exploration while leaving live implementation facts in their canonical sources.
 
 Five principles shape the model:
 
 1. **Minimum sufficient graph.** Optimize for the smallest connected knowledge surface that supports correct work, not maximum prose, file coverage, or taxonomy completeness.
-2. **Decisions over observations.** Stable documents preserve costly-to-recover decisions, rationale, boundaries, invariants, contracts, failure semantics, and risky workflows. Source, schema, tests, manifests, and CLI help remain authoritative for cheap live facts.
+2. **Decisions over observations.** Documents preserve costly-to-recover decisions, rationale, boundaries, invariants, contracts, failure semantics, and risky workflows. Source, schema, tests, manifests, and CLI help remain authoritative for cheap live facts.
 3. **Ownership over layout.** Knowledge follows stable responsibility and decision boundaries. A domain may cross packages, and one package may contain several domains.
 4. **Progressive disclosure.** `tree` exposes the map, descriptions and search expose semantic candidates, `context --files` exposes change owners, relations add required closure, and `show` loads only selected bodies. Each layer must support a stop decision.
-5. **Review coupling.** `code.paths` connects changes to the documents whose claims may become false. Mapping therefore follows semantic review obligation, not provenance alone or a coverage target.
+5. **Review coupling.** `source.paths` connects source changes to the documents whose claims may become false. Mapping therefore follows semantic review obligation, not provenance alone or a coverage target.
 
 These principles create a deliberate split of authority:
 
 | Concern | Owner |
 |---|---|
 | Current implementation facts | Source, tests, schema, manifests, generated config |
-| Durable engineering meaning | llmdoc document body |
-| Concept and change routing | `description`, document path, `code.paths`, `relations` |
-| Freshness and validity | Git-based llmdoc ledger and CLI |
+| Durable engineering meaning | Knowledge document body |
+| Concept and change routing | `description`, document path, `source.paths`, `relations` |
+| Freshness and validity | `.llmdoc/meta.json` ledger and the CLI |
 | Investigation evidence | `.llmdoc-tmp/` |
 
-An authoring choice is justified only when it improves retrieval, comprehension, or review coupling without duplicating a cheaper source of truth. This is why V3 has one topic level, no hand-maintained index pages, only three document kinds, and a small front matter surface.
+An authoring choice is justified only when it improves retrieval, comprehension, or review coupling without duplicating a cheaper source of truth. This is why topics are first path segments with no hand-maintained index pages, only four document kinds, and a small front matter surface.
 
 ## The two independent gates
 
@@ -59,11 +59,11 @@ Package and directory boundaries are evidence, not automatic knowledge boundarie
 
 Use three reasoning levels:
 
-| Level | Question | llmdoc representation |
+| Level | Question | Representation |
 |---|---|---|
 | Domain | What stable responsibility or decision boundary exists? | Analysis unit; it may span packages or split one package |
-| Topic | What retrieval neighborhood should a caller enter? | One directory directly below `llmdoc/` |
-| Document | What single owner answers one coherent class of questions? | One `.mdx` file with a kind and routing metadata |
+| Topic | What retrieval neighborhood should a caller enter? | First path segment under `docs/` |
+| Document | What single owner answers one coherent class of questions? | One `.md` file with a kind and routing metadata |
 
 ### Domain boundary test
 
@@ -80,21 +80,24 @@ Avoid domains named after temporary projects, release phases, teams, or generic 
 
 ### Topic boundary test
 
-A topic is the physical retrieval partition for one stable domain or a coherent subdomain. Create a new topic only when it gives callers a durable vocabulary and keeps unrelated searches or file routes from loading each other.
+A topic is the physical retrieval partition for one stable domain or a coherent subdomain, represented by the first path segment under `docs/`. Create a new topic only when it gives callers a durable vocabulary and keeps unrelated searches or file routes from loading each other.
 
-Use the same topic when documents share a bounded responsibility and are commonly needed together. Split a topic when it contains independent owners or failure models and callers usually need only one side. A one-document topic is valid only when the boundary is genuinely distinct and expected to persist.
+Use the same topic when documents share a bounded responsibility and are commonly needed together. Split a topic when it contains independent owners or failure models and callers usually need only one side. A one-document topic is valid only when the boundary is genuinely distinct and expected to persist. Deeper subdirectories are allowed inside a topic; they refine retrieval without becoming separate topics.
 
-Root-level singleton documents are reserved for contracts that are truly cross-topic, such as the repository-wide execution model. Do not use a generic root architecture document as the only owner for otherwise independent subsystems.
+Root-level documents (`docs/*.md`) are reserved for contracts that are truly cross-topic, such as the repository-wide execution model. Do not use a generic root architecture document as the only owner for otherwise independent subsystems.
 
 ### Document boundary and kind
 
 Choose the kind from the question the document answers:
 
 - `architecture`: Why is this responsibility shaped this way? Who owns what? What flow, invariants, tradeoffs, and failure semantics constrain changes?
+- `decision`: What was decided, in what context, why, what alternatives were rejected, and what are the consequences and scope?
 - `guide`: When and how is a risky or non-obvious workflow performed? What are its branches, safety checks, verification, recovery, and stopping conditions?
 - `reference`: What stable vocabulary, contract, compatibility rule, default, or decision table must be looked up precisely?
 
 Split when a document has more than one conceptual owner, more than one independently invoked workflow, or unrelated query vocabularies. Keep it intact when a split would break one execution model or invariant chain merely to satisfy a line target.
+
+A decision may declare `relations.supersedes` pointing to an older decision it replaces. The target must exist and be a `decision`; self-references and cycles are forbidden. Superseded documents keep their historical value and are labeled in retrieval, but the current decision is preferred.
 
 ## What to write
 
@@ -108,6 +111,13 @@ Use these skeletons selectively. Omit empty sections rather than filling them wi
 4. Invariants, authority boundaries, and non-obvious failure semantics
 5. Cross-topic contracts and change consequences
 6. A few canonical source anchors
+
+### Decision
+
+1. Context and the question being decided
+2. Decision and its scope of applicability
+3. Why, including rejected alternatives
+4. Consequences, tradeoffs, and the conditions that would reverse it
 
 ### Guide
 
@@ -132,9 +142,13 @@ Do not preserve current file lists, line counts, release snapshots, copied CLI h
 
 Write a compact retrieval promise, not an abstract summary. Include the distinctive responsibility, contract terms, and questions a developer is likely to search. Avoid descriptions that could apply to several documents, such as “architecture overview” or “core behavior.”
 
-### `code.paths`
+### `kind`
 
-Map semantic ownership rather than directory membership. Useful anchors include:
+Use exactly one of `architecture`, `decision`, `guide`, or `reference`. The kind is the document's contract with the reader; do not invent additional kinds.
+
+### `source.paths`
+
+Map semantic ownership rather than directory membership. Every formal document declares a non-empty `source.paths` list of repository-relative globs or paths. Absolute paths and `..` are forbidden, and a concrete path must exist in the reviewed source snapshot. Useful anchors include:
 
 - canonical contract, schema, or protocol definitions;
 - entrypoints and orchestrators that establish the execution model;
@@ -147,11 +161,11 @@ Apply both tests:
 - **Recall:** every first-class decision-bearing surface has a route to its owner document.
 - **Precision:** every matched file is relevant enough that changing it should trigger review of that document.
 
-Do not add a broad package glob merely to raise coverage. If an unrelated sibling file matches, narrow the glob or add exact patterns. Do not map generated, vendored, barrel, or incidental helper files unless they genuinely own part of the contract.
+Do not add a broad package glob merely to raise coverage. If an unrelated sibling file matches, narrow the glob or add exact patterns. Do not map generated, vendored, barrel, or incidental helper files unless they genuinely own part of the contract. A glob that matches nothing is diagnosed, not silently accepted.
 
 ### `relations`
 
-Use `requires` only when a caller must read the prerequisite to apply this document safely. Use `related` for useful neighbors. Relations connect owner documents; they do not compensate for missing `code.paths` or recreate a manual index tree.
+Use `requires` only when a caller must read the prerequisite to apply this document safely. Use `related` for useful neighbors. Use `supersedes` only from a decision to the decision it replaces. Relations connect owner documents; they do not compensate for missing `source.paths` or recreate a manual index tree.
 
 ## Bootstrap procedure
 
@@ -172,7 +186,7 @@ Then:
 2. Group them into topics using ownership, invariants, failure model, change reasons, and query vocabulary.
 3. Assign one canonical owner document for every durable decision cluster or risky workflow.
 4. Draft only claims that pass the Stable Knowledge Gate.
-5. Add precise routes from representative decision-bearing files to those owners.
+5. Add precise `source.paths` routes from representative decision-bearing files to those owners.
 6. Add `requires` only for mandatory reading order.
 7. Run the Context Floor acceptance checks below.
 
@@ -210,23 +224,27 @@ The intended owner must appear, along with genuinely required prerequisites. Zer
 
 ### 3. Precision probe
 
-Treat every `code.paths` pattern containing glob metacharacters such as `*`, `?`, `[]`, or `{}` as a wildcard mapping. For each wildcard—especially recursive or package-level patterns—probe an unrelated sibling inside the matched tree. If that file routes to the document even though its change would not require reviewing the document, narrow the mapping. Exact paths are exempt.
+Treat every `source.paths` pattern containing glob metacharacters such as `*`, `?`, `[]`, or `{}` as a wildcard mapping. For each wildcard—especially recursive or package-level patterns—probe an unrelated sibling inside the matched tree. If that file routes to the document even though its change would not require reviewing the document, narrow the mapping. Exact paths are exempt.
 
 ### 4. Connected floor
 
-Use `tree --docs` to confirm that a cold reader can name the repository-wide contract and enter every first-class topic. Then use `index --topic <topic>` to inspect declared relations and per-file `context --files` to verify the actual `requires` closure. The chain must work without a catch-all document; `tree` alone does not expose relations.
+Use `tree` to confirm that a cold reader can name the repository-wide contract and enter every first-class topic, and `index --topic <topic>` to inspect declared relations and per-file `context --files` to verify the actual `requires` closure. The chain must work without a catch-all document; `tree` alone does not expose relations.
 
-### 5. Explicit gaps
+### 5. Validity awareness
+
+`status` and `delta` report the tri-state (`unverified`, `current`, `needs_review`) and separate source blockers. A structurally valid document is not necessarily `current`; a `needs_review` document can be recalled but must be marked. Structural `validate` success alone is insufficient.
+
+### 6. Explicit gaps
 
 Record intentional no-doc decisions and unresolved gaps in the init/update report. An unresolved first-class gap prevents init success. Do not create filler prose to make the matrix look complete.
 
-The floor passes when every first-class subsystem has a useful concept route, every documented decision-bearing surface has a precise file route, prerequisites are connected, and all omissions are intentional. Structural `validate` success alone is insufficient.
+The floor passes when every first-class subsystem has a useful concept route, every documented decision-bearing surface has a precise file route, prerequisites are connected, and all omissions are intentional.
 
 ## Update triage
 
 When `delta` reports an unmapped or newly moved file, classify it before writing:
 
-1. **Missing mapping:** an existing document already owns the durable knowledge; repair `code.paths` and run scoped routing checks.
+1. **Missing mapping:** an existing document already owns the durable knowledge; repair `source.paths` and run scoped routing checks.
 2. **Missing owner:** the change exposes a stable domain, decision cluster, or workflow with no suitable document; decide the topic and create or split the owner.
 3. **Intentional no-doc:** the file is reconstructable implementation detail and owns no durable knowledge; leave it unmapped and state that decision in the report when material.
 

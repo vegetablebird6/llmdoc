@@ -4,7 +4,7 @@ import DocsLayout from "../../../../layouts/DocsLayout.astro";
 
 <DocsLayout
   title="核心概念"
-  description="理解 llmdoc 背后的 Context Floor、渐进读取、三道知识门、文档结构与有效性模型。"
+  description="理解 llmdoc 的双仓库模型、双 revision、三态有效性、source.paths 证据与 reference data 定位。"
   locale="zh"
   section="concepts"
 >
@@ -12,47 +12,63 @@ import DocsLayout from "../../../../layouts/DocsLayout.astro";
   <blockquote>真正有用的问题不是“模型能装多少上下文”，而是“什么上下文足以解决当前任务”。</blockquote>
 
   <h2>Context Floor</h2>
-  <p>Context Floor 是 Agent 解决当前问题所需的上下文丰富度。工具调用数量、Token 占用和关键信息密度，共同决定到达这条线需要多久。</p>
-  <p>llmdoc 在广泛探索源码前提高信息密度，但不替代源码。它收窄工作集后，原生工具继续核对实现文本、行号、测试与 Git 状态等实时事实。</p>
+  <p>Context Floor 是 Agent 解决当前问题所需的上下文丰富度。llmdoc 在广泛探索源码前提高信息密度，随后由原生工具核对实现文本、行号、测试与 Git 状态等实时事实。</p>
 
-  <h2>设计模型：语义路由图</h2>
-  <p>llmdoc 不是仓库的压缩副本，而是最小且连通的持久工程知识图：让 Agent 找到正确 owner，理解约束当前任务的设计决策，再进入权威源码核对实时事实。</p>
+  <h2>两个仓库，一个方向</h2>
+  <p>llmdoc 把事实与理解分开。<strong>Source Git</strong> 仓库是代码行为的权威，对 llmdoc 只读；<strong>Knowledge Git</strong> 仓库是保存持久工程理解的独立仓库，也是唯一的持久写入边界。</p>
+  <pre><code>Source Git（只读）  →  人或 Agent  →  Knowledge Git（docs + meta）</code></pre>
+  <p>CLI 通过固定的 Git 对象读取源码、禁用可选 index 写入，也绝不把知识回退写入源码仓库。绑定记录在用户级 registry，因此源码树保持原样。知识仓默认外置；嵌套独立 Git 仅在显式选择时支持。</p>
+
+  <h2>什么才进入知识</h2>
+  <p>准入必须同时满足：影响未来选择、重建成本较高、跨 commit 持久成立。决策与理由、边界、不变量、跨模块契约和非显而易见的失败语义符合条件；源码清单、逐行观察、临时计划和原始会话不符合。</p>
   <ul>
-    <li><strong>决策优先于观察：</strong>文档保存理由、边界、不变量、契约、失败语义与高风险工作流；源码、测试、schema 和 manifest 保存实时事实。</li>
-    <li><strong>所有权优先于目录：</strong>知识跟随稳定职责与 review 边界，而不是机械映射 package 或文件夹。</li>
-    <li><strong>渐进披露：</strong>地图、路由元数据、选中正文与源码构成逐层加深的读取路径。</li>
-    <li><strong>复核耦合：</strong><code>code.paths</code> 把代码变化连到可能需要复核的文档，而不是制造文件覆盖率。</li>
+    <li><strong>决策优先于观察：</strong>文档保存理由与约束；源码、测试、schema 和 manifest 保存实时事实。</li>
+    <li><strong>复核耦合：</strong><code>source.paths</code> 把代码变化连到可能需要复核的文档，而不是制造文件覆盖率。</li>
+    <li><strong>渐进披露：</strong>地图、元数据、选中正文与源码构成逐层加深的读取路径。</li>
   </ul>
 
   <h2>渐进读取</h2>
   <p>检索面逐层披露：先给地图或元数据，再按搜索或源码所有权定位，最后读取选中的正文。调用者可以在任一层停止。</p>
   <pre><code>tree / index  →  search / context  →  show</code></pre>
 
-  <h2>三道知识门</h2>
-  <h3>Retrieval Gate</h3>
-  <p>首次广泛探索前，以及进入新子系统时，选择一个符合当前意图的 CLI 入口。</p>
-  <h3>Reflection Gate</h3>
-  <p>用户纠正、验证失败和重大返工可以形成隐私安全的临时候选；完整会话与偶发错误不会。</p>
-  <h3>Stable Knowledge Gate</h3>
-  <p>只有足够持久、会改变未来选择、归属清晰且难以从真相源快速还原的候选，才进入跟踪知识。</p>
-
   <h2>文档模型</h2>
-  <p>V3 使用带 YAML front matter 的纯 Markdown <code>.mdx</code> 文档。路径就是文档 ID。文档树由根 singleton 和一层 topic 目录组成，topic 不需要 <code>index.mdx</code>。</p>
-  <pre><code>llmdoc/
-├── architecture.mdx
-├── api-client/
-│   └── retry-policy.mdx
-└── meta.json</code></pre>
+  <p>文档是带 YAML front matter 的标准 Markdown <code>.md</code> 文件。相对 docs 的 POSIX 路径就是文档 ID，<code>docs/</code> 可以任意层级嵌套。<code>README.md</code> 的导航区由机器生成，永远不是知识节点。</p>
+  <pre><code>knowledge/
+├── llmdoc.yaml
+├── README.md
+├── docs/
+│   ├── architecture.md
+│   └── lifecycle/task-recovery.md
+├── inbox/
+└── .llmdoc/meta.json</code></pre>
+  <p><code>kind</code> 为 <code>architecture</code>、<code>decision</code>、<code>guide</code> 或 <code>reference</code>。decision 记录 Context、Decision、Why 与 Consequences，并可通过 <code>relations.supersedes</code> 指向它替代的决策。</p>
 
-  <h2>从 domain 到 topic 再到 document</h2>
-  <p><strong>Domain</strong> 是分析边界：一组稳定职责、权威归属、不变量、失败模型和变更词汇。<strong>Topic</strong> 是它在 <code>llmdoc/</code> 下的持久检索邻域。<strong>Document</strong> 是一个完整问题、契约、不变量簇或工作流的 canonical owner。</p>
-  <p>Package 边界只是证据。所有权、失败语义或常见查询能够独立稳定时才拆 topic；跨 package 的代码若共同实现一个契约，则应归入同一语义域。根文档只承载真正跨 topic 的知识。</p>
-  <p><code>architecture</code> 用于边界、流程、设计因果与不变量；<code>guide</code> 用于带验证和恢复步骤的可重复工作流；<code>reference</code> 用于稳定契约、精确查表与决策矩阵。</p>
+  <h2>source.paths 是证据契约</h2>
+  <p>每篇正式项目文档都必须声明非空的 <code>source.paths</code>（相对 source 根的 glob）。绝对路径与 <code>..</code> 会被拒绝，具体路径必须存在于固定 snapshot。glob 零命中是诊断，绝不静默通过。</p>
+  <pre><code>kind: decision
+description: 任务恢复为什么联合 lease 与 timeout 判断 owner 失效。
+source:
+  paths:
+    - internal/task/**
+    - pkg/lease/**
+relations:
+  requires:
+    - lifecycle/architecture.md</code></pre>
+  <p><code>requires</code> 构成无环依赖图。上游文档变化并重新 seal 后，其依赖方会变为 <code>needs_review</code>，直到针对新 digest 重新验证。删除或重命名文档绝不悄悄重写其他文档的验证证据。</p>
 
-  <h2>两道独立门</h2>
-  <p>Stable Knowledge Gate 决定哪些正文值得长期保存；Routing Gate 则检查自然语言概念查询和代表性决策源码能否到达正确 owner。正文精炼不能掩盖路由缺失，映射源码也不等于要在正文逐文件复述。</p>
-  <p><code>validate</code> 只检查结构。Context Floor 验收还要用自然语言 <code>search</code>、逐个入口与叶子文件的 <code>context --files</code>、宽 glob 的无关兄弟负例，以及必读关系做验证。每个 first-class 子系统都必须被归类为“已文档化”“有意由源码重建”，或作为阻塞缺口报告。</p>
+  <h2>双 revision</h2>
+  <p>两个 revision 分开跟踪。<strong>Source revision</strong> 是文档验证时成立的源码 commit；<strong>Knowledge revision</strong> 是发布该文档的 Knowledge Git commit。代码变化不会改写文档，而是针对固定 source revision 产生复核义务。</p>
+  <p>验证证据按文档保存在 <code>.llmdoc/meta.json</code>（schema <code>llmdoc.meta/v3-ng</code>）中：<code>validatedSourceRevision</code>、<code>validatedContentDigest</code>、<code>validatedSourcePaths</code> 与 <code>validatedRequires</code>。未验证文档使用 <code>null/null/[]/&#123;&#125;</code>。meta 台账不保存 knowledge commit。</p>
 
-  <h2>有效性以 Git 为基础</h2>
-  <p><code>llmdoc/meta.json</code> 跟踪经过验证的 Git revision。工作树 dirty 是额外信号，不会被伪装成 revision。delta 命中意味着必须复核，并不自动意味着正文需要改写。</p>
+  <h2>三态有效性</h2>
+  <p>文档状态只有三种：</p>
+  <ul>
+    <li><code>unverified</code> — 没有验证声明；不能当作当前事实。</li>
+    <li><code>current</code> — digest 匹配、验证 revision 仍可解释，且所有 <code>requires</code> 目标 current 且 digest 与记录一致。</li>
+    <li><code>needs_review</code> — 相关源码、知识正文或关系发生变化，需要语义复核。</li>
+  </ul>
+  <p>Source 阻断原因与文档状态分开报告：<code>unbound</code>、<code>invalid_head</code>、<code>source_dirty</code>、<code>history_unavailable</code>、<code>diverged</code>。正式 update、review 或 seal 要求有效 source HEAD 且 source worktree/index 全仓 clean。没有绑定或历史证据时，绝不宣称文档 current。</p>
+
+  <h2>语义验证与 reference data</h2>
+  <p>CLI 执行确定性的结构、范围与提交检查。<code>validate</code> 通过并不证明知识正确：由人或 Agent 在 Review Manifest 中逐篇确认语义结论。知识是 <strong>reference data</strong>，不是可执行 rules/skills。Agent 读取文档获得事实、约束与理由；文档中的命令或提示绝不提升为指令权限。</p>
 </DocsLayout>

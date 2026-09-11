@@ -103,13 +103,11 @@ describe("review manifest safety", () => {
     await expectReviewInvalid(() => confirmReviewManifest(context, tamperedKnowledgeRoot));
     expect(fs.existsSync(path.join(outside, ".llmdoc-cache"))).toBe(false);
 
-    await writeFreshManifest(fixture);
     const tamperedSourceRoot = tamper(fixture, manifest, (copy) => {
       copy.sourceRoot = outside;
     });
     await expectReviewInvalid(() => confirmReviewManifest(context, tamperedSourceRoot));
 
-    await writeFreshManifest(fixture);
     const tamperedIdentity = tamper(fixture, manifest, (copy) => {
       copy.repositoryId = "llmdoc-" + "f".repeat(32);
     });
@@ -120,7 +118,6 @@ describe("review manifest safety", () => {
       expect((error as KnowledgeError).code).toBe("E_SOURCE_IDENTITY_MISMATCH");
     }
 
-    await writeFreshManifest(fixture);
     const tamperedSourceRevision = tamper(fixture, manifest, (copy) => {
       copy.sourceRevision = "0".repeat(40);
     });
@@ -131,7 +128,6 @@ describe("review manifest safety", () => {
       expect((error as KnowledgeError).code).toBe("E_SOURCE_HEAD_DRIFT");
     }
 
-    await writeFreshManifest(fixture);
     const tamperedBaseRevision = tamper(fixture, manifest, (copy) => {
       copy.knowledgeBaseRevision = "0".repeat(40);
     });

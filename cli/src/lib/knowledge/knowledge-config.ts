@@ -50,11 +50,15 @@ export function parseKnowledgeLayoutConfig(raw: string, label: string): Knowledg
   return validateKnowledgeLayoutConfig(parsed, label);
 }
 
+const LAYOUT_ALLOWED_KEYS = new Set(["schema", "repositoryId", "layoutVersion", "remotes"]);
+const REMOTE_ALLOWED_KEYS = new Set(["name", "url"]);
+
 export function validateKnowledgeLayoutConfig(parsed: unknown, filePath: string): KnowledgeLayoutConfig {
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new KnowledgeError("E_KNOWLEDGE_CONFIG_INVALID", "llmdoc.yaml must contain a mapping", { paths: [filePath] });
   }
   const record = parsed as Record<string, unknown>;
+  rejectUnknownKeys(record, LAYOUT_ALLOWED_KEYS, "llmdoc.yaml", filePath);
   if (record.schema !== KNOWLEDGE_LAYOUT_SCHEMA) {
     throw new KnowledgeError("E_KNOWLEDGE_CONFIG_INVALID", `llmdoc.yaml schema must be ${KNOWLEDGE_LAYOUT_SCHEMA}`, {
       paths: [filePath]
@@ -78,7 +82,7 @@ export function validateKnowledgeLayoutConfig(parsed: unknown, filePath: string)
 }
 
 function validateRemotes(input: unknown, filePath: string): KnowledgeRemote[] {
-  if (input === undefined || input === null) {
+  if (input === undefined) {
     return [];
   }
   if (!Array.isArray(input)) {
@@ -93,6 +97,7 @@ function validateRemotes(input: unknown, filePath: string): KnowledgeRemote[] {
       });
     }
     const entry = item as Record<string, unknown>;
+    rejectUnknownKeys(entry, REMOTE_ALLOWED_KEYS, "llmdoc.yaml remotes entries", filePath);
     if (typeof entry.name !== "string" || entry.name.length === 0 || typeof entry.url !== "string") {
       throw new KnowledgeError("E_KNOWLEDGE_CONFIG_INVALID", "llmdoc.yaml remotes entries need non-empty name and url strings", {
         paths: [filePath]
@@ -100,6 +105,14 @@ function validateRemotes(input: unknown, filePath: string): KnowledgeRemote[] {
     }
     return { name: entry.name, url: stripUrlCredentials(entry.url) };
   });
+}
+
+function rejectUnknownKeys(record: Record<string, unknown>, allowed: Set<string>, label: string, filePath: string): void {
+  for (const key of Object.keys(record)) {
+    if (!allowed.has(key)) {
+      throw new KnowledgeError("E_KNOWLEDGE_CONFIG_INVALID", `${label} has an unknown key: ${key}`, { paths: [filePath] });
+    }
+  }
 }
 
 export function renderKnowledgeLayoutConfig(config: KnowledgeLayoutConfig): string {

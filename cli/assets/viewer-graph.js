@@ -283,8 +283,8 @@ export function createGraphController(options) {
       circle.setAttribute("r", String(node.radius));
       circle.setAttribute("fill", node.fill);
       circle.setAttribute("fill-opacity", node.isTopic ? ".92" : ".88");
-      circle.setAttribute("stroke", node.status === "fresh" ? "#ffffff" : STATUS_COLOR[node.status]);
-      circle.setAttribute("stroke-width", node.status === "fresh" ? "2" : "3.5");
+      circle.setAttribute("stroke", node.status === "current" ? "#ffffff" : STATUS_COLOR[node.status]);
+      circle.setAttribute("stroke-width", node.status === "current" ? "2" : "3.5");
       circle.setAttribute("filter", "url(#soft)");
       group.append(circle);
       if (node.isTopic) {
@@ -345,7 +345,7 @@ export function createGraphController(options) {
       item.append(sample, label);
       legend.append(item);
     }
-    for (const [status, label] of [["dirty", "dirty"], ["impacted", "impacted"], ["needs-review", "review"]]) {
+    for (const [status, label] of [["unverified", "unverified"], ["needs_review", "needs review"]]) {
       const item = document.createElement("span");
       const bullet = document.createElement("b");
       bullet.textContent = "●";

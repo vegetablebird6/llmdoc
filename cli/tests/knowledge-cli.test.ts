@@ -10,6 +10,8 @@ vi.setConfig({ testTimeout: 30000 });
 import { runCli } from "../src/cli.js";
 import { commitFile, head, initRepo, makeTempDir, realPath, snapshotWorktree, sourceIndexBytes } from "./knowledge-helpers.js";
 
+const PACKAGE_VERSION = (JSON.parse(fs.readFileSync(path.resolve(__dirname, "..", "package.json"), "utf8")) as { version: string }).version;
+
 const createdDirs: string[] = [];
 
 function defaultRegistryFile(): string {
@@ -190,8 +192,9 @@ describe("knowledge CLI surface (bind/init)", () => {
     }
   });
 
-  it("keeps --version and legacy commands working", async () => {
+  it("keeps --version working and exposes no legacy runtime command", async () => {
     const version = await runCli(["--version"], process.cwd());
     expect(version.exitCode).toBe(0);
+    expect(version.stdout.trim()).toBe(PACKAGE_VERSION);
   });
 });

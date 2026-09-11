@@ -1,38 +1,22 @@
-import fs from "node:fs";
 import { Minimatch } from "minimatch";
 
-import { CACHE_DIR, SEARCH_CACHE_FILE } from "./constants.js";
-import { ensureDirectory, resolveInsideRoot } from "./fs.js";
-import { ParsedDocument, WorkspaceData } from "../types.js";
-
-interface SearchCacheEntry {
-  llmdocPath: string;
-  mtimeMs: number;
-  searchableText: string;
-  wordCount: number;
+export function matchesCodePathPattern(pattern: string, repoRelativePath: string): boolean {
+  const normalizedPattern = normalizeCodePathPattern(pattern);
+  if (normalizedPattern === repoRelativePath) {
+    return true;
+  }
+  if (!/[*?[\]{}]/.test(normalizedPattern)) {
+    return false;
+  }
+  return new Minimatch(normalizedPattern, { dot: true, nocase: false }).match(repoRelativePath);
 }
 
-interface SearchCacheFile {
-  version: 2;
-  entries: Record<string, SearchCacheEntry>;
-}
-
-export interface SearchResult {
-  document: ParsedDocument;
-  score: number;
-  snippet: string;
-}
-
-export type SearchMode = "lexical" | "cjk-bigram-fallback";
-
-export interface SearchResponse {
-  results: SearchResult[];
-  mode: SearchMode;
-}
-
-interface SearchToken {
-  value: string;
-  weight: number;
+function normalizeCodePathPattern(pattern: string): string {
+  let normalized = pattern.replaceAll("\\", "/");
+  while (normalized.startsWith("./")) {
+    normalized = normalized.slice(2);
+  }
+  return normalized.replace(/\/+$/, "");
 }
 
 const WORD_SEGMENTER = new Intl.Segmenter("zh-CN", { granularity: "word" });
@@ -61,199 +45,6 @@ const QUERY_STOP_WORDS = new Set([
   "什么",
   "为何"
 ]);
-
-export function searchDocuments(
-  workspace: WorkspaceData,
-  query: string,
-  filters?: { topic?: string; kind?: string }
-): SearchResponse {
-  const normalizedQuery = query.trim().toLowerCase();
-  const lexicalTokens = tokenizeQuery(query).map((value) => ({ value, weight: 1 }));
-  const cache = loadSearchCache(workspace);
-  const filteredDocs = workspace.documents.filter((document) => {
-    if (filters?.topic && document.topic !== filters.topic) {
-      return false;
-    }
-    if (filters?.kind && document.frontmatter.kind !== filters.kind) {
-      return false;
-    }
-    return true;
-  });
-
-  const lexicalResults = scoreDocuments(filteredDocs, cache, lexicalTokens, {
-    minimumMatchedTokens: 1,
-    normalizedQuery
-  });
-  if (lexicalResults.length > 0) {
-    return {
-      results: lexicalResults,
-      mode: "lexical"
-    };
-  }
-
-  const bigrams = cjkBigrams(query);
-  if (bigrams.length === 0) {
-    return {
-      results: [],
-      mode: "lexical"
-    };
-  }
-  const minimumMatchedTokens = bigrams.length >= 4 ? Math.max(2, Math.ceil(bigrams.length * 0.25)) : 1;
-  return {
-    results: scoreDocuments(
-      filteredDocs,
-      cache,
-      bigrams.map((value) => ({ value, weight: 0.55 })),
-      { minimumMatchedTokens, normalizedQuery }
-    ),
-    mode: "cjk-bigram-fallback"
-  };
-}
-
-function scoreDocuments(
-  documents: ParsedDocument[],
-  cache: SearchCacheFile,
-  tokens: SearchToken[],
-  options: { minimumMatchedTokens: number; normalizedQuery: string }
-): SearchResult[] {
-  if (tokens.length === 0) {
-    return [];
-  }
-
-  const documentFrequency = new Map<string, number>();
-  for (const token of tokens) {
-    let count = 0;
-    for (const document of documents) {
-      const searchableText = cache.entries[document.llmdocPath]?.searchableText ?? buildSearchableText(document);
-      if (searchableText.includes(token.value)) {
-        count += 1;
-      }
-    }
-    documentFrequency.set(token.value, count);
-  }
-
-  return documents
-    .map((document) => {
-      const searchableText = cache.entries[document.llmdocPath]?.searchableText ?? buildSearchableText(document);
-      const wordCount = cache.entries[document.llmdocPath]?.wordCount ?? countWords(searchableText);
-      let score = 0;
-      let matchedTokenCount = 0;
-
-      for (const token of tokens) {
-        const frequency = countSubstring(searchableText, token.value);
-        if (frequency === 0) {
-          continue;
-        }
-        matchedTokenCount += 1;
-        const df = documentFrequency.get(token.value) ?? 0;
-        const idf = Math.log(1 + (documents.length - df + 0.5) / (df + 0.5));
-        score +=
-          token.weight *
-          idf *
-          ((frequency * 2.2) / (frequency + 1.2 * (1 - 0.75 + 0.75 * (wordCount / 200))));
-      }
-
-      if (options.normalizedQuery.length > 1) {
-        const phraseFrequency = countSubstring(searchableText, options.normalizedQuery);
-        score += phraseFrequency * (tokens.length + 1) * 2;
-      }
-
-      return {
-        document,
-        score,
-        matchedTokenCount,
-        snippet: buildSnippet(
-          document.body,
-          tokens.map((token) => token.value)
-        )
-      };
-    })
-    .filter((entry) => entry.score > 0 && entry.matchedTokenCount >= options.minimumMatchedTokens)
-    .sort((left, right) => right.score - left.score || left.document.llmdocPath.localeCompare(right.document.llmdocPath));
-}
-
-export function matchesCodePathPattern(pattern: string, repoRelativePath: string): boolean {
-  const normalizedPattern = normalizeCodePathPattern(pattern);
-  if (normalizedPattern === repoRelativePath) {
-    return true;
-  }
-  if (!/[*?[\]{}]/.test(normalizedPattern)) {
-    return false;
-  }
-  return new Minimatch(normalizedPattern, { dot: true, nocase: false }).match(repoRelativePath);
-}
-
-function normalizeCodePathPattern(pattern: string): string {
-  let normalized = pattern.replaceAll("\\", "/");
-  while (normalized.startsWith("./")) {
-    normalized = normalized.slice(2);
-  }
-  return normalized.replace(/\/+$/, "");
-}
-
-function loadSearchCache(workspace: WorkspaceData): SearchCacheFile {
-  const next: SearchCacheFile = {
-    version: 2,
-    entries: {}
-  };
-  const cachePath = resolveCachePath(workspace);
-  const existing = cachePath ? readCache(cachePath) : null;
-
-  for (const document of workspace.documents) {
-    const stats = fs.statSync(document.absolutePath);
-    const cachedEntry = existing?.entries[document.llmdocPath];
-    if (existing?.version === 2 && cachedEntry && cachedEntry.mtimeMs === stats.mtimeMs) {
-      next.entries[document.llmdocPath] = cachedEntry;
-      continue;
-    }
-    const searchableText = buildSearchableText(document);
-    next.entries[document.llmdocPath] = {
-      llmdocPath: document.llmdocPath,
-      mtimeMs: stats.mtimeMs,
-      searchableText,
-      wordCount: countWords(searchableText)
-    };
-  }
-
-  if (cachePath) {
-    try {
-      ensureDirectory(cachePath);
-      fs.writeFileSync(cachePath, JSON.stringify(next, null, 2));
-    } catch {
-      return next;
-    }
-  }
-  return next;
-}
-
-function readCache(cachePath: string): SearchCacheFile | null {
-  if (!fs.existsSync(cachePath)) {
-    return null;
-  }
-  try {
-    return JSON.parse(fs.readFileSync(cachePath, "utf8")) as SearchCacheFile;
-  } catch {
-    return null;
-  }
-}
-
-function resolveCachePath(workspace: WorkspaceData): string | null {
-  try {
-    return resolveInsideRoot(workspace.rootDir, `${CACHE_DIR}/${SEARCH_CACHE_FILE}`, { allowMissing: true });
-  } catch {
-    return null;
-  }
-}
-
-function buildSearchableText(document: ParsedDocument): string {
-  return [
-    document.frontmatter.description,
-    document.title ?? "",
-    document.body
-  ]
-    .join("\n")
-    .toLowerCase();
-}
 
 export function tokenizeQuery(input: string): string[] {
   const tokens: string[] = [];

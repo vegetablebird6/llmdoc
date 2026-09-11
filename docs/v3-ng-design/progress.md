@@ -1,6 +1,6 @@
 # v3-ng 实施进度与续接记录
 
-最后更新：2026-09-11（M4 R1 返修完成，等待 Codex R2；原样全量 `npm test` exit 0，26 files / 220 tests，Duration 1961.77s）。
+最后更新：2026-09-11（M1–M5 已完成并通过 Codex review；提交身份已统一为 `vegetable6 <xukun6cai@gmail.com>`；完成 ponytail 过度设计审查，尚未应用精简项）。
 
 ## 执行约定
 
@@ -22,8 +22,8 @@
 | M1 仓库边界 | 完成（R8 收口：连续两次原样 `npm test` exit 0，24 files / 142/142，无 unhandled；R9 保持） | 见「M1 第三轮最终返修 — 2026-09-10」 |
 | M2 内容与读取 | 完成（breaking replacement；Codex R3 直接收口，28 files / 179 tests 全过） | 见「M2 Codex R3 直接修复与最终复审通过」 |
 | M3 语义提交 | 完成并通过 Codex R3（原样全量 `npm test` exit 0，29 files / 205 tests，无 unhandled） | 见「M3 实施记录」「M3 R1/R2 返修实施与验证记录」「M3 Codex R3 直接接管收口」 |
-| M4 最小维护闭环 | 完成（R1 返修完成，等待 Codex R2；原样全量 `npm test` exit 0，26 files / 220 tests） | 见「M4 设计与分步实施计划」「M4a/M4b」「M4c/M4d」「M4e/M4f」「M4g 收口」「M4 Codex 集中审查 R1 与返修计划」「M4 R1 返修实施与验证记录」 |
-| M5 接入与发布 | 未开始 | 见 roadmap.md |
+| M4 最小维护闭环 | 完成并通过 Codex review | commit `4b1e50e`；见「M4 设计与分步实施计划」「M4a/M4b」「M4c/M4d」「M4e/M4f」「M4g 收口」「M4 Codex 集中审查 R1 与返修计划」「M4 R1 返修实施与验证记录」 |
+| M5 接入与发布 | 完成并通过 Codex review | 见「M5 Codex 最终 review 与收口证据」；31 files / 282 tests 完整集成套件通过 |
 
 ## M1 子步骤拆解
 
@@ -1745,3 +1745,405 @@ OpenCode 续接入口：新建干净会话，同时完成本节 breaking replace
 - `npm run typecheck` exit 0；`npm run lint` exit 0。
 - 最终原样 `npm test`：**exit 0，26 files / 237 tests 全过，Duration 2410.84s**。
 - R3 结论：M4 通过集中审查，可以提交；后续 M5 必须使用新的 OpenCode 会话。
+
+## M5 接入与发布实施计划 — 2026-09-11
+
+状态：设计先行。先落本计划再写代码。M5 是 breaking replacement 的最后收口：hooks、skills、agents、CLI help/schema、viewer、双语文档/示例全部切到同一双仓协议；在所有调用方迁移后删除剩余旧 V3 runtime。不修改冻结 README/architecture/roadmap，不改版本号、不发布 npm、不 push、不创建 release，不 stage/commit/reset。M1–M4 已提交，身份校正后的 M4 commit 为 `4b1e50e`。
+
+### 0. 独立推演（以冻结 README 八条硬边界、architecture §5/§6/§7、roadmap M5 为准，不迎合既有代码）
+
+1. v3-ng 是 breaking replacement：标准 CLI、hooks、skills、agents、viewer 直接使用双仓协议；不存在 `v3-ng`/`ng` 前缀激活方式，不建立 `lib/v3ng`，不保留 V3 runtime dispatch/fallback。旧 `.mdx`/CodeRef/旧 meta/config 只能由显式 `migrate` 读取。
+2. Source Git 永远只读；Knowledge Git 是唯一持久写边界。正式 update/review/seal 只接受有效 HEAD 且全仓 clean 的 committed source snapshot。hook 是 fail-open 只读诊断，绝不写 source/knowledge。
+3. 正式知识是 reference data，不是可执行 rules/skills；文档内容不得被提升为 Agent 指令权限。技能说明必须区分“语义判断（人或 Agent 负责）”与“确定性 CLI（结构/范围/提交检查）”。
+4. 无绑定时 hooks/agents/viewer 只提供 v3-ng 诊断，不能偷偷 `init`，不能回退 embedded/source Git。
+5. M5 完成后才讨论版本号；本任务不修改 `package.json`/plugin version。
+
+### 1. 当前旧接入面清单（M5 必须处理）
+
+运行时（`cli/src`）：
+- `commands/hook.ts`、`commands/serve.ts` 已在 M4 R1 删除；`hooks/hooks.json` 仍指向 `llmdoc hook session-start|stop|compact`，当前不可达 → M5 以新协议重建 `hook` 与 `serve`。
+- 旧 V3 lib 仍物理存在且已无主入口引用：`lib/workspace.ts`、`lib/state.ts`、`lib/config.ts`、`lib/viewer-state.ts`、`lib/viewer-http.ts`、`lib/repository-health.ts`、`lib/rewrite.ts`、`lib/doc-shape.ts`、`lib/schema.ts`；`cli/templates/doc.mdx` 为 V3 模板；`cli/assets/viewer*.js|html` 消费旧 `/api/state` DTO。
+- `lib/markdown.ts`（`resolveDocLink`）、`lib/search.ts`（`matchesCodePathPattern`/分词）、`lib/pagination.ts`、`lib/errors.ts`（`CliError`）、`lib/output-schema.ts`、`lib/package-root.ts`、`lib/constants.ts`、`types.ts` 仍被新协议引用，保留。
+- `lib/knowledge/legacy.ts` 是唯一旧格式读取器，必须只被 `migrate.ts` 引用。
+- `cli/src/cli.ts` help 文案与示例、`lib/output-schema.ts` + `schemas/output.schema.json` 需要与当前命令面完全一致（无 `new/adopt/mv/fingerprint/init-state/upgrade/hook/serve` 旧契约；`hook`/`serve` 以新协议重新加入）。
+- `cli/tests` 仍存在旧 V3 语义测试：`cli-misc.test.ts` 等对 `prune`/`upgrade`/viewer 的引用需改到新协议；M4 R1 已删大部分，M5 再核查无死引用。
+
+接入面（非 `cli/src`）：
+- `skills/*/SKILL.md` 与 `.agents/skills/*/SKILL.md`：全部 V3 语义（`.mdx`、`code.paths`、`meta.json`、`new/adopt/mv/fingerprint/init-state`、`commit --verified/--all`、`upgrade`、`.llmdoc-tmp/reflections`）；`scripts/check-codex-surface.mjs` 强制两处正文一致。
+- `agents/{investigator,recorder,reflector}.md` 与 `.codex/agents/*.toml`：V3 文档模型、`code.paths`、`.mdx`、V3 ledger 命令。
+- `docs/agent-integration.md`：V3 命令与 `llmdoc/` 边界。
+- `README.md` / `README.zh-CN.md`：V3 `.mdx`/`llmdoc/`/preload/`upgrade`/`mv` 说明。
+- `website/src/pages/{,zh/}docs/{cli,concepts,workflows,getting-started}/index.astro`、`website/src/components/{HomePage,SiteHeader}.astro`、`website/public/llms.txt`：V3 命令与概念。
+- `hooks/hooks.json` 描述、`scripts/check-prompt-budget.mjs`（hook token 预算）、`scripts/check-codex-surface.mjs`（skill/agent 正文与 hooks 命令校验）、`tests/parity-checklist.md`、`.claude-plugin/*`、`.codex-plugin/plugin.json`、`.agents/plugins/marketplace.json`（“progressive MDX knowledge retrieval”）。
+- `package.json` 的 `validate:dogfood` 仍对 V3 `llmdoc/` 运行 v3-ng `validate`（无绑定必失败）；CI `.github/workflows/ci.yml` 的 dogfood 注释与步骤需与 v3-ng 对齐。
+- `llmdoc.config.json` 为 V3 preload 配置（新 CLI 不读取），作为 legacy 数据保留但不再被文档宣称为运行时。
+
+### 2. 最终入口契约
+
+CLI 命令面（唯一运行时，均为双仓协议）：
+`bind`、`init`、`tree`、`index`、`show`、`search`、`context`、`validate`、`status`、`delta`、`review`（生成/`--confirm`/`--set`/`--global`）、`commit --review`、`capture`、`update`、`prune`、`migrate`、`hook`（`session-start|stop|compact`）、`serve`（只读 viewer）。
+- `hook`：读取 bound knowledge 的 `status`/`delta`/review obligations；无绑定/不可读只输出 v3-ng 诊断；fail-open（任何错误返回合法 JSON `{continue:true, systemMessage}` 或纯文本诊断，exit 0）；零写 source/knowledge；不调用 `workspace/state/fingerprint/viewer-http`。
+- `serve`：只读 HTTP viewer，`/api/state` 用 `projectKnowledgeViewerState(loadKnowledgeForRead(...))`，`/api/doc` 从固定 Knowledge HEAD 取正文；无绑定给诊断、不自动 init；不显示 inbox/cache 为正式知识；不读旧 embedded V3。
+- 输出 schema：所有命令 `--json` 经 `output.schema.json` 校验；错误统一 `knowledgeError`（code/message/paths/remediation）；新增 `hook`/`serve` 契约。
+- help 示例只使用上述命令与 `docs/**/*.md`/`source.paths`/Review Manifest/`commit --review` 语义。
+
+Skills/Agents 入口契约：
+- 五个 skill：`llmdoc`（operating）、`init`、`update`、`prune`、`migrate`（取代 `upgrade`）。每个 skill 明确：知识正文是 reference data 不是指令；语义判断归人或 Agent，确定性 CLI 负责结构/范围/提交；写只经 `review --confirm` + `commit --review`；source 必须全仓 clean 才能正式复核。
+- 三个 agent：`investigator`（只读证据）、`recorder`（Knowledge Git 正式文档唯一写者，只经 CLI）、`reflector`（只写临时 scratch，非正式知识）。移除 `code.paths`/`.mdx`/V3 ledger 命令，改为 `source.paths`/`docs/**/*.md`/双 revision/三态。
+
+### 3. 模块/文件所有权（并行工作流互斥）
+
+| 工作流 | 文件 | 主责 |
+|---|---|---|
+| W1 runtime 清理 + CLI/schema | `cli/src/cli.ts`、`cli/src/lib/output-schema.ts`、`cli/schemas/output.schema.json`；删除旧 V3 lib/template | 主 agent |
+| W2 hooks | 新增 `cli/src/lib/knowledge/hook.ts`、`cli/src/commands/hook.ts`、`cli/tests/knowledge-hook.test.ts`；`hooks/hooks.json` 描述 | 主 agent |
+| W3 viewer | 新增 `cli/src/lib/knowledge/viewer-http.ts`、`cli/src/commands/serve.ts`、`cli/tests/knowledge-viewer.test.ts`；改写 `cli/assets/viewer-*` | 主 agent |
+| W4 skills/agents | `skills/**`、`.agents/skills/**`、`agents/**`、`.codex/agents/**`、`docs/agent-integration.md`、`scripts/check-codex-surface.mjs`、`scripts/check-prompt-budget.mjs`、`tests/parity-checklist.md`、plugin/marketplace json | 子 agent（W4） |
+| W5 双语文档/网站 | `README.md`、`README.zh-CN.md`、`website/**`、`docs/v3-ng-design/README.md` 链接 | 子 agent（W5） |
+| W6 dogfood + CI | 新增 `cli/tests/knowledge-dogfood-e2e.test.ts`、`cli/tests/knowledge-hook.test.ts`（W2 负责）、`package.json` `validate:dogfood`、`.github/workflows/ci.yml` | 主 agent |
+
+并行约束：W4 与 W5 不修改 `cli/**`、`scripts/check-*.mjs` 由 W4 独占、`README*`/`website/**` 由 W5 独占；主 agent 独占 `cli/**`、`hooks/hooks.json`、`package.json`、`.github/**`、`docs/v3-ng-design/**`。任一文件同一时刻只有一个写者；主 agent 做最终集成与门禁。
+
+### 4. 失败路径矩阵（M5 接入面，真实双 Git）
+
+| 场景 | 期望 |
+|---|---|
+| hook 无绑定 | 纯诊断（`E_BINDING_NOT_FOUND` 语义的 v3-ng 提示），exit 0，零写 |
+| hook source dirty / invalid HEAD | 诊断输出 blockers，exit 0，零写 |
+| hook 任何内部异常 | fail-open：合法 JSON `{continue:true,...}` 或诊断文本，exit 0 |
+| hook stop/compact 成功 | 合法 JSON `{continue:true, systemMessage?}`，token 预算内 |
+| serve 无绑定 | 启动并返回诊断 payload；不自动 init、不回退 embedded/source |
+| serve 绑定 knowledge | `/api/state` 含 `knowledgeRevision/sourceRevision/lastGlobalReviewRevision/sourceBlockers/historyAvailable/issues`，节点三态；`/api/doc` 只返回正式 docs |
+| serve 请求 inbox/cache 路径 | 404/不列为正式节点 |
+| 旧 `llmdoc/*.mdx` 出现在读取入口 | 主入口不读取；仅 `migrate` 可读 |
+| `validate:dogfood` | 走 v3-ng 双仓 dogfood（临时 fixture），不依赖 V3 `llmdoc/` |
+| skills/agents 文档 | 无 `code.paths`/`.mdx`/`new|adopt|mv|fingerprint|init-state|upgrade`/`--verified`/`--all`；无把知识正文当指令 |
+| CLI help/schema | 无已删除 V3 命令或旧字段；`hook`/`serve` 契约存在 |
+
+### 5. Windows/Linux 集成矩阵
+
+| 用例 | Windows（本机必跑） | Linux |
+|---|---|---|
+| knowledge-* 定向 + dogfood e2e | `npx vitest run ...`，真实临时双 Git | CI `npm test`（ubuntu, node 18/20/22）已覆盖 |
+| 路径/junction/大小写 | 本机实测 | CI 仅 symlink 分支；junction 用例 `skipIf(win32)` 反向 |
+| hook launcher（`npx` shell） | 本机 `check-prompt-budget.mjs` | CI `check:prompts` |
+| viewer HTTP | 本机定向 | CI 全量测试覆盖 |
+| `npm run typecheck`/`lint`/`git diff --check` | 本机执行 | CI 执行 |
+
+Linux 无本机环境时：以现有 `ubuntu-latest` CI（`npm ci` → typecheck → lint → test → build → dogfood → check:prompts）作为可移植性证据，并在 progress.md 诚实记录“Linux 未本地执行，仅 CI 证据”。
+
+### 6. 双语文档/示例清单
+
+- `README.md`（en）/`README.zh-CN.md`（zh）：重写为 v3-ng 双仓模型：独立 Knowledge Git、`docs/**/*.md`、`source.paths`、三态、Review Manifest、`commit --review`、`capture/update/prune/migrate`、hooks/viewer；删除 `.mdx`/preload/`upgrade`/`mv`/`new`/`adopt` 承诺。
+- `website/src/pages/docs/{cli,concepts,workflows,getting-started}/index.astro` 与 `zh/**` 对应页：命令表、概念（双 revision、三态、clean 门控）、workflow（init/update/prune/migrate）全部切到双仓协议。
+- `website/src/components/{HomePage,SiteHeader}.astro`、`website/public/llms.txt`：去 V3/MDX 文案。
+- `docs/agent-integration.md`：portable agent recipe 改为 v3-ng（registry binding、双 revision、三态、source clean 门控、Knowledge-only writes、reference-data 声明）。
+- 示例仓布局：README/website 内展示 external `knowledge/project/{llmdoc.yaml,docs/**,.llmdoc/meta.json}` 与 `llmdoc init --source --knowledge` 流程。
+- `docs/v3-ng-design/README.md` 迁移边界表引用的 `workspace.ts` 等旧路径保持冻结设计原文不动（不迁就实现）。
+
+### 7. dogfood 方案
+
+新增 `cli/tests/knowledge-dogfood-e2e.test.ts`（真实临时双 Git，Windows 必跑，Linux CI 覆盖）：
+1. 真实 source Git（含 `src/**`）→ `init --source --knowledge`（外置）→ 断言 knowledge Git 独立、source HEAD/index/worktree 字节不变。
+2. `bind` 幂等 `already-bound`；`tree/index/show/search/context` 返回正式 docs；inbox/cache 不召回。
+3. `capture` 写 inbox（无 trailer、meta 不变）→ `update --promote` → `review` → `review --confirm` → `commit --review`；断言 K1 含 docs+meta+导航，source 字节仍不变。
+4. `prune --report` 报告重复/supersede；`prune --remove` + `review --confirm` + `commit --review` 删除并修复入链。
+5. 无绑定 cwd → `E_BINDING_NOT_FOUND`；dirty source → `E_SOURCE_DIRTY`；staged knowledge → `E_KNOWLEDGE_INDEX_DIRTY`；并发/失败诊断结构化。
+6. `migrate --dry-run` 对 legacy `.mdx` 零写；`migrate` 建新外置 knowledge Git 与绑定。
+7. `hook session-start|stop|compact` fail-open、零写；`serve` HTTP `/api/state`/`/api/doc` 三态/blockers/double revision。
+8. 全程对 source HEAD、`.git/index` 字节、工作树文件哈希做前后对比；每条命令 `--json` 经 `output.schema.json` 校验。
+9. 命名空间扫描：`lib/v3ng`、`runNg`、`ng-*`、`ngTree/ngError`、`llmdoc.ng-`、旧命令 `.command(...)` 无命中；`legacy.ts` 仅被 `migrate.ts` 引用。
+
+### 8. 删除旧 runtime 的判定
+
+只有同时满足才删除：(1) `rg` 证明无运行时 import（含 `cli/src/**`）；(2) 非 `migrate`/`legacy` 可达；(3) 对应测试已迁移或删除且未被公开测试依赖；(4) `typecheck`/`lint`/全量测试仍通过。据此删除 `lib/workspace.ts`、`lib/state.ts`、`lib/config.ts`、`lib/viewer-state.ts`、`lib/viewer-http.ts`、`lib/repository-health.ts`、`lib/rewrite.ts`、`lib/doc-shape.ts`、`lib/schema.ts`、`cli/templates/doc.mdx`（旧 V3 模板）；`legacy.ts` 保留且只被 `migrate.ts` 引用。`lib/markdown.ts`、`lib/search.ts`、`lib/pagination.ts`、`lib/errors.ts`、`lib/constants.ts`、`types.ts` 因新协议仍用而保留。
+
+### 9. 分步顺序与断点续接入口
+
+1. **M5a** 本计划落盘（本节）。
+2. **M5b** W1 runtime 清理 + CLI/schema/help（先加 `hook`/`serve` 接线与 schema，再删旧模块；typecheck/lint 绿）。
+3. **M5c** W2 hooks（`hook.ts` + 命令 + `knowledge-hook.test.ts` + `hooks.json` 描述 + `check-prompt-budget` 预算）。
+4. **M5d** W3 viewer（`knowledge/viewer-http.ts` + `serve` + assets + `knowledge-viewer.test.ts`）。
+5. **M5e** W4 skills/agents/scripts（子 agent，两处正文一致、`check-codex-surface` 通过）。
+6. **M5f** W5 README/website（子 agent，双语）。
+7. **M5g** W6 dogfood e2e + `validate:dogfood` + CI（Windows 本地跑；Linux 记录 CI 证据）。
+8. **M5h** 收口：定向 → `npm run typecheck` → `npm run lint` → `git diff --check` → `npm run check:prompts` → 文档链接检查 → 命名空间/legacy 引用证明 → 一遍原样 `npm test`；更新 progress 为“M5 实现完成，等待 Codex review”，列出 diff/证据/剩余限制，停止。
+
+断点续接：中断后先读本计划、`docs/v3-ng-design/README.md`、architecture §5–§7，再核对 `git status` 与已完成子步骤；不重复已完成工作，不 stage/commit/reset/push。每完成一个子步骤立即在本节下方追加“M5x 实施与验证记录”。
+
+## M5b/M5c/M5d 实施与验证记录 — 2026-09-11
+
+状态：runtime 清理、hooks、viewer 完成并通过定向测试。未进入 skills/agents/文档（M5e/M5f），未 stage/commit/reset/push。
+
+### M5b runtime 清理 + CLI/schema
+
+- 删除已无主入口引用的旧 V3 runtime：`cli/src/lib/{workspace,state,config,viewer-state,viewer-http,repository-health,rewrite,doc-shape,schema,git,format}.ts`、`cli/templates/doc.mdx`（及空 `templates/`）；`cli/package.json` 的 `files` 移除 `templates`。
+- `legacy.ts` 仍只被 `migrate.ts` 引用（`rg` 证明）；`lib/markdown.ts`、`lib/search.ts`、`lib/fs.ts`、`lib/pagination.ts`、`lib/constants.ts`、`lib/errors.ts`、`types.ts` 因新协议仍用而保留。
+- `cli/src/cli.ts`：新增 `hook <event>` 与 `serve` 命令接线；快速参考增加 “Host integration hook · serve”。
+- `cli/src/lib/output-schema.ts` + `cli/schemas/output.schema.json`：新增 `hook`（`llmdoc.hook/v1`）与 `serve`（`llmdoc.serve/v1`）契约。
+- 验证：`npm run typecheck` exit 0；`npm run lint` exit 0。
+
+### M5c hooks
+
+- 新增 `cli/src/lib/knowledge/hook.ts`：`runKnowledgeHook` 只读调用 `loadKnowledgeForRead`，输出 `llmdoc.hook/v1`（mode/repositoryId/sourceRevision/knowledgeRevision/lastGlobalReviewRevision/historyAvailable/sourceBlockers/documents/reviewObligations/systemMessage/diagnostic）；任何失败 fail-open 为诊断；compact 输出 LLMDOC_STATE 保留消息；零写、不调用旧 workspace/state/fingerprint。
+- 新增 `cli/src/commands/hook.ts`：事件校验 + 委派。
+- `hooks/hooks.json` 描述改为 v3-ng 只读 fail-open（命令契约不变）。
+- 新增 `cli/tests/knowledge-hook.test.ts`（4）：bound 义务与双 revision、source/knowledge 字节冻结；无绑定诊断且零写；compact/非法事件；CLI 文本/JSON 渲染。
+- 验证：`npx vitest run tests/knowledge-hook.test.ts` → exit 0，4/4，Duration 15.5s。
+
+### M5d viewer
+
+- 新增 `cli/src/lib/knowledge/viewer-http.ts`：`createKnowledgeViewerRequestHandler` 只读；`/api/state` 用 `projectKnowledgeViewerState(loadKnowledgeForRead(...))`（三态/source blockers/双 revision/issues），`/api/doc` 从固定 Knowledge HEAD 取正文与关系；无绑定返回 `mode:"diagnostic"`，不初始化、不回退旧 V3。
+- 新增 `cli/src/commands/serve.ts`：`startKnowledgeViewerServer`（127.0.0.1）与前台 `runServe`。
+- 改写 `cli/assets/viewer-{model,app,detail,graph}.js` 到新 DTO（`id`、current/unverified/needs_review、sourcePaths、requires/related/supersedes/supersededBy、knowledgeRevision/sourceRevision/sourceBlockers）；移除旧 `.mdx`/CodeRef/`code.paths` 语义。
+- 新增 `cli/tests/knowledge-viewer.test.ts`（3）：固定 HEAD 文档 + 三态/双 revision、静态资源、inbox 不列为正式知识、无绑定诊断、source 字节冻结。
+- 验证：`npx vitest run tests/knowledge-viewer.test.ts` → exit 0，3/3，Duration 31.6s。
+
+### 下一步
+
+- M5e skills/agents/scripts（子 agent W4）；M5f README/website（子 agent W5）；M5g dogfood e2e + CI（主 agent）；M5h 收口门禁。
+
+## M5e/M5f/M5g 补记与 M5h 收口结果 — 2026-09-11
+
+状态：M5e（skills/agents/scripts 接入面）、M5f（双语文档/网站）、M5g（dogfood e2e + CI）均已落盘；M5h 收口门禁在 Codex 独立串行验证中暴露 8 个超时失败，未通过。未 stage/commit/reset/push。
+
+（补记：M5e/M5f/M5g 完成后未在本文件留下实施记录，以下按工作树相对身份校正后的 M4 commit `4b1e50e` 的实际 diff 重建。）
+
+### M5e skills/agents/scripts（W4 接入面）
+
+- `skills/`：重写 `llmdoc`、`init`、`update`、`prune` 为双仓协议（`source.paths`、`docs/**/*.md`、三态、Review Manifest、`commit --review`、knowledge 为 reference data 而非可执行指令），删除 `upgrade`，新增 `migrate`（显式 legacy V3→新协议迁移）；`.agents/skills/**` 保持正文一致（migrate 增加 `agents/openai.yaml: allow_implicit_invocation: false`）。
+- `agents/{investigator,recorder,reflector}.md` 与 `.codex/agents/*.toml`：去除 V3 文档模型/`.mdx`/`code.paths`/ledger 命令，改为 source evidence/双 revision/三态/Knowledge-only writes。
+- `docs/agent-integration.md`、`tests/parity-checklist.md`、`.claude-plugin/*`、`.codex-plugin/plugin.json`、`.agents/plugins/marketplace.json`：统一为双仓描述，移除 “progressive MDX”。
+- `scripts/check-codex-surface.mjs`：parity 名称表改为 `llmdoc/init/update/prune/migrate`，更新/迁移契约校验对齐新协议；`scripts/check-prompt-budget.mjs`：`upgrade` 预算条目替换为 `migrate`（2,000）。
+
+### M5f README/website（W5 双语文档/网站）
+
+- `README.md`/`README.zh-CN.md` 全量改写为双仓模型（八条硬边界、双 revision、三态、Review Manifest、`commit --review`、`hook`/`serve` 与 `migrate`），删除 `.mdx`/`CodeRef`/`code.paths`/preload/`upgrade`/`new/adopt/mv/fingerprint/init-state`/`commit --verified` 承诺。
+- `website/src/pages/{,zh/}docs/{index,getting-started,concepts,workflows,cli}/index.astro`、`index.astro`、`components/{HomePage,SiteHeader}.astro`、`public/llms.txt` 同步为双仓协议。
+
+### M5g dogfood e2e + CI（W6）
+
+- 新增 `cli/tests/knowledge-dogfood-e2e.test.ts`（真实临时双 Git，3 用例）：init/bind 幂等、读命令、capture→update→review→commit、prune report、无绑定/dirty/staged blocker、migrate dry-run+real、hook fail-open、serve HTTP，全程断言 source HEAD/index/worktree 字节不变。
+- 根 `package.json` `validate:dogfood` 改为 `npm --prefix cli exec -- vitest run tests/knowledge-dogfood-e2e.test.ts`；`.github/workflows/ci.yml` 从 `test` job 移除 V3 `validate:dogfood` 步骤，新增 `dogfood` job（`name: v3-ng dogfood (Linux)`）执行 `npm ci && npm run build` + `npm run validate:dogfood`。
+- 验证：Windows 本机定向 3/3 通过；Linux 仅 CI 证据（本机无 Linux）。
+
+### M5h 收口门禁结果（未通过）
+
+- Codex 独立执行 build + 全量 29 个 Vitest 文件串行：25 files 通过 / 4 failed；239/247 tests 通过；8 个 timeout；总 3109.62s。失败：`knowledge-review-seal` 401/449（120s 预算）、`knowledge-manifest-safety` 92（30s）、`knowledge-navigation` 104/125/139/172（5s 默认）、`cli-misc` 20（5s 默认）。
+- 本机复现：`knowledge-navigation` “updates navigation after a document deletion” 在全局 30s 预算下超时（实测 34s），确认为真实 Git 密集用例在 Windows/AV 主机上的预算不足，而非断言失败。
+- 结论：M5 实现面已落盘，但测试可靠性与剩余运行时品牌/契约问题未关闭；进入 M5 R1 修复周期。
+
+## M5 Codex 首轮审查发现与 R1 修复计划 — 2026-09-11
+
+状态：计划先行。先落本计划再改代码。R1 是 breaking replacement 的收口修复，不引入 V3 运行时兼容，不修改冻结 README/architecture/roadmap，不改版本号、不发布、不 push，不 stage/commit/reset；M1–M4 commit 保持不变。核心不变式：Source Git 提交定义事实，Knowledge Git 提交保存经验证的理解；Source Git 永远只读，Knowledge Git 是唯一持久写边界。
+
+### 发现（Codex 首轮，8 项）
+
+1. **测试超时不可靠**：全量串行 8 个 timeout（4 文件）；默认并行 `npm test` 在 Windows 上广泛超时。需控制 worker/file 并发、去除可避免的重复 setup，仅调整确实不切实际的单测预算，保留全部断言。
+2. **v3-ng 运行时品牌**：v3-ng 是分支/设计代号，不是产品/运行时模式。应从 CLI/help、hook/viewer 面向文本、package/plugin/hook 描述、skills/agents 操作 prose、测试标题、CI job 名中移除运行时品牌；保留 `docs/v3-ng-design/**`、显式 legacy-V3 迁移历史与冻结的 `llmdoc.meta/v3-ng` schema 标识；绝不新增 v3-ng/ng 命令、目录、handler、dispatch schema/error 或 fallback。
+3. **serve 启动通知**：`llmdoc --json serve` 必须在前台服务继续运行到 signal 的同时输出经注册 schema 校验的启动通知；普通文本保持连贯，stdout 捕获安全；校验端口范围并测试。
+4. **`/api/doc` 404**：对 missing/non-formal/inbox/cache id 返回 HTTP 404 与稳定 body；正式文档只能来自固定 Knowledge HEAD；测试状态码与字节不变式。
+5. **移除废弃 config schema**：删除 shipped/published 的 V3 `cli/schemas/config.schema.json`（`llmdoc.config/v1` preload）并更新 website route/check；若保留 schema 发布，优先替换为 `llmdoc.yaml` 的 `llmdoc.knowledge/v1`；仓库根 `llmdoc.config.json` 仅作显式 migrate 输入。
+6. **移除休眠 V3 API**：追踪 import 后删除 `cli/src/types.ts`、`search.ts`、`markdown.ts` 中休眠 V3 API，仅保留新协议共享函数与显式 migrate 解析；新增扫描/测试防止运行时回归。
+7. **过时测试标题**：`keeps --version and legacy commands working` 围绕实际行为重写；确认无 V3 dispatch/fallback。
+8. **门禁**：定向测试、typecheck、lint、`git diff --check`、`check:prompts`、website check/build/schema check、namespace/legacy reachability 扫描，以及原样 `npm test`；记录精确证据，Linux 仅记录 CI 配置；结束时 progress 状态为“实现完成，等待 Codex review”，然后停止，不提交。
+
+### 根因判断（独立推演，不迎合既有代码）
+
+- 1 的根因：这些用例是真实双 Git 事务（init→review→confirm→seal），在 Windows/AV 主机上每次 `git` 进程约 235ms，单个完整 fixture 用例约 30–35s。全局 30s/文件级 120s 对“单文件内串联多个完整事务”的用例预算不足；`navigation`/`cli-misc` 没有文件级预算，Codex 以未加载 `vitest.config.ts` 的方式运行时退回 5s 默认。修复策略：(a) 保持 `fileParallelism:false`；(b) 为每个 Git 密集文件声明显式文件级预算；(c) 拆分单文件内串联多个独立事务的巨型用例，使单测预算可测；(d) 删除可避免的重复 setup（`manifest-safety` 中冗余的 `writeFreshManifest`、`cli-misc` 的 `npm init -y`）；(e) 不 skip/delete/dilute 断言，不无差别放大所有 timeout。
+- 2 的根因：M5 将设计代号写进了运行时/接入面品牌文案。
+- 3 的根因：`runServe` 直接把文本写到 `process.stdout` 后阻塞，`cli.ts` 从不产出 `llmdoc.serve/v1`，且 `--port` 复用 `parseInteger` 拒绝 0、不校验上界。
+- 4 的根因：`buildDocument` 未命中时返回 HTTP 200 + `{error}`。
+- 5 的根因：V3 config schema 仍被打包/发布。
+- 6 的根因：M4/M5 删除 V3 运行时后，`types.ts`/`search.ts`/`markdown.ts` 仍残留无运行时引用的 V3 API。
+- 7 的根因：M4 删除 V3 命令后测试标题未同步。
+
+### 分步实施顺序（每步立即追加“M5 R1 实施与验证记录”）
+
+1. **R1-a 测试可靠性**：`cli/vitest.config.ts`（去品牌、明确并发策略）、`knowledge-navigation`/`cli-misc` 显式预算、拆分 `knowledge-review-seal` 巨型用例、去 `manifest-safety` 冗余 setup、`cli-misc` 去 `npm init -y` 并显式预算。
+2. **R1-b 运行时品牌**：`cli/src/cli.ts`、`lib/knowledge/hook.ts`、`commands/serve.ts`、`lib/knowledge/viewer-http.ts`、`lib/knowledge/document.ts`、`cli/package.json`、根 `package.json`、`hooks/hooks.json`、plugin/marketplace、`skills/**`+`.agents/skills/**`、`agents/**`+`.codex/agents/**`、README/website 品牌行、CI job 名、测试标题；保留 schema 标识与迁移历史。
+3. **R1-c serve**：`commands/serve.ts`、`cli.ts`、`output.schema.json`（如需）、新增/扩展 viewer/serve 测试；端口范围校验。
+4. **R1-d `/api/doc` 404**：`lib/knowledge/viewer-http.ts`、`assets/viewer-detail.js`（如需）、`knowledge-viewer.test.ts`。
+5. **R1-e config schema**：删除 `cli/schemas/config.schema.json`；`website` 的 `schemas/config.schema.json.ts` 与 `check:schema`、根/website scripts。
+6. **R1-f 休眠 API**：`types.ts`、`search.ts`、`markdown.ts`；新增扫描测试（`legacy.ts` 仅被 `migrate.ts` 引用；无旧命令注册/旧 API export）。
+7. **R1-g 标题**：`knowledge-cli.test.ts` 标题与实际行为。
+8. **R1-h 收口**：定向 → `npm run typecheck` → `npm run lint` → `git diff --check` → `npm run check:prompts` → website check/build/schema → namespace/legacy 扫描 → 原样 `npm test`；记录精确 exit/files/tests/duration；进度状态置“实现完成，等待 Codex review”。
+
+断点续接：中断后先读本节、`docs/v3-ng-design/README.md`、architecture §5–§7，再核对 `git status` 与已完成子步骤；不重复已完成工作，不 stage/commit/reset/push。
+
+## M5 R1 实施与验证记录（R1-a–R1-g）— 2026-09-11
+
+状态：R1-a–R1-g 已实施；未 stage/commit/reset/push。定向证据如下，R1-h 全量门禁另记。
+
+### R1-a 测试可靠性（finding 1）
+
+- 根因证据：`npx vitest run tests/knowledge-navigation.test.ts -t "updates navigation after a document deletion"` 在全局 30s 预算下超时（实测 34145ms）；本机每次 `git` 进程约 235ms，单次 fixture+review+confirm+seal 约 30–35s。Codex 报告 navigation/cli-misc 为 5s 默认，说明其运行未加载 `cli/vitest.config.ts`，故每个 Git 密集文件需自带文件级预算。
+- `cli/vitest.config.ts`：保留 `fileParallelism: false` 与 `testTimeout: 30000`，注释澄清并发策略（去 v3-ng 品牌），并说明重文件用 `vi.setConfig` 声明更大预算。
+- `knowledge-navigation.test.ts`：新增 `vi.setConfig({ testTimeout: 120000 })`（定向 4 个异步用例各约 30–32s）。
+- `cli-misc.test.ts`：新增 `vi.setConfig({ testTimeout: 120000 })`；删除可避免的 `npm init -y`，直接写最小 `package.json`。
+- `knowledge-manifest-safety.test.ts`：删除 4 次冗余 `writeFreshManifest`（`tamper` 每次从原始 `manifest` 深拷贝重写，中间的 fresh 写入必被覆盖，且 `confirmReviewManifest` 接收对象而非文件）；用例耗时由 >30s 降至 14.1s。
+- `knowledge-review-seal.test.ts`：拆分两个巨型用例（原 401 行“add/update/delete/insufficient”4 场景 → 4 个独立 `it`；原 449 行“body/scope/deletion/addition”4 场景 → 4 个独立 `it`），保留全部断言；文件预算维持 120s，单测最长 78.6s。
+- 定向证据：`knowledge-review-seal` 30/30 exit 0，Duration 1032.00s，单测最长 78630ms；`knowledge-manifest-safety` 4/4（最长 14132ms）；`knowledge-navigation` 8/8（异步最长 32189ms）；`knowledge-hook` 4/4（最长 12033ms）；`cli-misc` 3/3；`knowledge-viewer` 7/7。全部在预算内。
+
+### R1-b 运行时品牌（finding 2）
+
+- 去运行时品牌：`cli/package.json`、根 `package.json` 描述；`cli/src/cli.ts` 顶层描述与 `hook` help；`lib/knowledge/hook.ts` 面向文本（unavailable/no binding/mode/counts）；`commands/serve.ts`、`lib/knowledge/viewer-http.ts`、`lib/knowledge/document.ts` 注释；`hooks/hooks.json` 描述；`skills/{llmdoc,init,update,prune,migrate}/SKILL.md` 与 `.agents/skills/**` 镜像；`agents/{investigator,recorder}.md`、`.codex/agents/{investigator,recorder}.toml`；`tests/parity-checklist.md`；`README.md`/`README.zh-CN.md` 的架构链接标签；`website/src/components/{SiteHeader,HomePage}.astro`；`.github/workflows/ci.yml` job `v3-ng dogfood (Linux)` → `Dogfood dual-repository (Linux)`；测试标题 `knowledge-dogfood-e2e`、`knowledge-hook`、`knowledge-viewer` 与 hook 断言。
+- 保留：`docs/v3-ng-design/**`、`llmdoc.meta/v3-ng` schema 标识（`meta.ts`、`init.ts`、`seal.ts`、测试 fixture）、显式 legacy-V3 迁移历史（`migrate` 命令/skill 与 `legacy.ts`）；未新增任何 v3-ng/ng 命令、目录、handler、dispatch schema/error 或 fallback。
+
+### R1-c serve 启动通知（finding 3）
+
+- `commands/serve.ts`：`formatServeStart` 对 JSON 模式先 `assertOutputSchema("serve", …)` 再 `JSON.stringify`（单行、stdout 捕获安全）；`runServe(options, { stdout, signal })` 在服务监听后立即写出通知，再阻塞至 SIGINT/SIGTERM 或 `AbortSignal`；新增 `assertViewerPort`（0–65535，越界抛 `E_INVALID_PORT`）。
+- `lib/knowledge/errors.ts`：新增 `E_INVALID_PORT`。
+- `cli.ts`：`serve` 增加 `json` 透传与 `parsePort` 参数解析；`--port 0` 可用。
+- 证据：`knowledge-viewer.test.ts` 新增 3 个用例（JSON 单行 schema 校验且服务在通知后仍可 `/api/state`、文本行、端口范围），全部 7/7 exit 0。
+
+### R1-d `/api/doc` 404（finding 4）
+
+- `lib/knowledge/viewer-http.ts`：`buildDocument` 返回 `{ status, payload }`；missing/non-formal/inbox/cache/无绑定一律 HTTP 404，body 固定为 `{ schema:"llmdoc.viewer-doc/v1", error:"document_not_found", documentId }`；正式文档只从 `readKnowledgeForRead` 的固定 Knowledge HEAD（`docs/**`）取。
+- `assets/viewer-detail.js` 已处理 `!response.ok`，无需改动。
+- 证据：inbox/escape/unknown id 404、无绑定 404、脏 worktree `docs/secret.md` 404 而 HEAD `architecture.md` 200，且同 id 两次响应字节相等（`Buffer.equals`）。
+
+### R1-e config schema（finding 5）
+
+- 删除 `cli/schemas/config.schema.json`；新增 `cli/schemas/knowledge.schema.json`（`llmdoc.knowledge/v1`，约束 `repositoryId`/`layoutVersion`/`remotes`）。
+- 网站路由 `src/pages/schemas/config.schema.json.ts` → `knowledge.schema.json.ts`；`website/scripts/check-published-schema.mjs` 改校验 knowledge schema 与 canonical URL；CI step `Verify published config schema` → `Verify published knowledge schema`；`website/public/llms.txt` 恢复 machine-readable schema 指向 `knowledge.schema.json`。
+- 根 `llmdoc.config.json` 移除已失效的 `$schema`，仅保留 `schema: llmdoc.config/v1` 作为显式 migrate 输入。
+
+### R1-f 休眠 V3 API（finding 6）
+
+- `cli/src/types.ts` 仅保留 `PaginationResult`/`OutputOptions`；删除 `DocumentKind`/`DocumentFrontmatter`/`CodeRef`/`ParsedDocument`/`MetaLedger`/`LlmdocConfig`/`LoadedLlmdocConfig`/`WorkspaceData`/`ValidationIssue`/`GitState`/`DocumentImpact`。
+- `cli/src/lib/search.ts` 仅保留新协议共享函数（`matchesCodePathPattern`、`tokenizeQuery`、`cjkBigrams`、`countWords`、`buildSnippet`、`countSubstring`）；删除 `searchDocuments`、搜索缓存与对应 imports；`constants.ts` 删除 `CACHE_DIR`/`SEARCH_CACHE_FILE`。
+- `cli/src/lib/markdown.ts` 删除 `validateCodeRefTags`，`extractCodeRefs`（migrate 专用）返回内联类型，去除 `CodeRef` 依赖。
+- 新增 `cli/tests/runtime-surface.test.ts`（5 个扫描，无 Git）：无 `v3-ng`/`v3ng`/`runNg`/`ngX`/`lib/v3ng`/`llmdoc.ng-`（仅豁免冻结 `llmdoc.meta/v3-ng`）；无 `new/adopt/mv/fingerprint/init-state/upgrade` 注册且当前 18 命令齐全；`legacy.js` 仅 `migrate.ts` 引用；休眠 API 不再 export；`config.schema.json` 不存在且 `knowledge.schema.json` 为 `llmdoc.knowledge/v1`。定向 5/5 exit 0。
+
+### R1-g 过时标题（finding 7）
+
+- `knowledge-cli.test.ts` 标题改为 `keeps --version working and exposes no legacy runtime command`，断言 `--version` 等于包版本；V3 dispatch/fallback 由 `runtime-surface.test.ts` 静态证明无旧命令注册。`cli-output-schema.test.ts` 从“已移除契约”列表剔除已重新注册的 `hook`，并把注释去 v3-ng 品牌。
+
+### R1-a–R1-g 定向门禁
+
+- `npm run typecheck` exit 0；`npm run lint` exit 0；`scripts/check-codex-surface.mjs` exit 0；`scripts/check-prompt-budget.mjs` exit 0（五个 skill 与 hook 预算内）。
+- 定向测试：`runtime-surface` 5/5、`cli-output-schema` 2/2、`cli-misc` 3/3、`knowledge-viewer` 7/7、`knowledge-review-seal` 30/30、`knowledge-manifest-safety` 4/4、`knowledge-navigation` 8/8、`knowledge-hook` 4/4，均 exit 0。
+
+## M5 R1 收口门禁与最终证据（R1-h）— 2026-09-11
+
+状态：**M5 R1 实现完成，等待 Codex review。** 未 stage/commit/reset/push；未改版本号、未发布、未 push；冻结 `docs/v3-ng-design/{README,architecture,roadmap}.md` 未改（`git diff --stat` 无输出）。
+
+### 门禁证据（本机 Windows）
+
+- `npm run typecheck`（cli，含 `src`+`tests`）exit 0。
+- `npm run lint`（cli，`eslint src tests`）exit 0。
+- `git diff --check` exit 0（仅 LF→CRLF 提示，无 whitespace error）。
+- `node scripts/check-codex-surface.mjs` exit 0；`node scripts/check-prompt-budget.mjs` exit 0（`llmdoc` ~1587/1600，`init/update/prune/migrate` 及 hook 均在预算内）。
+- 网站（`website/`）：`npm run check` exit 0（23 files，0 errors / 0 warnings / 0 hints）；`npm run build` exit 0（产物含 `/schemas/knowledge.schema.json`）；`npm run check:schema` exit 0（`published knowledge schema check: ok`）。
+- 命名空间/legacy 可达性扫描：`rg 'legacy\.js' cli/src` 仅 `lib/knowledge/migrate.ts:44`；`rg -i 'v3-ng' cli/src` 仅冻结的 `llmdoc.meta/v3-ng` 三处（`meta.ts:8`/`init.ts:258`/`seal.ts:455`）；`runNg|ngTree|ngError|lib/v3ng|llmdoc.ng-` 无命中；`.command("new|adopt|mv|fingerprint|init-state|upgrade")` 无命中；`cli/schemas/config.schema.json` 不存在。以上由 `cli/tests/runtime-surface.test.ts`（5/5）机械固化。
+- **原样 `npm test`**（根目录 `npm test` → `npm --prefix cli test` → `npm run build && vitest run`，`fileParallelism:false`）：**exit 0，30 files / 262 tests 全过，Duration 3248.17s**；无 FAIL/Unhandled/Timeout、无超时预算失败。日志 `.llmdoc-tmp/m5r1full.log`。
+- 与 Codex 首轮对比：29 files / 247 tests / 8 timeout / 3109.62s → 30 files / 262 tests / 0 timeout / 3248.17s。新增为 `runtime-surface` 5 个静态扫描 + viewer 新增 4 个 serve/404 用例 + `knowledge-review-seal` 拆分净增 6 个用例；断言未删除或弱化。
+
+### Linux
+
+- 本机无 Linux 环境；Linux 仅以 CI 配置为证据：`.github/workflows/ci.yml` 的 `Node 18/20/22` test job（typecheck/lint/test/build/check:prompts）、`Dogfood dual-repository (Linux)` job（`npm ci && npm run build` + `npm run validate:dogfood`）、`Website and published schema` job（`check && build` + `check:schema`）。**Linux 未本地执行，仅记录 CI 配置证据。**
+
+### 剩余限制
+
+- 全量 `npm test` 在 Windows/AV 主机约 54 分钟；已保持串行执行并仅对真实 Git 密集文件声明更大预算，未改为并行以避免 Git 进程抖动。
+- 冻结设计文档未迁就实现；`llmdoc.meta/v3-ng` schema 标识与显式 legacy-V3 迁移历史按约束保留，其余运行时品牌已移除。
+
+状态：**M5 R1 实现完成，等待 Codex review。** 停止，不提交。
+
+## M5 R2 集中审查发现与修复计划 — 2026-09-11
+
+状态：计划先行。先落本计划再改代码。R2 关闭 Codex 集中复审的三项发现：published knowledge schema 与运行时校验不一致、serve 端口错误契约不统一、插件 hook 的 fail-open 仅从 npm/npx 启动的 CLI 加载后才生效。不改冻结 `docs/v3-ng-design/{README,architecture,roadmap}.md`，不引入 V3 兼容，不改版本、不发布、不 push，不 stage/commit/reset；保留全部 M5 工作。
+
+### 发现与落点
+
+1. **published schema 与运行时校验不一致。** `cli/schemas/knowledge.schema.json` 顶层与 remote 条目均为 `additionalProperties:false`，但 `cli/src/lib/knowledge/knowledge-config.ts::validateKnowledgeLayoutConfig` / `validateRemotes` 接受未知键，且 `remotes: null` 被当作空数组。修复：运行时严格拒绝未知顶层键与未知 remote 键，`remotes` 仅“缺省”为空、`null` 拒绝，全部抛 `E_KNOWLEDGE_CONFIG_INVALID`（exit 2）；新增测试用 Ajv 编译 published schema，与运行时逐一比对 representative 配置的 accept/reject 完全一致；不重新引入 V3 config schema。
+2. **`llmdoc --json serve --port nope` 输出纯文本。** 现有范围错误（`65536`）在 `commands/serve.ts::assertViewerPort` 抛 `E_INVALID_PORT` JSON，但 `cli.ts::parsePort` 对非整数抛 `CliError`（纯文本、`exit 1`）。修复：把端口字符串解析收敛到 `serve.ts::parseViewerPort`，复用 `assertViewerPort`；malformed/非整数/负数/越界一律 `E_INVALID_PORT`、exit 2；`0` 仍有效。更新 `runCli` 测试，并新增 built CLI（`cli/dist/bin/llmdoc.js`）spawn 测试证明同一契约。
+3. **hook fail-open 起点太晚。** `hooks/hooks.json` 直接 `npx ...`：当 npx 无法安装/解析/启动（离线 registry、缺 npm、spawn 失败、超时）时 hook 命令自身非零退出，可能阻塞宿主。修复：新增跨平台插件侧 Node 启动器 `hooks/llmdoc-hook-launcher.mjs`，默认仍用同一 scoped alias（`npx -y --package=@tokenroll/llmdoc-hook-runtime@npm:@tokenroll/llmdoc -- llmdoc hook <event>`）以保证不被同名本地依赖遮蔽；仅在启动/超时/非零退出时 fail-open：SessionStart 输出简短纯文本诊断，Stop/PreCompact 输出合法 `{continue:true,systemMessage:...}` JSON，一律 exit 0；成功时按原始字节转发子进程 stdout，保持现有 CLI 输出不变。`hooks/hooks.json` 用仓库既有兼容约定 `${PLUGIN_ROOT:-$(git rev-parse --show-toplevel)}` 从已安装插件定位启动器，避免假定消费方 cwd；命令不含 Windows/Linux 不兼容的引号。扩展 `scripts/check-codex-surface.mjs`（静态校验 hooks.json 启动器形式 + 启动器内 scoped alias）与 `scripts/check-prompt-budget.mjs`（渲染插件根后执行命令，并用空 PATH 做确定性模拟启动失败，断言 SessionStart 纯文本、Stop/PreCompact 合法 JSON 且 exit 0），不依赖真实网络中断。
+
+### 分步实施顺序（每步立即追加“M5 R2 实施与验证记录”）
+
+1. **R2-1 config 契约对齐**：`knowledge-config.ts` 未知键/`remotes:null` 拒绝；新增 `cli/tests/knowledge-config-schema.test.ts`（Ajv 与运行时双向比对）。
+2. **R2-2 serve 端口契约**：`commands/serve.ts::parseViewerPort` + `cli.ts` 改接；扩展 `knowledge-viewer.test.ts`（malformed/越界/负数 JSON `E_INVALID_PORT` exit 2，`0` 有效）与 built CLI spawn 用例。
+3. **R2-3 hook 启动器**：新增 `hooks/llmdoc-hook-launcher.mjs`；改 `hooks/hooks.json` 用 `${PLUGIN_ROOT:-$(git rev-parse --show-toplevel)}` 调用启动器；扩展 `check-codex-surface.mjs`、`check-prompt-budget.mjs`（渲染命令 + 空 PATH 模拟失败）。
+4. **R2-4 收口门禁**：定向测试（config/schema、serve CLI/output schema、hook/launcher）→ `npm run typecheck` → `npm run lint` → `git diff --check` → `node scripts/check-codex-surface.mjs` → `node scripts/check-prompt-budget.mjs` → website check/build/schema → 原样根 `npm test` 一次；记录精确 exit/files/tests/duration，区分本机 Windows 验证与仅 CI 的 Linux 配置；结束时状态置“M5 R2 实现完成，等待 Codex review”，停止不提交。
+
+断点续接：中断后先读本节、冻结 README/architecture §5–§7，再核对 `git status` 与已完成子步骤；不重复已完成工作，不 stage/commit/reset/push。
+
+## M5 R2 实施与验证记录 — 2026-09-11
+
+状态：进行中；未 stage/commit/reset/push。每完成一步即记实际证据。
+
+### R2-1 config 契约对齐（finding 1）
+
+- `cli/src/lib/knowledge/knowledge-config.ts`：新增 `LAYOUT_ALLOWED_KEYS`/`REMOTE_ALLOWED_KEYS` 与 `rejectUnknownKeys`；`validateKnowledgeLayoutConfig` 拒绝未知顶层键，`validateRemotes` 拒绝未知 remote 键；`remotes` 仅“缺省”为空数组，`null`/非数组拒绝。全部抛 `E_KNOWLEDGE_CONFIG_INVALID`（exit 2）。published schema 未改（已为 `additionalProperties:false`），故与运行时语义一致。
+- 新增 `cli/tests/knowledge-config-schema.test.ts`：用 Ajv 编译 `cli/schemas/knowledge.schema.json`，对 18 个 representative 配置（valid full/minimal/empty-remotes；未知顶层键；未知 remote 键；null/非数组 remotes；remote 缺 url/空 name/非字符串 url；缺/wrong schema；非法 repositoryId；非字符串 repositoryId；layoutVersion 2 与 "1"；顶层数组；null）逐一断言 schema 与运行时 accept/reject 完全一致，另断言未知键错误信息含 `unknown key`。
+- 证据：`npx vitest run tests/knowledge-config-schema.test.ts` exit 0，1 file / 19 tests passed，Duration 536ms。
+
+### R2-2 serve 端口契约（finding 2）
+
+- `cli/src/commands/serve.ts`：新增 `invalidPort`/`parseViewerPort`；`assertViewerPort` 复用同一错误构造。`parseViewerPort` 仅接受 `^[+-]?\d+$`，再经 0–65535 范围校验，malformed/非整数/负数/越界一律 `E_INVALID_PORT`（exit 2，含 paths/remediation）。
+- `cli/src/cli.ts`：`serve --port` 解析器由旧的 `CliError("Invalid port: …")`（纯文本、exit 1）改为 `parseViewerPort`；删除本地 `parsePort`。`KnowledgeError` catch 在 `--json` 下输出 schema 校验过的 `knowledgeError` JSON。
+- `cli/tests/knowledge-viewer.test.ts`：端口用例扩展为 `nope|abc|1.5|70000|65536|-1|""` 与 `--port=-1`，逐一断言 exit 2、`E_INVALID_PORT`、`assertOutputSchema("knowledgeError",…)`；新增 `parseViewerPort("0")===0`、`parseViewerPort("65536")` 抛错，以及 built CLI（`cli/dist/bin/llmdoc.js`）spawn `--json serve --port nope|70000` 同契约。
+- 证据：`npm run build` exit 0；built CLI 实跑 `node dist/bin/llmdoc.js --json serve --port nope` 输出 `E_INVALID_PORT` JSON、exit 2（`70000` 同）。`npx vitest run tests/knowledge-viewer.test.ts` exit 0，1 file / 8 tests passed，Duration 80.49s。
+
+### R2-3 hook 插件侧 fail-open 启动器（finding 3）
+
+- 新增 `hooks/llmdoc-hook-launcher.mjs`：Node 跨平台包装。默认执行单一安全命令串 `npx -y --package=@tokenroll/llmdoc-hook-runtime@npm:@tokenroll/llmdoc -- llmdoc hook <event>`（仅固定 token，无 Windows/Linux 引号问题，scoped alias 防同名本地依赖遮蔽）；成功时按原始字节转发子进程 stdout/stderr、沿用子进程退出码。启动/超时/非零退出时 fail-open：`session-start` 输出简短纯文本诊断，`stop`/`compact` 输出 `{"continue":true,"systemMessage":…}` JSON，一律 exit 0。未知事件按 JSON 诊断、exit 0。用 `shell:true` + 单一命令串避免 Node DEP0190 警告污染输出。
+- `hooks/hooks.json`：三个事件改为 `node "${PLUGIN_ROOT:-$(git rev-parse --show-toplevel)}/hooks/llmdoc-hook-launcher.mjs" <event>`，用仓库既有兼容约定从已安装插件定位启动器，不再假定消费方 cwd；描述更新为经插件根启动器且 fail-open。
+- `scripts/check-codex-surface.mjs`：改为解析 hooks.json 结构取 command（避免内嵌 `\"` 破坏旧正则），断言三命令等于经 `${PLUGIN_ROOT:-$(git rev-parse --show-toplevel)}` 定位的启动器调用；并静态断言启动器含 scoped alias 与通过 npx 启动。
+- `scripts/check-prompt-budget.mjs`：新增 `renderHookCommand` 渲染插件根后执行真实命令；新增确定性 fail-open 证明——在临时目录写入必然失败的 `npx`（Windows `npx.cmd` / POSIX `npx`）并前置到 PATH（模拟缺 npm/离线，不依赖真实网络中断），断言 SessionStart 纯文本非空非 JSON、Stop/PreCompact 为 `continue:true` + 非空 `systemMessage` 的合法 JSON、全部 exit 0。
+- 证据：`node scripts/check-codex-surface.mjs` exit 0；`node scripts/check-prompt-budget.mjs` exit 0（`hook launcher SessionStart/Stop/PreCompact: ok`，`hook launcher failure SessionStart/Stop/PreCompact: fail-open ok`）；`npx vitest run tests/knowledge-hook.test.ts tests/cli-output-schema.test.ts` exit 0，2 files / 6 tests passed，Duration 19.46s。
+
+## M5 Codex 接管 R2 收口计划 — 2026-09-11
+
+状态：用户要求停止 OpenCode，由 Codex 直接接管 M5 R2 审查、修复、验证与提交。OpenCode 会话及其长时全量测试已终止；现有 R2-1/R2-2 实现保留并独立复核，不重复已通过的无关工作。
+
+接管审查发现：R2-3 声称跨平台，但 `hooks/hooks.json` 使用 POSIX shell 参数展开 `\${PLUGIN_ROOT:-$(git rev-parse --show-toplevel)}`。该表达式在 Windows `cmd.exe` 不成立；现有测试先手工替换表达式再执行，因此隐藏了真实宿主命令的跨平台问题。fallback 还会从消费仓库的 Git 根寻找插件文件，违反“从已安装插件定位启动器”的边界。此项必须修复后才能通过 M5 review。
+
+执行顺序：
+
+1. 核实本机已安装插件/宿主对插件根变量的真实约定，改成由宿主展开且不依赖 POSIX 命令替换的稳定入口；测试必须执行与宿主等价的渲染结果，不能再用消费仓库 Git 根兜底掩盖错误。
+2. 独立复核 R2-1 schema/runtime 严格一致性和 R2-2 全部端口错误 JSON 契约；补足发现的边界问题。
+3. 先跑定向测试、typecheck、lint、surface/prompt、website schema 门禁。全量测试采用可观察的逐文件串行执行并记录每文件结果，避免单条 50 分钟命令无进度；已有 R1 原样 `npm test` 30 files / 262 tests 全过作为基线，R2 改动相关文件必须重新执行。
+4. 全部通过后更新本节为实际证据，stage 精确 M5 变更并提交；不 push、不改版本、不发布。
+
+执行记录：本机已安装的 Claude/Codex 共用 hook 清单使用 `node \"${CLAUDE_PLUGIN_ROOT}/...\"`，Claude 本地 changelog 也明确记录该变量由插件系统替换。`hooks/hooks.json` 已改为三处 `${CLAUDE_PLUGIN_ROOT}` 入口；surface check 同步断言精确命令，prompt check 仅模拟宿主替换该变量，不再支持或掩盖 Git-root fallback。该形式的路径由宿主在进入 shell 前替换，Windows/Linux 均只执行普通 `node \"绝对路径\" event`。
+
+### 测试分层设计（用户评审调整）
+
+全量日志证明 3248s 中 3238s 位于测试正文，编译/收集不足 7s；主要成本来自真实双 Git 事务、CAS/锁/故障注入与 Windows 子进程/杀毒 I/O，而不是 Vitest 本身。继续让默认 `npm test` 承担 30 个文件会使本地反馈接近一小时，并让 Node 18/20/22 CI 矩阵重复同一协议压力测试。
+
+本里程碑直接分层：
+
+- `npm test`：build 后运行 quick manifest。覆盖纯契约（CJK/search、输出 schema、published knowledge schema、运行时表面）、锁/registry、source context、内容有效性、CLI breaking replacement、hook/viewer，并额外只运行 `knowledge-review-seal` 的单条成功 seal smoke。目标是 Windows 数分钟内完成，同时至少穿过一次 Source Git → review manifest → Knowledge Git seal 的关键路径。
+- `npm run test:integration`：build 后运行现有完整 Vitest 集，保留全部真实双仓、事务、CAS、锁竞争、迁移、故障回滚和 dogfood 证据。M5 最终提交前由 Codex 执行一次。
+- CI：Node 18/20/22 矩阵运行默认 quick；另设单一 Node 22 full protocol integration job 运行 `test:integration`。删除重复 dogfood job，因为 dogfood 文件已经属于 full integration；保留 `validate:dogfood` 作为可单独调用的诊断入口。
+
+实现采用 `cli/vitest.quick.config.ts` 显式列出 quick 文件，避免依赖 shell glob，便于 Windows/Linux 一致执行；seal smoke 通过第二条 Vitest 命令按稳定测试名选择，不复制实现或新增镜像测试。`cli/package.json` 和根 `package.json` 暴露同名脚本，README/双语 README 与 CI 同步说明分层边界。
+
+默认门禁实测：根 `npm test` exit 0；quick manifest 12 files / 98 tests 全过，Duration 239.86s；随后 seal smoke 1 passed / 29 skipped，Duration 41.53s。合计约 4.7 分钟，且真实执行了 source context、viewer/hook、schema、lock/registry 与一次 review-manifest → seal → clean Knowledge Git 成功路径。`test:integration` 使用 verbose reporter，让长时完整套件逐用例输出实际进度。
+
+## M5 Codex 最终 review 与收口证据 — 2026-09-11
+
+状态：**M5 review 通过并已提交。** Codex 已终止 OpenCode 写者并独立检查实际 diff；冻结 `README.md`、`architecture.md`、`roadmap.md` 未改。R2-1/R2-2 实现成立；R2-3 的错误 POSIX plugin-root fallback 已由 Codex 改为宿主标准 `${CLAUDE_PLUGIN_ROOT}`，无消费仓库 cwd/Git-root fallback。
+
+最终本机 Windows 证据：
+
+- R2 定向：`knowledge-config-schema`、`knowledge-viewer`、`knowledge-hook`、`cli-output-schema` 共 4 files / 33 tests 全过，Duration 117.69s。
+- 默认 `npm test`：quick 12 files / 98 tests 全过，Duration 239.86s；真实 seal smoke 1 passed / 29 skipped，Duration 41.53s；总计约 4.7 分钟。
+- 完整 `npm run test:integration`：**31 files / 282 tests 全过，Duration 3574.91s**（tests 3563.88s），verbose 逐用例可观察；无失败或超时。
+- 独立 `npm run validate:dogfood`：1 file / 3 tests 全过，Duration 180.09s；覆盖完整新协议闭环、dirty/staged 阻断及只有显式 migrate 才读取 legacy V3。
+- `npm run typecheck`、`npm run lint`、`npm run build`、`git diff --check` 均 exit 0；仅 Git 的 LF→CRLF 提示，无 whitespace error。
+- `node scripts/check-codex-surface.mjs`、`node scripts/check-prompt-budget.mjs` 均 exit 0；SessionStart/Stop/PreCompact 正常 launcher 与确定性 npx 失败 fail-open 全部通过。
+- 网站 `npm run check` 为 23 files、0 errors/warnings/hints；`npm run build` 构建 13 pages（含 `/schemas/knowledge.schema.json`）；`npm run check:schema` 通过。
+- `.github/workflows/ci.yml` 由 `js-yaml` 成功解析。Node 18/20/22 跑 quick；Node 22 单独跑 full integration；Linux 仍为 CI 配置证据，本机未执行 Linux。
+- runtime-surface 完整套件已验证：无 `lib/v3ng`/ng 命令或 V3 dispatch/fallback；legacy 只从显式 migrate 可达；旧 config schema 与 dormant V3 API 均已移除。
+
+提交边界：自 M4 commit `4b1e50e` 后的全部工作均为 M5 接入、文档、发布 surface、R1/R2 修复和用户评审后的测试分层；`.llmdoc-tmp/**` 为 ignored 测试日志，不进入提交。不改版本、不发布、不 push。
+
+## Git 身份校正与 ponytail 审查 — 2026-09-11
+
+状态：本仓库本地 Git 身份已设置为 `vegetable6 <xukun6cai@gmail.com>`，未修改全局 Git 配置或其他仓库。`v3-ng` 尚未推送且无 upstream，因此将 M1–M5 五个提交的 author/committer 原地改写为该身份；改写前后 `git diff` 为空，代码树完全一致。改写后的 M1–M4 为 `4af2838`、`65151ff`、`bb1d72a`、`4b1e50e`；M5 保持为当前 HEAD。本轮不 push。
+
+`ponytail-review` 只审查过度设计，没有直接修改实现。高置信精简项是：删除已被领域测试覆盖的 R1/R2/roadmap 阶段测试；让运行时直接使用已发布 `knowledge.schema.json`，删除手写平行 validator；删除 viewer 内部旧字段适配；让 Codex 插件直接复用 canonical `skills/`，删除 `.agents/skills/` 镜像和 parity 维护；合并三处 canonical document id 谓词；将重复迁移故障场景改为表驱动；移除 CI 在 `npm test` 后的重复 build。事务 CAS、临时 index、锁、manifest 漂移和故障回滚属于协议安全边界，不列入删除范围。下一步是在用户确认实施范围后先写精简设计和验收边界，再改代码。

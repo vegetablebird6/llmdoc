@@ -4,59 +4,59 @@ import DocsLayout from "../../../../layouts/DocsLayout.astro";
 
 <DocsLayout
   title="CLI 参考"
-  description="llmdoc V3 的发现、有效性、安全文档改写、收敛、迁移与宿主 hook 命令参考。"
+  description="llmdoc 双仓库 CLI 参考：绑定、检索、诊断、语义提交、候选捕获、收敛、迁移与宿主集成。"
   locale="zh"
   section="cli"
 >
   <h1>CLI 参考</h1>
-  <p>以 <code>npx -y @tokenroll/llmdoc &lt;command&gt;</code> 调用外部 CLI。工作流需要可复现时，在包名中固定版本。</p>
+  <p>以 <code>npx -y @tokenroll/llmdoc &lt;command&gt;</code> 调用外部 CLI。工作流需要可复现时，在包名中固定版本。检索命令支持 <code>--json</code>、<code>--budget</code> 与 <code>--limit</code>；<code>--cursor</code> 用于继续截断的输出。</p>
+
+  <h2>绑定与初始化</h2>
+  <dl class="commands">
+    <div><dt><code>bind --source &lt;dir&gt; --knowledge &lt;dir&gt; [--nested]</code></dt><dd>把源码仓与已有的独立知识仓关联起来。关联记录在用户级 registry，llmdoc 绝不写入源码仓库。</dd></div>
+    <div><dt><code>init --source &lt;dir&gt; --knowledge &lt;dir&gt; [--nested]</code></dt><dd>创建知识 Git 仓库、布局、初始知识提交与用户绑定。绝不覆盖已存在的非空目标。</dd></div>
+  </dl>
 
   <h2>发现与读取</h2>
   <dl class="commands">
-    <div><dt><code>tree</code></dt><dd>根文档与 topic 的动态地图。</dd></div>
-    <div><dt><code>index [--topic …] [--kind …]</code></dt><dd>用于发现文档的 front matter 投影。</dd></div>
-    <div><dt><code>search &lt;query&gt;</code></dt><dd>在跟踪知识中执行词法搜索；中文查询自动分词，零 lexical 召回时明确标注 CJK bigram 降级。</dd></div>
-    <div><dt><code>context --files &lt;src…&gt;</code></dt><dd>逐个把源码路径映射到 owner 文档与依赖前置，并明确报告未映射输入。</dd></div>
+    <div><dt><code>tree</code></dt><dd>按 topic 展示知识地图，含根文档。</dd></div>
+    <div><dt><code>index [--topic …] [--kind …]</code></dt><dd>不读取正文的文档元数据。</dd></div>
     <div><dt><code>show &lt;path…&gt;</code></dt><dd>读取选中的文档正文。</dd></div>
-    <div><dt><code>serve</code></dt><dd>在 <code>127.0.0.1</code> 启动本地 Viewer，查看文档结构、关系与状态。</dd></div>
+    <div><dt><code>search &lt;query&gt;</code></dt><dd>词法搜索；中文查询自动分词，零 lexical 召回时明确标注 CJK bigram 降级。</dd></div>
+    <div><dt><code>context --files &lt;src…&gt;</code></dt><dd>逐个把源码文件映射到应读取的文档，包含 <code>requires</code> 闭包，并明确报告未映射输入。</dd></div>
   </dl>
 
-  <h2>检查有效性</h2>
+  <h2>诊断状态</h2>
   <dl class="commands">
-    <div><dt><code>status</code></dt><dd>有效性、baseline、dirty 与增长信号。</dd></div>
-    <div><dt><code>delta</code></dt><dd>从代码变化计算受影响文档闭包。</dd></div>
-    <div><dt><code>validate</code></dt><dd>校验 schema、结构、关系、链接、代码路径（含零命中 glob）、ledger 一致性与可选启动配置。</dd></div>
+    <div><dt><code>validate</code></dt><dd>针对固定 source 快照的确定性 front matter、链接、关系、source scope 与 schema 检查。它绝不推进 revision。</dd></div>
+    <div><dt><code>status</code></dt><dd>源码阻断原因、知识状态与复核义务。Source 阻断原因与文档状态分开报告。</dd></div>
+    <div><dt><code>delta [--scope &lt;id…&gt;]</code></dt><dd>源码或知识变化后需要语义复核的文档。</dd></div>
   </dl>
 
-  <h2>安全改写</h2>
+  <h2>语义提交</h2>
   <dl class="commands">
-    <div><dt><code>new &lt;path&gt; --kind &lt;kind&gt;</code></dt><dd>创建 V3 文档骨架；最近 Git 根尚无 <code>llmdoc/</code> 时会自动建立目录。</dd></div>
-    <div><dt><code>adopt &lt;path…&gt;</code></dt><dd>登记已有合法文档，不重写正文。</dd></div>
-    <div><dt><code>mv &lt;from&gt; &lt;to&gt;</code></dt><dd>移动文档，并事务性重写内部引用、ledger identity 与匹配的 startup preload 项。</dd></div>
-    <div><dt><code>init-state</code></dt><dd>在真实 Git HEAD 上建立首次 ledger；unborn 仓库须先创建初始 commit。</dd></div>
-    <div><dt><code>commit [--verified &lt;path…&gt; | --all]</code></dt><dd>校验、提交正文，并刷新变化或验证未变文档的 revision。</dd></div>
-    <div><dt><code>fingerprint --update &lt;path…&gt; | --all</code></dt><dd>刷新 ledger 中经过验证的 revision。</dd></div>
+    <div><dt><code>review [--confirm &lt;reviewId&gt;] [--set &lt;id&gt;=&lt;conclusion&gt;…] [--global]</code></dt><dd>针对固定 source 与知识 revision 生成临时 Review Manifest，或确认其语义结论。结论为 <code>changed</code>、<code>unchanged</code> 或 <code>insufficient</code>。</dd></div>
+    <div><dt><code>commit --review &lt;reviewId&gt;</code></dt><dd>把已确认的 Review Manifest seal 成一次知识提交。不存在裸的 verified 参数。</dd></div>
   </dl>
 
-  <h2>显式操作与 hooks</h2>
+  <h2>候选与维护</h2>
   <dl class="commands">
-    <div><dt><code>prune --report</code></dt><dd>只读的知识收敛信号，并列出手工合并或删除必须维护的 startup preload 引用。</dd></div>
-    <div><dt><code>upgrade</code></dt><dd>显式 V2 迁移诊断。</dd></div>
-    <div><dt><code>hook session-start | stop | compact</code></dt><dd>只读、fail-open 的宿主信号。</dd></div>
+    <div><dt><code>capture [--title] [--note] [--from] [--body] [--source-revision]</code></dt><dd>把未验证候选持久化到 <code>inbox/</code>，不触碰正式知识或源码仓库。</dd></div>
+    <div><dt><code>update [--promote …] [--reject …] [--prepare] [--global]</code></dt><dd>复核 inbox 候选并应用 promote/reject 决定，形成未确认的 Review Manifest。它绝不把任何文档标为 current。</dd></div>
+    <div><dt><code>prune [--report] [--remove &lt;id…&gt;] [--global]</code></dt><dd>报告保守的收敛候选，或删除合格文档并修复所有入链与链接。</dd></div>
+    <div><dt><code>migrate --knowledge &lt;dir&gt; [--source] [--legacy] [--dry-run] [--nested]</code></dt><dd>显式把旧 V3 布局迁移到新的独立知识仓。这是唯一读取 <code>.mdx</code>、<code>CodeRef</code>、<code>code.paths</code>、<code>llmdoc/meta.json</code> 或 <code>llmdoc.config.json</code> 的命令。</dd></div>
   </dl>
 
-  <h2>启动上下文配置</h2>
-  <p>llmdoc workspace 根目录可增加可选的 <code>llmdoc.config.json</code>；在 Git 仓库中，它就是拥有 <code>llmdoc/</code> 的最近 Git 根。该配置可让 SessionStart 主动提示 Agent 使用 llmdoc skill，并在冷启动直接载入精确文档：</p>
-  <pre><code>&#123;
-  "$schema": "https://llmdoc.tokenroll.ai/schemas/config.schema.json",
-  "schema": "llmdoc.config/v1",
-  "startup": &#123;
-    "remindSkill": true,
-    "preload": ["architecture.mdx", "api-client/contracts.mdx"]
-  &#125;
-&#125;</code></pre>
-  <p><a href="/schemas/config.schema.json">已发布的 schema</a> 可供编辑器校验。操作守则默认启用；将 <code>remindSkill</code> 设为 <code>false</code> 可关闭。冷启动预载保持声明顺序，且不设置 llmdoc 字符或 token 预算；结尾完成标记用于暴露可能的宿主截断。compact 重入只列文档 ID，不重复注入正文。</p>
-  <p><code>validate</code> 会拒绝非法或不存在的路径，并在去重规范化别名时产生 warning。hook 保持 fail-open：JSON/schema 无法读取时使用默认提醒；仅 preload 出错时保留合法的 <code>remindSkill</code> 选择并跳过 preload。</p>
+  <h2>宿主集成</h2>
+  <dl class="commands">
+    <div><dt><code>hook session-start | stop | compact</code></dt><dd>只读、fail-open 的诊断。它报告复核义务与源码阻断原因，绝不写 source 或 knowledge，也绝不初始化绑定。</dd></div>
+    <div><dt><code>serve [--port &lt;port&gt;]</code></dt><dd>在 <code>127.0.0.1</code> 上启动固定 Knowledge HEAD 的只读 viewer，三态与双 revision 与 CLI 一致。</dd></div>
+  </dl>
+
+  <h2>写入流程</h2>
+  <pre><code>capture → update --promote/--reject → review → review --confirm &lt;reviewId&gt; → commit --review &lt;reviewId&gt;</code></pre>
+  <p>正式 update、review 或 seal 要求有效 source HEAD 且 source worktree/index 全仓 clean。知识 worktree 可以是 dirty，但知识 index 不得有任何 staged 内容。确认之后的任何编辑都会使 manifest 失效。</p>
+
   <p>CLI 自身的固定界面文案全部使用英文；中文查询与仓库文档内容仍完整支持并保持原文返回。</p>
 </DocsLayout>
 

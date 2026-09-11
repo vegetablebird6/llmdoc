@@ -4,54 +4,70 @@ import DocsLayout from "../../../layouts/DocsLayout.astro";
 
 <DocsLayout
   title="Core concepts"
-  description="Learn the Context Floor, progressive reading, three knowledge gates, document structure, and validity model behind llmdoc."
+  description="Learn the dual-repository model, double revision, tri-state validity, source.paths evidence, and why llmdoc knowledge is reference data."
   section="concepts"
 >
   <h1>Core concepts</h1>
   <blockquote>The useful question is not “How much context can the model hold?” but “What context is sufficient for this task?”</blockquote>
 
   <h2>Context Floor</h2>
-  <p>The Context Floor is the richness of context an agent needs to solve the current problem. Tool calls, token footprint, and the density of key information all shape the time it takes to reach that floor.</p>
-  <p>llmdoc raises information density before broad source exploration. It does not replace source code: once it narrows the working set, native tools verify live details such as implementation text, line numbers, tests, and Git state.</p>
+  <p>The Context Floor is the richness of context an agent needs to solve the current problem. llmdoc raises information density before broad source exploration, then native tools verify live details such as implementation text, line numbers, tests, and Git state.</p>
 
-  <h2>Design model: a semantic routing graph</h2>
-  <p>llmdoc is not a compressed copy of the repository. It is the smallest connected graph of durable engineering meaning that lets an agent find the right owner, understand the decisions that constrain a task, and then continue into authoritative source.</p>
+  <h2>Two repositories, one direction</h2>
+  <p>llmdoc separates facts from understanding. The <strong>Source Git</strong> repository is the authority for what the code does, and it is read-only to llmdoc. The <strong>Knowledge Git</strong> repository is an independent repository that stores durable engineering understanding, and it is the only persistent write boundary.</p>
+  <pre><code>Source Git (read-only)  →  Human / Agent  →  Knowledge Git (docs + meta)</code></pre>
+  <p>The CLI reads source through fixed Git objects, disables optional index writes, and never falls back to writing knowledge into the source repository. The binding is recorded in a user-level registry, so the source tree stays untouched. The knowledge repository is external by default; nested independent Git is supported only when explicitly selected.</p>
+
+  <h2>What belongs in knowledge</h2>
+  <p>Admission requires all three: the knowledge affects future choices, is expensive to reconstruct, and stays valid across commits. Decisions and rationale, boundaries, invariants, cross-module contracts, and non-obvious failure semantics qualify. Source inventories, per-line observations, temporary plans, and raw sessions do not.</p>
   <ul>
-    <li><strong>Decisions over observations:</strong> documents preserve rationale, boundaries, invariants, contracts, failure semantics, and risky workflows; source, tests, schemas, and manifests retain live facts.</li>
-    <li><strong>Ownership over layout:</strong> knowledge follows stable responsibility and review boundaries, not package or directory shape.</li>
-    <li><strong>Progressive disclosure:</strong> the map, routing metadata, selected bodies, and source form successively deeper layers.</li>
-    <li><strong>Review coupling:</strong> <code>code.paths</code> maps a change to the documents whose claims may need review, rather than manufacturing a file-coverage score.</li>
+    <li><strong>Decisions over observations:</strong> documents preserve rationale and constraints; source, tests, schemas, and manifests retain live facts.</li>
+    <li><strong>Review coupling:</strong> <code>source.paths</code> maps a change to the documents whose claims may need review, rather than manufacturing a file-coverage score.</li>
+    <li><strong>Progressive disclosure:</strong> the map, metadata, selected bodies, and source form successively deeper layers.</li>
   </ul>
 
   <h2>Progressive reading</h2>
   <p>The retrieval surface reveals knowledge in layers: map or metadata first, then search or source ownership, then selected bodies. A caller may stop at any layer.</p>
   <pre><code>tree / index  →  search / context  →  show</code></pre>
 
-  <h2>Three gates</h2>
-  <h3>Retrieval Gate</h3>
-  <p>Before broad discovery—and again when crossing into a new subsystem—choose the one CLI entry point that matches the intent.</p>
-  <h3>Reflection Gate</h3>
-  <p>User corrections, verification failures, and major rework can become privacy-safe temporary candidates. Transcripts and incidental mistakes do not.</p>
-  <h3>Stable Knowledge Gate</h3>
-  <p>A candidate enters tracked knowledge only when it is durable, changes future choices, has a clear owner, and is expensive to recover from a canonical source.</p>
-
   <h2>Document model</h2>
-  <p>V3 uses pure Markdown in <code>.mdx</code> documents with YAML front matter. A path is the document ID. The tree has root singleton documents and one level of topic folders; topics do not need <code>index.mdx</code>.</p>
-  <pre><code>llmdoc/
-├── architecture.mdx
-├── api-client/
-│   └── retry-policy.mdx
-└── meta.json</code></pre>
+  <p>Documents are standard Markdown <code>.md</code> files with YAML front matter. The docs-relative POSIX path is the document ID, and <code>docs/</code> may be nested to any depth. The <code>README.md</code> navigation region is generated and is never a knowledge node.</p>
+  <pre><code>knowledge/
+├── llmdoc.yaml
+├── README.md
+├── docs/
+│   ├── architecture.md
+│   └── lifecycle/task-recovery.md
+├── inbox/
+└── .llmdoc/meta.json</code></pre>
+  <p><code>kind</code> is one of <code>architecture</code>, <code>decision</code>, <code>guide</code>, or <code>reference</code>. A decision records Context, Decision, Why, and Consequences, and may point to the decision it supersedes through <code>relations.supersedes</code>.</p>
 
-  <h2>From domain to topic to document</h2>
-  <p>A <strong>domain</strong> is an analysis boundary: one stable responsibility, authority, invariant set, failure model, and change vocabulary. A <strong>topic</strong> is its persistent retrieval neighborhood under <code>llmdoc/</code>. A <strong>document</strong> is the canonical owner of one coherent question, contract, invariant cluster, or workflow.</p>
-  <p>Package boundaries are only evidence. Split a topic when ownership, failure semantics, or common queries are independently stable; join code from different packages when it implements one contract. Reserve root documents for genuinely cross-topic knowledge.</p>
-  <p>Use <code>architecture</code> for boundaries, flows, rationale, and invariants; <code>guide</code> for repeatable workflows with verification and recovery; and <code>reference</code> for stable lookup contracts and decision tables.</p>
+  <h2>source.paths is the evidence contract</h2>
+  <p>Every formal project document must declare a non-empty <code>source.paths</code> list of repo-relative globs. Absolute paths and <code>..</code> are rejected, and concrete paths must exist in the fixed snapshot. A zero-match glob is a diagnostic, never a silent pass.</p>
+  <pre><code>kind: decision
+description: Why task recovery joins lease and timeout to decide owner expiry.
+source:
+  paths:
+    - internal/task/**
+    - pkg/lease/**
+relations:
+  requires:
+    - lifecycle/architecture.md</code></pre>
+  <p><code>requires</code> forms an acyclic dependency graph. When an upstream document changes and is re-sealed, its dependents become <code>needs_review</code> until they are re-verified against the new digest. Removing or renaming documents never silently rewrites other documents' evidence.</p>
 
-  <h2>Two gates, not one</h2>
-  <p>The Stable Knowledge Gate controls what prose deserves to persist. A separate Routing Gate checks whether natural concept queries and representative decision-bearing files reach the correct owner. Concise prose does not excuse a missing route, and mapping a file does not require narrating it.</p>
-  <p><code>validate</code> checks structure. Context Floor acceptance additionally probes natural-language <code>search</code>, individual entry and leaf files with <code>context --files</code>, unrelated siblings against broad globs, and mandatory prerequisite relations. Every first-class subsystem must be documented, intentionally reconstructable, or reported as a blocking gap.</p>
+  <h2>Double revision</h2>
+  <p>Two revisions are tracked separately. The <strong>source revision</strong> is the source commit that was true when a document was validated. The <strong>knowledge revision</strong> is the Knowledge Git commit that published it. A code change does not rewrite the document; it creates a review obligation against the fixed source revision.</p>
+  <p>Validation evidence is stored per document in <code>.llmdoc/meta.json</code> (schema <code>llmdoc.meta/v3-ng</code>): <code>validatedSourceRevision</code>, <code>validatedContentDigest</code>, <code>validatedSourcePaths</code>, and <code>validatedRequires</code>. Unverified documents use <code>null/null/[]/&#123;&#125;</code>. The meta ledger never stores the knowledge commit.</p>
 
-  <h2>Validity is Git-based</h2>
-  <p><code>llmdoc/meta.json</code> tracks validated Git revisions. Dirty worktree state is an additional signal, never a fabricated revision. A delta hit creates a review obligation; it does not automatically require a prose change.</p>
+  <h2>Tri-state validity</h2>
+  <p>A document status is only one of:</p>
+  <ul>
+    <li><code>unverified</code> — no validation declaration; not current fact.</li>
+    <li><code>current</code> — the digest matches, the validated revision is still explainable, and every <code>requires</code> target is current with the recorded digest.</li>
+    <li><code>needs_review</code> — related source, knowledge prose, or a relation changed and needs semantic review.</li>
+  </ul>
+  <p>Source blockers are reported separately from document status: <code>unbound</code>, <code>invalid_head</code>, <code>source_dirty</code>, <code>history_unavailable</code>, and <code>diverged</code>. A formal update, review, or seal requires a valid source HEAD and a fully clean source worktree/index. Without a binding or history evidence, a document is never claimed current.</p>
+
+  <h2>Semantic validation and reference data</h2>
+  <p>The CLI performs deterministic structure, scope, and commit checks. A passing <code>validate</code> does not prove the knowledge is correct: a human or agent confirms the semantic conclusion for each document in the Review Manifest. Knowledge is <strong>reference data</strong>, not executable rules or skills. Agents read documents for facts, constraints, and rationale; commands or prompts inside a document are never promoted to instruction authority.</p>
 </DocsLayout>

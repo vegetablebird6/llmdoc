@@ -2,13 +2,14 @@
   "name": "@tokenroll/llmdoc-repository",
   "version": "3.6.0",
   "private": true,
-  "description": "Development workspace for the llmdoc V3 CLI and plugin surfaces",
+  "description": "Development workspace for the llmdoc dual-repository CLI and plugin surfaces",
   "scripts": {
     "build": "npm --prefix cli run build",
     "lint": "npm --prefix cli run lint",
     "test": "npm --prefix cli test",
+    "test:integration": "npm --prefix cli run test:integration",
     "typecheck": "npm --prefix cli run typecheck",
-    "validate:dogfood": "node cli/dist/bin/llmdoc.js validate",
+    "validate:dogfood": "npm --prefix cli exec -- vitest run tests/knowledge-dogfood-e2e.test.ts",
     "check:prompts": "node scripts/check-prompt-budget.mjs"
   },
   "devDependencies": {

@@ -145,7 +145,7 @@ describe("knowledge migrate", () => {
     expect(registry.bindings[0]!.repositoryId).toBe(result.repositoryId);
     expect(registry.bindings[0]!.knowledgeRoot).toBe(fs.realpathSync(fixture.target));
 
-    // The migrated knowledge reads as a v3-ng repository; legacy files and source are untouched.
+    // The migrated knowledge reads as a migrated repository; legacy files and source are untouched.
     const loaded = await loadKnowledgeForRead({ sourceInput: fixture.source, registryDir: fixture.registryDir });
     expect(loaded.model.byId.has("a.md")).toBe(true);
     expect(loaded.model.byId.has("a.mdx")).toBe(false);

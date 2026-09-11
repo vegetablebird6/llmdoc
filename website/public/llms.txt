@@ -1,6 +1,6 @@
 # llmdoc
 
-> Persistent external context for codebases. llmdoc preserves architecture, constraints, rationale, contracts, non-obvious failures, and risky workflows that source code cannot cheaply reconstruct.
+> Detached engineering knowledge base for codebases. llmdoc keeps architecture, constraints, rationale, contracts, non-obvious failures, and risky workflows in an independent Knowledge Git repository, while the source repository stays read-only.
 
 Canonical site: https://llmdoc.tokenroll.ai/
 Repository: https://github.com/TokenRollAI/llmdoc
@@ -21,18 +21,26 @@ Repository: https://github.com/TokenRollAI/llmdoc
 - https://llmdoc.tokenroll.ai/zh/docs/workflows/
 - https://llmdoc.tokenroll.ai/zh/docs/cli/
 
-## Machine-readable schemas
-
-- https://llmdoc.tokenroll.ai/schemas/config.schema.json
-
 ## CLI
 
 Treat llmdoc as external tooling. Do not add it to the consumer project's package.json or lockfile.
 
-    npx -y @tokenroll/llmdoc tree
+Create or bind an independent knowledge repository first. The source repository is never modified.
 
-To inspect the current repository's document structure, relations, and status in a browser, start the local-only Viewer. It binds to 127.0.0.1.
+    npx -y @tokenroll/llmdoc init --source . --knowledge ../app-knowledge
+    npx -y @tokenroll/llmdoc bind --source . --knowledge ../app-knowledge
+
+Retrieve task-scoped knowledge from the bound knowledge repository:
+
+    npx -y @tokenroll/llmdoc tree
+    npx -y @tokenroll/llmdoc context --files src/api/client.ts
+
+To inspect the fixed Knowledge HEAD in a browser, start the local-only Viewer. It binds to 127.0.0.1.
 
     npx -y @tokenroll/llmdoc serve
 
 Always use the full scoped package name. A bare npx llmdoc resolves to an unrelated package.
+
+## Machine-readable schemas
+
+- https://llmdoc.tokenroll.ai/schemas/knowledge.schema.json

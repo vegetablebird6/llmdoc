@@ -69,28 +69,35 @@ export function createDetailRenderer({ panel, container, onSelectDocument, getSt
   }
 
   function renderDocument(path, documentData, state) {
+    if (documentData.error) {
+      container.replaceChildren(element("div", "placeholder", documentData.error));
+      return;
+    }
     const node = state.nodes.find((item) => item.path === path);
-    const frontmatter = documentData.frontmatter ?? {};
-    const title = element("h2", null, path);
-    const description = element("div", "desc", frontmatter.description ?? "");
+    const title = element("h2", null, documentData.id ?? path);
+    const description = element("div", "desc", documentData.description ?? "");
     const meta = element("div", "meta-row");
     meta.append(
-      element("span", "chip", frontmatter.kind ?? "?"),
-      statusChip(node?.status ?? "fresh"),
+      element("span", "chip", documentData.kind ?? "?"),
+      statusChip(documentData.status ?? node?.status ?? "unverified"),
       element("span", "chip", `~${documentData.estimatedTokens} tokens · ${documentData.lineCount} lines`)
     );
 
     const content = [title, description, meta];
-    const relations = frontmatter.relations ?? {};
-    const requires = relationBlock("requires", relations.requires);
-    const related = relationBlock("related", relations.related);
-    if (requires) content.push(requires);
-    if (related) content.push(related);
+    for (const [label, targets] of [
+      ["requires", documentData.requires],
+      ["related", documentData.related],
+      ["supersedes", documentData.supersedes],
+      ["superseded by", documentData.supersededBy]
+    ]) {
+      const block = relationBlock(label, targets);
+      if (block) content.push(block);
+    }
 
-    const codePaths = frontmatter.code?.paths ?? [];
-    if (codePaths.length) {
+    const sourcePaths = documentData.sourcePaths ?? [];
+    if (sourcePaths.length) {
       const paths = element("div", "meta-row");
-      paths.append(...codePaths.map((codePath) => element("span", "code-path", codePath)));
+      paths.append(...sourcePaths.map((sourcePath) => element("span", "code-path", sourcePath)));
       content.push(paths);
     }
 
@@ -130,15 +137,14 @@ export function createDetailRenderer({ panel, container, onSelectDocument, getSt
 
 function statusChip(status) {
   const chip = element("span", "chip", status);
-  chip.style.color = STATUS_COLOR[status] ?? STATUS_COLOR.fresh;
+  chip.style.color = STATUS_COLOR[status] ?? STATUS_COLOR.unverified;
   return chip;
 }
 
 function renderMarkdown(target, source, documentPath, state, onSelectDocument) {
-  const normalized = replaceCodeReferences(String(source));
   let rendered;
   try {
-    rendered = window.marked.parse(normalized);
+    rendered = window.marked.parse(String(source));
   } catch {
     const fallback = element("pre", null, source);
     target.replaceChildren(fallback);
@@ -148,9 +154,6 @@ function renderMarkdown(target, source, documentPath, state, onSelectDocument) {
   const template = document.createElement("template");
   template.innerHTML = rendered;
   sanitizeFragment(template.content);
-  for (const code of template.content.querySelectorAll("code")) {
-    if (code.textContent.startsWith("⌁ ")) code.classList.add("coderef");
-  }
   for (const link of template.content.querySelectorAll("a[href]")) {
     const href = link.getAttribute("href") ?? "";
     if (/^(https?:|mailto:)/i.test(href)) {
@@ -168,15 +171,6 @@ function renderMarkdown(target, source, documentPath, state, onSelectDocument) {
     }
   }
   target.replaceChildren(template.content);
-}
-
-function replaceCodeReferences(source) {
-  return source.replace(/<CodeRef\s+([^>]*?)\/>/g, (_match, attributes) => {
-    const path = /path="([^"]*)"/.exec(attributes)?.[1] ?? "";
-    const symbol = /symbol="([^"]*)"/.exec(attributes)?.[1] ?? "";
-    const label = `⌁ ${path}${symbol ? ` · ${symbol}` : ""}`.replace(/`/g, "ˋ");
-    return `\`${label}\``;
-  });
 }
 
 function sanitizeFragment(fragment) {

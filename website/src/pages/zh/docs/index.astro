@@ -4,12 +4,12 @@ import DocsLayout from "../../../layouts/DocsLayout.astro";
 
 <DocsLayout
   title="文档"
-  description="理解 llmdoc 的知识模型，为 Coding Agent 安装 llmdoc，并安全使用 CLI 与显式工作流。"
+  description="理解 llmdoc 的双仓库知识模型，为 Coding Agent 安装 llmdoc，并安全使用 CLI 与显式工作流。"
   locale="zh"
   section="overview"
 >
-  <h1>以明确的边界，操作持久上下文。</h1>
-  <p class="lead">llmdoc 是由 Git 跟踪的知识面，保存源码难以低成本还原的架构、约束、理由、契约、失败语义与危险工作流。</p>
+  <h1>独立知识，按明确边界操作。</h1>
+  <p class="lead">llmdoc 是 Detached Engineering Knowledge Base：一个独立 Git 仓库，保存源码难以低成本还原的事实——架构、约束、理由、契约、失败语义与危险工作流。源码仓库始终保持只读。</p>
 
   <div class="callout">
     <p><strong>从检索开始，不要从通读开始。</strong>选择一个符合当前意图的 CLI 入口，获得足够上下文后就停止。</p>
@@ -17,10 +17,10 @@ import DocsLayout from "../../../layouts/DocsLayout.astro";
 
   <h2>选择一条路径</h2>
   <div class="doc-cards">
-    <a href="/zh/docs/getting-started/"><span>01</span><strong>开始使用</strong><small>安装插件，或运行外部 CLI。</small></a>
-    <a href="/zh/docs/concepts/"><span>02</span><strong>核心概念</strong><small>Context Floor、渐进读取与稳定知识。</small></a>
+    <a href="/zh/docs/getting-started/"><span>01</span><strong>开始使用</strong><small>创建或绑定独立知识仓。</small></a>
+    <a href="/zh/docs/concepts/"><span>02</span><strong>核心概念</strong><small>双仓库、双 revision、三态与 source.paths。</small></a>
     <a href="/zh/docs/workflows/"><span>03</span><strong>工作流</strong><small>日常检索与显式的初始化、更新、收敛和迁移。</small></a>
-    <a href="/zh/docs/cli/"><span>04</span><strong>CLI 参考</strong><small>发现、有效性与安全改写命令。</small></a>
+    <a href="/zh/docs/cli/"><span>04</span><strong>CLI 参考</strong><small>绑定、检索、诊断与语义提交。</small></a>
   </div>
 
 </DocsLayout>

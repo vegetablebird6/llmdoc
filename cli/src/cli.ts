@@ -16,6 +16,8 @@ import { runStatus } from "./commands/status.js";
 import { runDelta } from "./commands/delta.js";
 import { runReview } from "./commands/review.js";
 import { runPrune } from "./commands/prune.js";
+import { runHook } from "./commands/hook.js";
+import { runServe, parseViewerPort } from "./commands/serve.js";
 import { stringifyValidatedOutput, type OutputSchemaName } from "./lib/output-schema.js";
 import { packageRootFromImport } from "./lib/package-root.js";
 
@@ -49,7 +51,7 @@ export async function runCli(argv: string[], cwd = process.cwd()): Promise<RunCl
 
   program
     .name("llmdoc")
-    .description("Project knowledge CLI for LLMs: progressively retrieve llmdoc/ documents and maintain the revision ledger")
+    .description("llmdoc knowledge CLI: read committed knowledge, diagnose review obligations, and seal verified understanding into an independent Knowledge Git")
     .version(readPackageVersion(), "--version", "output the CLI version")
     .helpOption("-h, --help", "display help")
     .helpCommand("help [command]", "display help for a command")
@@ -70,6 +72,7 @@ export async function runCli(argv: string[], cwd = process.cwd()): Promise<RunCl
       "  Semantic commit        review → review --confirm → commit --review",
       "  Candidate capture      capture → update",
       "  Maintenance            prune · migrate",
+      "  Host integration       hook · serve",
       "",
       "Common examples:",
       "  llmdoc tree                              show the knowledge map (topics and root documents)",
@@ -368,6 +371,54 @@ export async function runCli(argv: string[], cwd = process.cwd()): Promise<RunCl
           globalOptions.json
         )
       );
+    });
+
+  program
+    .command("hook")
+    .description("fail-open SessionStart/Stop/PreCompact diagnostics over the bound knowledge protocol")
+    .argument("<event>", "session-start | stop | compact")
+    .option("--source <path>", "inspect the knowledge bound to this source worktree")
+    .option("--knowledge <path>", "inspect this explicit knowledge root")
+    .addHelpText(
+      "after",
+      "\nhook is read-only and fail-open: it reports review obligations and source blockers, never writes source or knowledge, never initializes a binding, and never falls back to a legacy workspace. With no binding it emits a diagnostic."
+    )
+    .action(async (event, commandOptions) => {
+      const result = await runHook({
+        cwd,
+        event,
+        source: commandOptions.source,
+        knowledge: commandOptions.knowledge,
+        json: globalOptions.json
+      });
+      exitCode = result.exitCode;
+      if (globalOptions.json) {
+        output.push(stringifyValidatedOutput("hook", result.result.payload));
+      } else if (result.event === "session-start") {
+        output.push(result.result.sessionStartText);
+      } else {
+        output.push(JSON.stringify({ continue: true, systemMessage: result.result.payload.systemMessage }));
+      }
+    });
+
+  program
+    .command("serve")
+    .description("start the read-only knowledge viewer on 127.0.0.1 and keep running until interrupted")
+    .option("--port <port>", "port to bind, 0-65535 (0 chooses a free port)", parseViewerPort)
+    .option("--source <path>", "view the knowledge bound to this source worktree")
+    .option("--knowledge <path>", "view this explicit knowledge root")
+    .addHelpText(
+      "after",
+      "\nserve shows the fixed Knowledge HEAD docs with the same tri-state, source blockers and double revision as the CLI. It never displays inbox/cache as formal knowledge, never reads the legacy embedded V3 layout, and reports a diagnostic instead of initializing when no binding exists."
+    )
+    .action(async (commandOptions) => {
+      await runServe({
+        cwd,
+        port: commandOptions.port,
+        source: commandOptions.source,
+        knowledge: commandOptions.knowledge,
+        json: globalOptions.json
+      });
     });
 
   try {
