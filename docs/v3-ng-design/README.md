@@ -10,7 +10,9 @@
 
 llmdoc 保存难以从代码低成本重建、会影响未来决策且跨多个 commit 成立的工程理解。它不是 Code Wiki Generator。代码变化只产生复核义务；复核可能只更新验证依据，不修改正文。
 
-本次交付为设计，运行时代码、发布版本及现有 V3 用户行为不随文档自动改变。
+v3-ng 是 breaking change 的实现基线。进入 v3-ng 后，现有 CLI、hooks、skills、viewer 与知识布局直接切换到本协议，不保留 V3 运行时兼容分支，也不以缺少显式 v3-ng 参数为由回退到 V3/Source Git。旧 V3 内容只作为显式 `migrate` 的输入；迁移前继续使用旧版本工具，迁移后使用 v3-ng。
+
+`v3-ng` 仅是分支与设计阶段代号，不是产品运行模式或代码命名空间。运行时代码使用稳定的领域名称，不建立 `lib/v3ng`、`ng-*` command、`runNg*`、`ngTree/ngError` 等平行入口；标准 `lib`、commands、输出 schema 与错误类型直接承载新协议。协议数据需要独立演进标识时可以保留明确 schema version，但不能据此分流到旧运行时。
 
 ## 八条硬边界
 
@@ -40,7 +42,7 @@ llmdoc 保存难以从代码低成本重建、会影响未来决策且跨多个 
 | 导航 | 标准 Markdown README，可重建，不作为知识节点或验证对象 |
 | 迁移 | 显式复制迁移、dry-run、旧格式只读诊断，禁止隐式原地升级 |
 
-## 与当前 V3 的衔接
+## 与当前 V3 的迁移边界
 
 核对基准：2026-09-09，本地 `main` HEAD `ae0695dbf4fc4084e0078be3edf6a7772e059722` 加已有未提交修改；随后创建 `v3-ng`。这是工作树观察，不是对已发布 npm 包的断言。
 
@@ -49,7 +51,7 @@ llmdoc 保存难以从代码低成本重建、会影响未来决策且跨多个 
 | [workspace.ts](../../cli/src/lib/workspace.ts) 已有 sourceGitRoot / projectionGitRoot / nested-personal，但无嵌套时回退 source Git | 显式 SourceContext / KnowledgeContext，移除写入 fallback |
 | 同文件仍从 `root/llmdoc` 扫描 `.mdx`，限制两层，使用 `code.paths` | 外置根、`docs/**/*.md`、`source.paths`；允许多层目录，不要求 topic 入口 |
 | [commit.ts](../../cli/src/commands/commit.ts) 的 nested 分支已有单次 docs + meta 提交及 source HEAD 检查 | 复用分离方向；统一独立 Git 事务、显式验证范围和锁 |
-| embedded 分支仍提交正文后追加 meta commit | v3-ng 不提供 embedded 持久写入；迁移后才可写 |
+| embedded 分支仍提交正文后追加 meta commit | v3-ng 不读取或写入 embedded 知识；只允许显式迁移到独立 Knowledge Git 后使用 |
 | [V3 设计](../v3-design/README.md) 使用三个 kind、MDX、动态导航 | 新增 decision、纯 Markdown、人类导航；历史 V3 设计保留 |
 
 不能把这些已有演进归功于本次设计，也不能据此认定实现已经满足全部新契约。
@@ -62,6 +64,6 @@ llmdoc 保存难以从代码低成本重建、会影响未来决策且跨多个 
 
 实施约定：先将设计落地并完成评审，再写运行时代码。每完成一个实施步骤，立即更新进度记录与受影响的设计契约；遇到方案调整先改设计再继续实现。不能只在聊天中记录完成情况。
 
-评审收敛：最小 inbox、decision/supersedes、全仓 clean snapshot、临时 Review Manifest、digest、临时 index/CAS、opaque submodule、显式逻辑身份绑定均纳入基线。旧 embedded 只读并复制迁移；不再实现 dirty scope 或 live worktree 验证。
+评审收敛：最小 inbox、decision/supersedes、全仓 clean snapshot、临时 Review Manifest、digest、临时 index/CAS、opaque submodule、显式逻辑身份绑定均纳入基线。v3-ng 以 breaking replacement 覆盖 V3 运行时入口；旧 embedded 只作为显式复制迁移的输入，不再实现 dirty scope 或 live worktree 验证。
 
 冻结补充：requires 禁环并绑定目标 digest；review 使用旧新 scope 并集；capture 复用 scoped 写事务；全局扫描点命名为 lastGlobalReviewRevision。首版不支持任意 staged 状态保留，迁移不抽取旧仓历史。

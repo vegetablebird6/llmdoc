@@ -7,13 +7,13 @@ vi.setConfig({ testTimeout: 30000 });
 
 import { load, dump } from "js-yaml";
 
-import { bindKnowledge } from "../src/lib/v3ng/bind.js";
-import { initKnowledgeRepository } from "../src/lib/v3ng/init.js";
-import { readRegistryDocument } from "../src/lib/v3ng/registry.js";
-import { generateRepositoryId } from "../src/lib/v3ng/identity.js";
-import { loadKnowledgeLayoutConfig } from "../src/lib/v3ng/knowledge-config.js";
-import { resolveSourceContext } from "../src/lib/v3ng/contexts.js";
-import { commitFile, expectNgError, git, head, initRepo, makeTempDir } from "./v3ng-helpers.js";
+import { bindKnowledge } from "../src/lib/knowledge/bind.js";
+import { initKnowledgeRepository } from "../src/lib/knowledge/init.js";
+import { readRegistryDocument } from "../src/lib/knowledge/registry.js";
+import { generateRepositoryId } from "../src/lib/knowledge/identity.js";
+import { loadKnowledgeLayoutConfig } from "../src/lib/knowledge/knowledge-config.js";
+import { resolveSourceContext } from "../src/lib/knowledge/contexts.js";
+import { commitFile, expectKnowledgeError, git, head, initRepo, makeTempDir } from "./knowledge-helpers.js";
 
 const createdDirs: string[] = [];
 
@@ -38,7 +38,7 @@ function makeSource(prefix: string): { base: string; registryDir: string; source
 
 describe("initKnowledgeRepository", () => {
   it("creates an independent external knowledge repository, identity, initial commit and binding", async () => {
-    const { base, registryDir, source } = makeSource("llmdoc-v3ng-init-");
+    const { base, registryDir, source } = makeSource("llmdoc-knowledge-init-");
 
     const result = await initKnowledgeRepository({
       sourceInput: source,
@@ -86,11 +86,11 @@ describe("initKnowledgeRepository", () => {
   });
 
   it("refuses non-empty targets", async () => {
-    const { base, registryDir, source } = makeSource("llmdoc-v3ng-initne-");
+    const { base, registryDir, source } = makeSource("llmdoc-knowledge-initne-");
     fs.mkdirSync(`${base}/knowledge`);
     fs.writeFileSync(`${base}/knowledge/sentinel.txt`, "keep\n");
 
-    await expectNgError(
+    await expectKnowledgeError(
       () =>
         initKnowledgeRepository({
           sourceInput: source,
@@ -104,10 +104,10 @@ describe("initKnowledgeRepository", () => {
   });
 
   it("refuses to rebind an already bound source", async () => {
-    const { base, registryDir, source } = makeSource("llmdoc-v3ng-initrb-");
+    const { base, registryDir, source } = makeSource("llmdoc-knowledge-initrb-");
     await initKnowledgeRepository({ sourceInput: source, knowledgeInput: `${base}/knowledge1`, registryDir });
 
-    await expectNgError(
+    await expectKnowledgeError(
       () => initKnowledgeRepository({ sourceInput: source, knowledgeInput: `${base}/knowledge2`, registryDir }),
       "E_BINDING_CONFLICT"
     );
@@ -115,9 +115,9 @@ describe("initKnowledgeRepository", () => {
   });
 
   it("requires explicit nested mode before creating anything inside the source", async () => {
-    const { base, registryDir, source } = makeSource("llmdoc-v3ng-initnest-");
+    const { base, registryDir, source } = makeSource("llmdoc-knowledge-initnest-");
 
-    await expectNgError(
+    await expectKnowledgeError(
       () => initKnowledgeRepository({ sourceInput: source, knowledgeInput: `${base}/source/knowledge`, registryDir }),
       "E_NESTED_MODE_REQUIRED"
     );
@@ -139,9 +139,9 @@ describe("initKnowledgeRepository", () => {
   });
 
   it("rejects nested mode for targets outside the source", async () => {
-    const { base, registryDir, source } = makeSource("llmdoc-v3ng-initnestbad-");
+    const { base, registryDir, source } = makeSource("llmdoc-knowledge-initnestbad-");
 
-    await expectNgError(
+    await expectKnowledgeError(
       () =>
         initKnowledgeRepository({
           sourceInput: source,
@@ -157,7 +157,7 @@ describe("initKnowledgeRepository", () => {
 
 describe("bindKnowledge", () => {
   it("binds an existing llmdoc-initialized knowledge repository and is idempotent", async () => {
-    const { base, registryDir } = makeSource("llmdoc-v3ng-bind2-");
+    const { base, registryDir } = makeSource("llmdoc-knowledge-bind2-");
     const other = initRepo(`${base}/other`);
     commitFile(other, "pkg/x.ts", "export const x = 1;\n", "init");
     const knowledge = initRepo(`${base}/knowledge`);
@@ -177,33 +177,33 @@ describe("bindKnowledge", () => {
   });
 
   it("refuses to bind a knowledge repository without llmdoc.yaml identity", async () => {
-    const { base, registryDir } = makeSource("llmdoc-v3ng-bindraw-");
+    const { base, registryDir } = makeSource("llmdoc-knowledge-bindraw-");
     const other = initRepo(`${base}/other`);
     commitFile(other, "pkg/x.ts", "export const x = 1;\n", "init");
     const knowledge = initRepo(`${base}/knowledge`);
 
-    await expectNgError(() => bindKnowledge({ sourceInput: other, knowledgeInput: knowledge, registryDir }), "E_KNOWLEDGE_NOT_INITIALIZED");
+    await expectKnowledgeError(() => bindKnowledge({ sourceInput: other, knowledgeInput: knowledge, registryDir }), "E_KNOWLEDGE_NOT_INITIALIZED");
     expect(readRegistryDocument(registryDir).bindings).toHaveLength(0);
   });
 
   it("refuses conflicting rebinds and knowledge-root reuse across sources", async () => {
-    const { base, registryDir, source } = makeSource("llmdoc-v3ng-bindc-");
+    const { base, registryDir, source } = makeSource("llmdoc-knowledge-bindc-");
     const result = await initKnowledgeRepository({ sourceInput: source, knowledgeInput: `${base}/knowledge`, registryDir });
 
     const other = initRepo(`${base}/other`);
     commitFile(other, "pkg/x.ts", "export const x = 1;\n", "init");
-    await expectNgError(() => bindKnowledge({ sourceInput: other, knowledgeInput: result.knowledgeRoot, registryDir }), "E_BINDING_CONFLICT");
+    await expectKnowledgeError(() => bindKnowledge({ sourceInput: other, knowledgeInput: result.knowledgeRoot, registryDir }), "E_BINDING_CONFLICT");
 
     const secondKnowledge = initRepo(`${base}/knowledge2`);
     fs.writeFileSync(
       path.join(secondKnowledge, "llmdoc.yaml"),
       dump({ schema: "llmdoc.knowledge/v1", repositoryId: generateRepositoryId(), layoutVersion: 1, remotes: [] })
     );
-    await expectNgError(() => bindKnowledge({ sourceInput: source, knowledgeInput: secondKnowledge, registryDir }), "E_BINDING_CONFLICT");
+    await expectKnowledgeError(() => bindKnowledge({ sourceInput: source, knowledgeInput: secondKnowledge, registryDir }), "E_BINDING_CONFLICT");
   });
 
   it("records credential-free remote aliases from the source at init", async () => {
-    const { base, registryDir, source } = makeSource("llmdoc-v3ng-initrem-");
+    const { base, registryDir, source } = makeSource("llmdoc-knowledge-initrem-");
     git(source, ["remote", "add", "origin", "https://user:secret@example.com/org/project.git"]);
 
     const result = await initKnowledgeRepository({ sourceInput: source, knowledgeInput: `${base}/knowledge`, registryDir });

@@ -4,7 +4,7 @@ import { Command } from "commander";
 
 import { findProjectRoot, findProjectRootOrNull } from "./lib/fs.js";
 import { CliError } from "./lib/errors.js";
-import { NgError } from "./lib/v3ng/errors.js";
+import { KnowledgeError } from "./lib/knowledge/errors.js";
 import { runBind } from "./commands/bind.js";
 import { runInit } from "./commands/init.js";
 import { runTree } from "./commands/tree.js";
@@ -75,10 +75,10 @@ export async function runCli(argv: string[], cwd = process.cwd(), stdin = ""): P
       "  Integration            hook · serve",
       "",
       "Common examples:",
-      "  llmdoc tree --docs                        expand the global map to documents",
+      "  llmdoc tree                              show the knowledge map (topics and root documents)",
       "  llmdoc search \"retry policy\" --limit 5     search documents lexically",
       "  llmdoc context --files src/api/retry.ts   map source files to documents to read",
-      "  llmdoc show api-client/retry-policy.mdx   read selected bodies",
+      "  llmdoc show lifecycle/task-recovery.md    read selected bodies",
       "  llmdoc commit -m \"docs: ...\"              validate and commit the llmdoc write set",
       "",
       "All retrieval commands support --json / --budget / --limit; use --cursor to continue truncated output."
@@ -87,61 +87,54 @@ export async function runCli(argv: string[], cwd = process.cwd(), stdin = ""): P
 
   program
     .command("tree")
-    .description("output the global llmdoc map (topics by default)")
-    .option("--docs", "expand to document level")
-    .action((commandOptions) => {
-      const rootDir = findProjectRoot(cwd);
-      const result = runTree({ ...globalOptions, ...commandOptions, cwd: rootDir });
-      output.push(writeOutput(commandOptions.docs ? "treeDocs" : "treeTopics", result, globalOptions.json));
+    .description("output the knowledge map (topics by default)")
+    .option("--source <path>", "read the knowledge bound to this source worktree")
+    .option("--knowledge <path>", "read this explicit knowledge root (may be an unbound no-Git directory)")
+    .action(async (commandOptions) => {
+      output.push(writeOutput("tree", await runTree({ ...globalOptions, ...commandOptions, cwd }), globalOptions.json));
     });
 
   program
     .command("index")
     .description("list document metadata without reading bodies")
     .option("--topic <topic>", "list documents only under this topic")
-    .option("--kind <kind>", "filter by kind: architecture | guide | reference")
-    .action((commandOptions) => {
-      const rootDir = findProjectRoot(cwd);
-      output.push(writeOutput("index", runIndex({ ...globalOptions, ...commandOptions, cwd: rootDir }), globalOptions.json));
+    .option("--kind <kind>", "filter by kind: architecture | decision | guide | reference")
+    .option("--source <path>", "read the knowledge bound to this source worktree")
+    .option("--knowledge <path>", "read this explicit knowledge root (may be an unbound no-Git directory)")
+    .action(async (commandOptions) => {
+      output.push(writeOutput("index", await runIndex({ ...globalOptions, ...commandOptions, cwd }), globalOptions.json));
     });
 
   program
     .command("show")
     .description("read one or more document bodies")
-    .argument("<path...>", "paths relative to llmdoc/, such as api-client/retry-policy.mdx")
-    .action((paths) => {
-      const rootDir = findProjectRoot(cwd);
-      output.push(writeOutput("show", runShow({ ...globalOptions, cwd: rootDir, paths }), globalOptions.json));
+    .argument("<path...>", "paths relative to docs/, such as lifecycle/task-recovery.md")
+    .option("--source <path>", "read the knowledge bound to this source worktree")
+    .option("--knowledge <path>", "read this explicit knowledge root (may be an unbound no-Git directory)")
+    .action(async (paths, commandOptions) => {
+      output.push(writeOutput("show", await runShow(paths, { ...globalOptions, ...commandOptions, cwd }), globalOptions.json));
     });
 
   program
     .command("search")
-    .description("search llmdoc documents lexically (Chinese segmentation with CJK bigram fallback)")
+    .description("search knowledge documents lexically (Chinese segmentation with CJK bigram fallback)")
     .argument("<query>", "search query")
     .option("--topic <topic>", "limit to a topic")
-    .option("--kind <kind>", "filter by kind: architecture | guide | reference")
-    .action((query, commandOptions) => {
-      const rootDir = findProjectRoot(cwd);
-      output.push(writeOutput("search", runSearch({ ...globalOptions, ...commandOptions, cwd: rootDir, query }), globalOptions.json));
+    .option("--kind <kind>", "filter by kind: architecture | decision | guide | reference")
+    .option("--source <path>", "read the knowledge bound to this source worktree")
+    .option("--knowledge <path>", "read this explicit knowledge root (may be an unbound no-Git directory)")
+    .action(async (query, commandOptions) => {
+      output.push(writeOutput("search", await runSearch(query, { ...globalOptions, ...commandOptions, cwd }), globalOptions.json));
     });
 
   program
     .command("context")
     .description("map source files to documents to read, including the requires closure")
     .requiredOption("--files <files...>", "one or more source file paths")
-    .action((commandOptions) => {
-      const rootDir = findProjectRoot(cwd);
-      output.push(
-        writeOutput(
-          "context",
-          runContext({
-            ...globalOptions,
-            cwd: rootDir,
-            files: commandOptions.files
-          }),
-          globalOptions.json
-        )
-      );
+    .option("--source <path>", "read the knowledge bound to this source worktree")
+    .option("--knowledge <path>", "read this explicit knowledge root (may be an unbound no-Git directory)")
+    .action(async (commandOptions) => {
+      output.push(writeOutput("context", await runContext(commandOptions.files, { ...globalOptions, ...commandOptions, cwd }), globalOptions.json));
     });
 
   program
@@ -297,7 +290,7 @@ export async function runCli(argv: string[], cwd = process.cwd(), stdin = ""): P
 
   program
     .command("bind")
-    .description("v3-ng: associate a source repository with an independent knowledge repository")
+    .description("associate a source repository with an independent knowledge repository")
     .requiredOption("--source <path>", "source worktree root")
     .requiredOption("--knowledge <path>", "knowledge repository worktree root")
     .option("--nested", "explicitly select nested mode (the knowledge repository lives inside the source worktree)")
@@ -317,7 +310,7 @@ export async function runCli(argv: string[], cwd = process.cwd(), stdin = ""): P
 
   program
     .command("init")
-    .description("v3-ng: create an independent knowledge repository and bind it to a source repository")
+    .description("create an independent knowledge repository and bind it to a source repository")
     .requiredOption("--source <path>", "source worktree root")
     .requiredOption("--knowledge <path>", "new, empty target root for the knowledge repository")
     .option("--nested", "explicitly select nested mode (the knowledge repository lives inside the source worktree)")
@@ -371,11 +364,11 @@ export async function runCli(argv: string[], cwd = process.cwd(), stdin = ""): P
   try {
     await program.parseAsync(argv, { from: "user" });
   } catch (error) {
-    if (error instanceof NgError) {
+    if (error instanceof KnowledgeError) {
       if (globalOptions.json) {
         return {
           exitCode: error.exitCode,
-          stdout: stringifyValidatedOutput("ngError", {
+          stdout: stringifyValidatedOutput("knowledgeError", {
             error: {
               code: error.code,
               message: error.message,

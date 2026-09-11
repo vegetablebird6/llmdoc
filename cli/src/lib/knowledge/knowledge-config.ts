@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { load, dump } from "js-yaml";
 
-import { NgError, runFileSystemIo } from "./errors.js";
+import { KnowledgeError, runFileSystemIo } from "./errors.js";
 import { REPOSITORY_ID_PATTERN } from "./identity.js";
 import { runGit } from "./git-core.js";
 import type { GitRepoLayout } from "./git-core.js";
@@ -33,40 +33,41 @@ export function loadKnowledgeLayoutConfig(knowledgeRoot: string): KnowledgeLayou
   if (!fs.existsSync(filePath)) {
     return null;
   }
+  const raw = runFileSystemIo(() => fs.readFileSync(filePath, "utf8"), "Failed to read llmdoc.yaml", [filePath]);
+  return parseKnowledgeLayoutConfig(raw, filePath);
+}
+
+/** Parses llmdoc.yaml from raw content so identity/layout can be read from a fixed Knowledge revision. */
+export function parseKnowledgeLayoutConfig(raw: string, label: string): KnowledgeLayoutConfig {
   let parsed: unknown;
   try {
-    parsed = load(
-      runFileSystemIo(() => fs.readFileSync(filePath, "utf8"), "Failed to read llmdoc.yaml", [filePath])
-    );
+    parsed = load(raw);
   } catch (error) {
-    if (error instanceof NgError) {
-      throw error;
-    }
-    throw new NgError("E_KNOWLEDGE_CONFIG_INVALID", `llmdoc.yaml is not valid YAML: ${(error as Error).message}`, {
-      paths: [filePath]
+    throw new KnowledgeError("E_KNOWLEDGE_CONFIG_INVALID", `llmdoc.yaml is not valid YAML: ${(error as Error).message}`, {
+      paths: [label]
     });
   }
-  return validateKnowledgeLayoutConfig(parsed, filePath);
+  return validateKnowledgeLayoutConfig(parsed, label);
 }
 
 export function validateKnowledgeLayoutConfig(parsed: unknown, filePath: string): KnowledgeLayoutConfig {
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new NgError("E_KNOWLEDGE_CONFIG_INVALID", "llmdoc.yaml must contain a mapping", { paths: [filePath] });
+    throw new KnowledgeError("E_KNOWLEDGE_CONFIG_INVALID", "llmdoc.yaml must contain a mapping", { paths: [filePath] });
   }
   const record = parsed as Record<string, unknown>;
   if (record.schema !== KNOWLEDGE_LAYOUT_SCHEMA) {
-    throw new NgError("E_KNOWLEDGE_CONFIG_INVALID", `llmdoc.yaml schema must be ${KNOWLEDGE_LAYOUT_SCHEMA}`, {
+    throw new KnowledgeError("E_KNOWLEDGE_CONFIG_INVALID", `llmdoc.yaml schema must be ${KNOWLEDGE_LAYOUT_SCHEMA}`, {
       paths: [filePath]
     });
   }
   if (!REPOSITORY_ID_PATTERN.test(String(record.repositoryId ?? ""))) {
-    throw new NgError("E_KNOWLEDGE_CONFIG_INVALID", "llmdoc.yaml is missing a valid repositoryId (llmdoc-<32 hex>)", {
+    throw new KnowledgeError("E_KNOWLEDGE_CONFIG_INVALID", "llmdoc.yaml is missing a valid repositoryId (llmdoc-<32 hex>)", {
       paths: [filePath]
     });
   }
   const remotes = validateRemotes(record.remotes, filePath);
   if (record.layoutVersion !== 1) {
-    throw new NgError("E_KNOWLEDGE_CONFIG_INVALID", "llmdoc.yaml layoutVersion must be 1", { paths: [filePath] });
+    throw new KnowledgeError("E_KNOWLEDGE_CONFIG_INVALID", "llmdoc.yaml layoutVersion must be 1", { paths: [filePath] });
   }
   return {
     schema: KNOWLEDGE_LAYOUT_SCHEMA,
@@ -81,19 +82,19 @@ function validateRemotes(input: unknown, filePath: string): KnowledgeRemote[] {
     return [];
   }
   if (!Array.isArray(input)) {
-    throw new NgError("E_KNOWLEDGE_CONFIG_INVALID", "llmdoc.yaml remotes must be a list of {name, url}", {
+    throw new KnowledgeError("E_KNOWLEDGE_CONFIG_INVALID", "llmdoc.yaml remotes must be a list of {name, url}", {
       paths: [filePath]
     });
   }
   return input.map((item) => {
     if (item === null || typeof item !== "object" || Array.isArray(item)) {
-      throw new NgError("E_KNOWLEDGE_CONFIG_INVALID", "llmdoc.yaml remotes entries must be mappings", {
+      throw new KnowledgeError("E_KNOWLEDGE_CONFIG_INVALID", "llmdoc.yaml remotes entries must be mappings", {
         paths: [filePath]
       });
     }
     const entry = item as Record<string, unknown>;
     if (typeof entry.name !== "string" || entry.name.length === 0 || typeof entry.url !== "string") {
-      throw new NgError("E_KNOWLEDGE_CONFIG_INVALID", "llmdoc.yaml remotes entries need non-empty name and url strings", {
+      throw new KnowledgeError("E_KNOWLEDGE_CONFIG_INVALID", "llmdoc.yaml remotes entries need non-empty name and url strings", {
         paths: [filePath]
       });
     }

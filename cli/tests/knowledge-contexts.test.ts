@@ -7,9 +7,9 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 
 vi.setConfig({ testTimeout: 30000 });
 
-import { NgError } from "../src/lib/v3ng/errors.js";
-import { resolveKnowledgeContext, resolveSourceContext } from "../src/lib/v3ng/contexts.js";
-import { realPath, sameRealPath } from "../src/lib/v3ng/paths.js";
+import { KnowledgeError } from "../src/lib/knowledge/errors.js";
+import { resolveKnowledgeContext, resolveSourceContext } from "../src/lib/knowledge/contexts.js";
+import { realPath, sameRealPath } from "../src/lib/knowledge/paths.js";
 
 const createdDirs: string[] = [];
 
@@ -67,24 +67,24 @@ function head(dir: string): string {
   return git(dir, ["rev-parse", "HEAD"]).trim();
 }
 
-async function expectNgError(run: () => unknown | Promise<unknown>, code: string, exitCode = 2): Promise<NgError> {
+async function expectKnowledgeError(run: () => unknown | Promise<unknown>, code: string, exitCode = 2): Promise<KnowledgeError> {
   try {
     await run();
   } catch (error) {
-    expect(error).toBeInstanceOf(NgError);
-    const ngError = error as NgError;
-    expect(ngError.code).toBe(code);
-    expect(ngError.exitCode).toBe(exitCode);
-    return ngError;
+    expect(error).toBeInstanceOf(KnowledgeError);
+    const knowledgeError = error as KnowledgeError;
+    expect(knowledgeError.code).toBe(code);
+    expect(knowledgeError.exitCode).toBe(exitCode);
+    return knowledgeError;
   }
-  throw new Error(`expected NgError ${code}, but the call succeeded`);
+  throw new Error(`expected KnowledgeError ${code}, but the call succeeded`);
 }
 
 const itOnWindows = process.platform === "win32" ? it : it.skip;
 
 describe("resolveSourceContext", () => {
   it("resolves a clean source repository with a valid HEAD", async () => {
-    const root = initRepo(makeTempDir("llmdoc-v3ng-src-"));
+    const root = initRepo(makeTempDir("llmdoc-knowledge-src-"));
     commitFile(root, "src/api/retry.ts", "export function isRetryable() { return true; }\n", "init");
 
     const context = await resolveSourceContext(root);
@@ -99,7 +99,7 @@ describe("resolveSourceContext", () => {
   });
 
   it("reports invalid_head for an unborn HEAD while the worktree is clean", async () => {
-    const root = initRepo(makeTempDir("llmdoc-v3ng-unborn-"));
+    const root = initRepo(makeTempDir("llmdoc-knowledge-unborn-"));
 
     const context = await resolveSourceContext(root);
 
@@ -110,7 +110,7 @@ describe("resolveSourceContext", () => {
   });
 
   it("reports invalid_head instead of a git error or fake clean when HEAD points at a non-commit object", async () => {
-    const root = initRepo(makeTempDir("llmdoc-v3ng-blobhead-"));
+    const root = initRepo(makeTempDir("llmdoc-knowledge-blobhead-"));
     commitFile(root, "f.txt", "base\n", "base");
     writeFile(root, "blob-source.txt", "blob\n");
     const blobSha = git(root, ["hash-object", "-w", "blob-source.txt"]).trim();
@@ -127,7 +127,7 @@ describe("resolveSourceContext", () => {
   });
 
   it("treats a detached HEAD at a real commit as a valid clean revision", async () => {
-    const root = initRepo(makeTempDir("llmdoc-v3ng-detached-"));
+    const root = initRepo(makeTempDir("llmdoc-knowledge-detached-"));
     commitFile(root, "f.txt", "one\n", "c1");
     const first = head(root);
     commitFile(root, "f.txt", "two\n", "c2");
@@ -144,7 +144,7 @@ describe("resolveSourceContext", () => {
   });
 
   it("categorizes staged, unstaged, untracked and conflicted paths as dirty", async () => {
-    const root = initRepo(makeTempDir("llmdoc-v3ng-dirty-"));
+    const root = initRepo(makeTempDir("llmdoc-knowledge-dirty-"));
     commitFile(root, "a.txt", "base\n", "base");
     writeFile(root, "a.txt", "unstaged change\n");
     writeFile(root, "b.txt", "staged\n");
@@ -164,7 +164,7 @@ describe("resolveSourceContext", () => {
   });
 
   it("counts merge conflicts as dirty", async () => {
-    const root = initRepo(makeTempDir("llmdoc-v3ng-conflict-"));
+    const root = initRepo(makeTempDir("llmdoc-knowledge-conflict-"));
     commitFile(root, "f.txt", "base\n", "base");
     git(root, ["checkout", "-b", "feature"]);
     commitFile(root, "f.txt", "feature\n", "feature");
@@ -179,7 +179,7 @@ describe("resolveSourceContext", () => {
   });
 
   it("treats a gitlink pointer change as outer dirt but ignores submodule-internal modifications", async () => {
-    const outer = initRepo(makeTempDir("llmdoc-v3ng-outer-"));
+    const outer = initRepo(makeTempDir("llmdoc-knowledge-outer-"));
     commitFile(outer, "README.md", "outer\n", "outer init");
     const nested = initRepo(path.join(outer, "vendor", "lib"));
     commitFile(nested, "lib.txt", "one\n", "nested c1");
@@ -200,7 +200,7 @@ describe("resolveSourceContext", () => {
   });
 
   it("leaves the source index and HEAD byte-identical across repeated reads", async () => {
-    const root = initRepo(makeTempDir("llmdoc-v3ng-frozen-"));
+    const root = initRepo(makeTempDir("llmdoc-knowledge-frozen-"));
     commitFile(root, "src/api/retry.ts", "export function isRetryable() { return true; }\n", "init");
     const indexPath = path.join(root, ".git", "index");
     const indexBefore = fs.readFileSync(indexPath);
@@ -217,11 +217,11 @@ describe("resolveSourceContext", () => {
   });
 
   it("ignores repository-selection environment variables pointing at another repository", async () => {
-    const sourceRoot = initRepo(makeTempDir("llmdoc-v3ng-env-src-"));
+    const sourceRoot = initRepo(makeTempDir("llmdoc-knowledge-env-src-"));
     commitFile(sourceRoot, "src/main.ts", "export {}\n", "init");
-    const knowledgeRoot = initRepo(makeTempDir("llmdoc-v3ng-env-know-"));
+    const knowledgeRoot = initRepo(makeTempDir("llmdoc-knowledge-env-know-"));
     commitFile(knowledgeRoot, "README.md", "# knowledge\n", "init");
-    const otherRoot = initRepo(makeTempDir("llmdoc-v3ng-env-other-"));
+    const otherRoot = initRepo(makeTempDir("llmdoc-knowledge-env-other-"));
     commitFile(otherRoot, "other.txt", "other\n", "other init");
 
     const sourceIndexPath = path.join(sourceRoot, ".git", "index");
@@ -270,7 +270,7 @@ describe("resolveSourceContext", () => {
   });
 
   it("fails closed with E_GIT_INVOCATION_FAILED when the outer Git index is corrupt", async () => {
-    const sourceRoot = initRepo(makeTempDir("llmdoc-v3ng-corrupt-src-"));
+    const sourceRoot = initRepo(makeTempDir("llmdoc-knowledge-corrupt-src-"));
     commitFile(sourceRoot, "src/main.ts", "export {}\n", "init");
     const nestedRoot = initRepo(path.join(sourceRoot, "knowledge"));
     commitFile(nestedRoot, "README.md", "# nested knowledge\n", "init");
@@ -278,7 +278,7 @@ describe("resolveSourceContext", () => {
 
     fs.writeFileSync(path.join(sourceRoot, ".git", "index"), "corrupt-index-bytes");
 
-    await expectNgError(
+    await expectKnowledgeError(
       () => resolveKnowledgeContext(nestedRoot, { source, mode: "nested" }),
       "E_GIT_INVOCATION_FAILED",
       70
@@ -286,21 +286,21 @@ describe("resolveSourceContext", () => {
   });
 
   it("rejects a bare repository and a non-Git directory", async () => {
-    const bare = makeTempDir("llmdoc-v3ng-bare-");
+    const bare = makeTempDir("llmdoc-knowledge-bare-");
     git(bare, ["init", "--bare"]);
-    const plain = makeTempDir("llmdoc-v3ng-plain-");
+    const plain = makeTempDir("llmdoc-knowledge-plain-");
 
-    await expectNgError(() => resolveSourceContext(bare), "E_SOURCE_REPO_NOT_FOUND");
-    await expectNgError(() => resolveSourceContext(plain), "E_SOURCE_REPO_NOT_FOUND");
-    await expectNgError(() => resolveSourceContext(path.join(plain, "missing")), "E_SOURCE_REPO_NOT_FOUND");
+    await expectKnowledgeError(() => resolveSourceContext(bare), "E_SOURCE_REPO_NOT_FOUND");
+    await expectKnowledgeError(() => resolveSourceContext(plain), "E_SOURCE_REPO_NOT_FOUND");
+    await expectKnowledgeError(() => resolveSourceContext(path.join(plain, "missing")), "E_SOURCE_REPO_NOT_FOUND");
   });
 });
 
 describe("resolveKnowledgeContext", () => {
   it("resolves an external knowledge repository disjoint from the source", async () => {
-    const sourceRoot = initRepo(makeTempDir("llmdoc-v3ng-ext-src-"));
+    const sourceRoot = initRepo(makeTempDir("llmdoc-knowledge-ext-src-"));
     commitFile(sourceRoot, "src/main.ts", "export {}\n", "init");
-    const knowledgeRoot = initRepo(makeTempDir("llmdoc-v3ng-ext-know-"));
+    const knowledgeRoot = initRepo(makeTempDir("llmdoc-knowledge-ext-know-"));
     commitFile(knowledgeRoot, "README.md", "# knowledge\n", "init");
 
     const source = await resolveSourceContext(sourceRoot);
@@ -315,9 +315,9 @@ describe("resolveKnowledgeContext", () => {
   });
 
   it("normalizes junction/symlink and relative-style knowledge roots to the worktree root", async () => {
-    const sourceRoot = initRepo(makeTempDir("llmdoc-v3ng-link-src-"));
+    const sourceRoot = initRepo(makeTempDir("llmdoc-knowledge-link-src-"));
     commitFile(sourceRoot, "src/main.ts", "export {}\n", "init");
-    const knowledgeRoot = initRepo(makeTempDir("llmdoc-v3ng-link-know-"));
+    const knowledgeRoot = initRepo(makeTempDir("llmdoc-knowledge-link-know-"));
     commitFile(knowledgeRoot, "README.md", "# knowledge\n", "init");
 
     const linkPath = path.join(path.dirname(knowledgeRoot), "link-to-know");
@@ -331,36 +331,36 @@ describe("resolveKnowledgeContext", () => {
   });
 
   it("rejects a knowledge root without its own Git repository", async () => {
-    const sourceRoot = initRepo(makeTempDir("llmdoc-v3ng-nogit-src-"));
+    const sourceRoot = initRepo(makeTempDir("llmdoc-knowledge-nogit-src-"));
     commitFile(sourceRoot, "src/main.ts", "export {}\n", "init");
-    const emptyDir = makeTempDir("llmdoc-v3ng-nogit-know-");
+    const emptyDir = makeTempDir("llmdoc-knowledge-nogit-know-");
     const source = await resolveSourceContext(sourceRoot);
 
-    await expectNgError(() => resolveKnowledgeContext(emptyDir, { source, mode: "external" }), "E_KNOWLEDGE_REPO_NOT_FOUND");
-    await expectNgError(
+    await expectKnowledgeError(() => resolveKnowledgeContext(emptyDir, { source, mode: "external" }), "E_KNOWLEDGE_REPO_NOT_FOUND");
+    await expectKnowledgeError(
       () => resolveKnowledgeContext(path.join(emptyDir, "missing"), { source, mode: "external" }),
       "E_KNOWLEDGE_REPO_NOT_FOUND"
     );
   });
 
   it("rejects the source worktree itself and a linked worktree of the same repository", async () => {
-    const sourceRoot = initRepo(makeTempDir("llmdoc-v3ng-wt-src-"));
+    const sourceRoot = initRepo(makeTempDir("llmdoc-knowledge-wt-src-"));
     commitFile(sourceRoot, "src/main.ts", "export {}\n", "init");
-    const linked = makeTempDir("llmdoc-v3ng-wt-linked-");
+    const linked = makeTempDir("llmdoc-knowledge-wt-linked-");
     git(sourceRoot, ["worktree", "add", linked]);
     createdDirs.push(linked);
     const source = await resolveSourceContext(sourceRoot);
 
-    await expectNgError(() => resolveKnowledgeContext(sourceRoot, { source, mode: "external" }), "E_GIT_IDENTITY_CONFLICT");
-    await expectNgError(() => resolveKnowledgeContext(linked, { source, mode: "external" }), "E_GIT_IDENTITY_CONFLICT");
+    await expectKnowledgeError(() => resolveKnowledgeContext(sourceRoot, { source, mode: "external" }), "E_GIT_IDENTITY_CONFLICT");
+    await expectKnowledgeError(() => resolveKnowledgeContext(linked, { source, mode: "external" }), "E_GIT_IDENTITY_CONFLICT");
   });
 
   it("accepts a linked worktree of a different repository (dotfile .git)", async () => {
-    const sourceRoot = initRepo(makeTempDir("llmdoc-v3ng-dot-src-"));
+    const sourceRoot = initRepo(makeTempDir("llmdoc-knowledge-dot-src-"));
     commitFile(sourceRoot, "src/main.ts", "export {}\n", "init");
-    const other = initRepo(makeTempDir("llmdoc-v3ng-dot-other-"));
+    const other = initRepo(makeTempDir("llmdoc-knowledge-dot-other-"));
     commitFile(other, "README.md", "other\n", "init");
-    const otherWorktree = makeTempDir("llmdoc-v3ng-dot-wt-");
+    const otherWorktree = makeTempDir("llmdoc-knowledge-dot-wt-");
     git(other, ["worktree", "add", otherWorktree]);
     createdDirs.push(otherWorktree);
 
@@ -373,28 +373,28 @@ describe("resolveKnowledgeContext", () => {
   });
 
   it("rejects a knowledge root that is a subdirectory of a knowledge worktree", async () => {
-    const sourceRoot = initRepo(makeTempDir("llmdoc-v3ng-sub-src-"));
+    const sourceRoot = initRepo(makeTempDir("llmdoc-knowledge-sub-src-"));
     commitFile(sourceRoot, "src/main.ts", "export {}\n", "init");
-    const knowledgeRoot = initRepo(makeTempDir("llmdoc-v3ng-sub-know-"));
+    const knowledgeRoot = initRepo(makeTempDir("llmdoc-knowledge-sub-know-"));
     commitFile(knowledgeRoot, "README.md", "# knowledge\n", "init");
     fs.mkdirSync(path.join(knowledgeRoot, "docs"));
     const source = await resolveSourceContext(sourceRoot);
 
-    await expectNgError(
+    await expectKnowledgeError(
       () => resolveKnowledgeContext(path.join(knowledgeRoot, "docs"), { source, mode: "external" }),
       "E_KNOWLEDGE_ROOT_NOT_WORKTREE"
     );
   });
 
   it("requires explicit nested mode for a knowledge repository inside the source worktree", async () => {
-    const sourceRoot = initRepo(makeTempDir("llmdoc-v3ng-nest-src-"));
+    const sourceRoot = initRepo(makeTempDir("llmdoc-knowledge-nest-src-"));
     commitFile(sourceRoot, ".gitignore", "knowledge/\n", "ignore knowledge");
     commitFile(sourceRoot, "src/main.ts", "export {}\n", "init");
     const nestedRoot = initRepo(path.join(sourceRoot, "knowledge"));
     commitFile(nestedRoot, "README.md", "# nested knowledge\n", "init");
     const source = await resolveSourceContext(sourceRoot);
 
-    await expectNgError(
+    await expectKnowledgeError(
       () => resolveKnowledgeContext(nestedRoot, { source, mode: "external" }),
       "E_NESTED_MODE_REQUIRED"
     );
@@ -407,24 +407,24 @@ describe("resolveKnowledgeContext", () => {
   it(
     "rejects nested knowledge subtrees tracked by the outer Git as files or gitlinks",
     async () => {
-    const trackedFilesSource = initRepo(makeTempDir("llmdoc-v3ng-track-src-"));
+    const trackedFilesSource = initRepo(makeTempDir("llmdoc-knowledge-track-src-"));
     commitFile(trackedFilesSource, "src/main.ts", "export {}\n", "init");
     commitFile(trackedFilesSource, "knowledge/README.md", "# plain docs first\n", "track knowledge subtree");
     const trackedNested = initRepo(path.join(trackedFilesSource, "knowledge"));
     const trackedSource = await resolveSourceContext(trackedFilesSource);
     expect(git(trackedFilesSource, ["ls-files", "--", "knowledge"])).toContain("knowledge/README.md");
-    await expectNgError(
+    await expectKnowledgeError(
       () => resolveKnowledgeContext(trackedNested, { source: trackedSource, mode: "nested" }),
       "E_NESTED_TRACKED_BY_OUTER"
     );
 
-    const gitlinkSource = initRepo(makeTempDir("llmdoc-v3ng-gitlink-src-"));
+    const gitlinkSource = initRepo(makeTempDir("llmdoc-knowledge-gitlink-src-"));
     commitFile(gitlinkSource, "src/main.ts", "export {}\n", "init");
     const gitlinkNested = initRepo(path.join(gitlinkSource, "knowledge"));
     commitFile(gitlinkNested, "README.md", "# nested\n", "init");
     git(gitlinkSource, ["update-index", "--add", "--cacheinfo", `160000,${head(gitlinkNested)},knowledge`]);
     const gitlinkSourceContext = await resolveSourceContext(gitlinkSource);
-    await expectNgError(
+    await expectKnowledgeError(
       () => resolveKnowledgeContext(gitlinkNested, { source: gitlinkSourceContext, mode: "nested" }),
       "E_NESTED_TRACKED_BY_OUTER"
     );
@@ -433,33 +433,33 @@ describe("resolveKnowledgeContext", () => {
   );
 
   it("rejects a knowledge repository that contains the source worktree", async () => {
-    const knowledgeRoot = initRepo(makeTempDir("llmdoc-v3ng-inv-know-"));
+    const knowledgeRoot = initRepo(makeTempDir("llmdoc-knowledge-inv-know-"));
     commitFile(knowledgeRoot, "README.md", "# knowledge\n", "init");
     const sourceRoot = initRepo(path.join(knowledgeRoot, "embedded-source"));
     commitFile(sourceRoot, "src/main.ts", "export {}\n", "init");
     const source = await resolveSourceContext(sourceRoot);
 
-    await expectNgError(() => resolveKnowledgeContext(knowledgeRoot, { source, mode: "external" }), "E_KNOWLEDGE_CONTAINS_SOURCE");
-    await expectNgError(() => resolveKnowledgeContext(knowledgeRoot, { source, mode: "nested" }), "E_KNOWLEDGE_CONTAINS_SOURCE");
+    await expectKnowledgeError(() => resolveKnowledgeContext(knowledgeRoot, { source, mode: "external" }), "E_KNOWLEDGE_CONTAINS_SOURCE");
+    await expectKnowledgeError(() => resolveKnowledgeContext(knowledgeRoot, { source, mode: "nested" }), "E_KNOWLEDGE_CONTAINS_SOURCE");
   });
 
   it("rejects nested mode when the knowledge root is outside the source worktree", async () => {
-    const sourceRoot = initRepo(makeTempDir("llmdoc-v3ng-misfit-src-"));
+    const sourceRoot = initRepo(makeTempDir("llmdoc-knowledge-misfit-src-"));
     commitFile(sourceRoot, "src/main.ts", "export {}\n", "init");
-    const knowledgeRoot = initRepo(makeTempDir("llmdoc-v3ng-misfit-know-"));
+    const knowledgeRoot = initRepo(makeTempDir("llmdoc-knowledge-misfit-know-"));
     commitFile(knowledgeRoot, "README.md", "# knowledge\n", "init");
     const source = await resolveSourceContext(sourceRoot);
 
-    await expectNgError(
+    await expectKnowledgeError(
       () => resolveKnowledgeContext(knowledgeRoot, { source, mode: "nested" }),
       "E_NESTED_NOT_INSIDE_SOURCE"
     );
   });
 
   itOnWindows("matches knowledge roots that differ only by path case (Windows)", async () => {
-    const sourceRoot = initRepo(makeTempDir("llmdoc-v3ng-case-src-"));
+    const sourceRoot = initRepo(makeTempDir("llmdoc-knowledge-case-src-"));
     commitFile(sourceRoot, "src/main.ts", "export {}\n", "init");
-    const knowledgeRoot = initRepo(makeTempDir("llmdoc-v3ng-case-know-"));
+    const knowledgeRoot = initRepo(makeTempDir("llmdoc-knowledge-case-know-"));
     commitFile(knowledgeRoot, "README.md", "# knowledge\n", "init");
 
     const segments = knowledgeRoot.split(path.sep);

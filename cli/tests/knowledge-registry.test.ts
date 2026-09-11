@@ -5,8 +5,8 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 
 vi.setConfig({ testTimeout: 30000 });
 
-import { NgError } from "../src/lib/v3ng/errors.js";
-import { generateRepositoryId } from "../src/lib/v3ng/identity.js";
+import { KnowledgeError } from "../src/lib/knowledge/errors.js";
+import { generateRepositoryId } from "../src/lib/knowledge/identity.js";
 import {
   emptyRegistryDocument,
   findBindingsByKnowledgeRoot,
@@ -17,8 +17,8 @@ import {
   resolveRegistryDir,
   withRegistryLock,
   writeRegistryDocument
-} from "../src/lib/v3ng/registry.js";
-import { makeTempDir } from "./v3ng-helpers.js";
+} from "../src/lib/knowledge/registry.js";
+import { makeTempDir } from "./knowledge-helpers.js";
 
 const createdDirs: string[] = [];
 
@@ -39,7 +39,7 @@ describe("registry location", () => {
   });
 
   itOnWindows("derives the default directory from APPDATA", () => {
-    const fakeAppData = makeTempDir("llmdoc-v3ng-appdata-");
+    const fakeAppData = makeTempDir("llmdoc-knowledge-appdata-");
     createdDirs.push(fakeAppData);
     const previous = process.env.APPDATA;
     process.env.APPDATA = fakeAppData;
@@ -54,7 +54,7 @@ describe("registry location", () => {
     const previous = process.env.APPDATA;
     delete process.env.APPDATA;
     try {
-      expectNgErrorCode(() => resolveRegistryDir(), "E_REGISTRY_UNAVAILABLE", 70);
+      expectKnowledgeErrorCode(() => resolveRegistryDir(), "E_REGISTRY_UNAVAILABLE", 70);
     } finally {
       restoreEnv("APPDATA", previous);
     }
@@ -63,7 +63,7 @@ describe("registry location", () => {
 
 describe("registry document", () => {
   it("round-trips documents atomically", () => {
-    const dir = makeTempDir("llmdoc-v3ng-reg-");
+    const dir = makeTempDir("llmdoc-knowledge-reg-");
     createdDirs.push(dir);
 
     expect(readRegistryDocument(dir)).toEqual(emptyRegistryDocument());
@@ -84,7 +84,7 @@ describe("registry document", () => {
   });
 
   it("rejects invalid documents instead of guessing", () => {
-    const dir = makeTempDir("llmdoc-v3ng-regbad-");
+    const dir = makeTempDir("llmdoc-knowledge-regbad-");
     createdDirs.push(dir);
     fs.mkdirSync(dir, { recursive: true });
 
@@ -101,8 +101,8 @@ describe("registry document", () => {
         readRegistryDocument(dir);
         expect.unreachable(`case ${index} should have failed`);
       } catch (error) {
-        expect(error).toBeInstanceOf(NgError);
-        expect((error as NgError).code).toBe("E_REGISTRY_INVALID");
+        expect(error).toBeInstanceOf(KnowledgeError);
+        expect((error as KnowledgeError).code).toBe("E_REGISTRY_INVALID");
       }
     }
   });
@@ -122,7 +122,7 @@ describe("registry document", () => {
 
 describe("registry lock", () => {
   it("releases the lock after the operation and blocks concurrent writers", async () => {
-    const dir = makeTempDir("llmdoc-v3ng-lock-");
+    const dir = makeTempDir("llmdoc-knowledge-lock-");
     createdDirs.push(dir);
 
     const result = await withRegistryLock(dir, () => 41 + 1);
@@ -136,11 +136,11 @@ describe("registry lock", () => {
       });
       expect.unreachable("lock should have blocked");
     } catch (error) {
-      expect(error).toBeInstanceOf(NgError);
-      const ngError = error as NgError;
-      expect(ngError.code).toBe("E_REGISTRY_LOCKED");
-      expect(ngError.exitCode).toBe(70);
-      expect(ngError.remediation).toContain("pid 1234");
+      expect(error).toBeInstanceOf(KnowledgeError);
+      const knowledgeError = error as KnowledgeError;
+      expect(knowledgeError.code).toBe("E_REGISTRY_LOCKED");
+      expect(knowledgeError.exitCode).toBe(70);
+      expect(knowledgeError.remediation).toContain("pid 1234");
     }
 
     fs.rmSync(path.join(dir, "bindings.lock"), { force: true });
@@ -148,7 +148,7 @@ describe("registry lock", () => {
   });
 
   it("does not delete a foreign lock that changed during the operation", async () => {
-    const dir = makeTempDir("llmdoc-v3ng-lock2-");
+    const dir = makeTempDir("llmdoc-knowledge-lock2-");
     createdDirs.push(dir);
 
     await withRegistryLock(dir, () => {
@@ -167,13 +167,13 @@ function restoreEnv(key: string, previous: string | undefined): void {
   }
 }
 
-function expectNgErrorCode(run: () => unknown, code: string, exitCode: number): void {
+function expectKnowledgeErrorCode(run: () => unknown, code: string, exitCode: number): void {
   try {
     run();
   } catch (error) {
-    expect(error).toBeInstanceOf(NgError);
-    expect((error as NgError).code).toBe(code);
-    expect((error as NgError).exitCode).toBe(exitCode);
+    expect(error).toBeInstanceOf(KnowledgeError);
+    expect((error as KnowledgeError).code).toBe(code);
+    expect((error as KnowledgeError).exitCode).toBe(exitCode);
     return;
   }
   throw new Error(`expected ${code}`);

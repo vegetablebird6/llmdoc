@@ -5,8 +5,8 @@ import { spawnSync } from "node:child_process";
 
 import { expect } from "vitest";
 
-import { NgError } from "../src/lib/v3ng/errors.js";
-import { realPath } from "../src/lib/v3ng/paths.js";
+import { KnowledgeError } from "../src/lib/knowledge/errors.js";
+import { realPath } from "../src/lib/knowledge/paths.js";
 
 export function makeTempDir(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -49,17 +49,17 @@ export function head(dir: string): string {
   return git(dir, ["rev-parse", "HEAD"]).trim();
 }
 
-export async function expectNgError(run: () => unknown | Promise<unknown>, code: string, exitCode = 2): Promise<NgError> {
+export async function expectKnowledgeError(run: () => unknown | Promise<unknown>, code: string, exitCode = 2): Promise<KnowledgeError> {
   try {
     await run();
   } catch (error) {
-    expect(error).toBeInstanceOf(NgError);
-    const ngError = error as NgError;
-    expect(ngError.code).toBe(code);
-    expect(ngError.exitCode).toBe(exitCode);
-    return ngError;
+    expect(error).toBeInstanceOf(KnowledgeError);
+    const knowledgeError = error as KnowledgeError;
+    expect(knowledgeError.code).toBe(code);
+    expect(knowledgeError.exitCode).toBe(exitCode);
+    return knowledgeError;
   }
-  throw new Error(`expected NgError ${code}, but the call succeeded`);
+  throw new Error(`expected KnowledgeError ${code}, but the call succeeded`);
 }
 
 export function snapshotWorktree(rootDir: string): Map<string, string> {
@@ -83,6 +83,50 @@ export function snapshotWorktree(rootDir: string): Map<string, string> {
 
 export function sourceIndexBytes(sourceRoot: string): Buffer {
   return fs.readFileSync(path.join(sourceRoot, ".git", "index"));
+}
+
+export interface KnowledgeDocOptions {
+  paths?: string[];
+  requires?: string[];
+  supersedes?: string[];
+  body?: string;
+}
+
+/** Builds a front matter document for the knowledge protocol (source.paths is required). */
+export function knowledgeDoc(kind: string, description: string, options: KnowledgeDocOptions = {}): string {
+  const lines = ["---", `description: ${description}`, `kind: ${kind}`, "source:", "  paths:"];
+  for (const sourcePath of options.paths ?? ["src/api/retry.ts"]) {
+    lines.push(`    - ${sourcePath}`);
+  }
+  if (options.requires || options.supersedes) {
+    lines.push("relations:");
+    if (options.requires) {
+      lines.push("  requires:");
+      for (const target of options.requires) lines.push(`    - ${target}`);
+    }
+    if (options.supersedes) {
+      lines.push("  supersedes:");
+      for (const target of options.supersedes) lines.push(`    - ${target}`);
+    }
+  }
+  lines.push("---", "", options.body ?? `# ${description}`, "");
+  return `${lines.join("\n")}\n`;
+}
+
+export function knowledgeMetaJson(
+  repositoryId: string,
+  lastGlobalReviewRevision: string | null,
+  documents: Record<string, unknown>
+): string {
+  return `${JSON.stringify(
+    {
+      schema: "llmdoc.meta/v3-ng",
+      source: { repositoryId, lastGlobalReviewRevision },
+      documents
+    },
+    null,
+    2
+  )}\n`;
 }
 
 export { realPath };

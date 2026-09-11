@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { NgError } from "./errors.js";
+import { KnowledgeError } from "./errors.js";
 import { runFileSystemIo } from "./errors.js";
 import { REPOSITORY_ID_PATTERN } from "./identity.js";
 import { sameRealPath } from "./paths.js";
@@ -33,7 +33,7 @@ export function resolveRegistryDir(explicitDir?: string): string {
   if (process.platform === "win32") {
     const appData = process.env.APPDATA;
     if (!appData) {
-      throw new NgError("E_REGISTRY_UNAVAILABLE", "Cannot resolve the user registry directory: APPDATA is not set", {
+      throw new KnowledgeError("E_REGISTRY_UNAVAILABLE", "Cannot resolve the user registry directory: APPDATA is not set", {
         exitCode: 70,
         remediation: "Set APPDATA or pass an explicit registry directory."
       });
@@ -57,10 +57,10 @@ export function readRegistryDocument(registryDir: string): RegistryDocument {
   try {
     parsed = JSON.parse(runFileSystemIo(() => fs.readFileSync(filePath, "utf8"), "Failed to read the binding registry", [filePath]));
   } catch (error) {
-    if (error instanceof NgError) {
+    if (error instanceof KnowledgeError) {
       throw error;
     }
-    throw new NgError("E_REGISTRY_INVALID", `bindings.json is not valid JSON: ${(error as Error).message}`, {
+    throw new KnowledgeError("E_REGISTRY_INVALID", `bindings.json is not valid JSON: ${(error as Error).message}`, {
       exitCode: 70,
       paths: [filePath],
       remediation: "Fix or remove the registry file; llmdoc never rewrites it silently."
@@ -71,29 +71,29 @@ export function readRegistryDocument(registryDir: string): RegistryDocument {
 
 export function validateRegistryDocument(parsed: unknown, filePath: string): RegistryDocument {
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new NgError("E_REGISTRY_INVALID", "bindings.json must contain a mapping", { paths: [filePath] });
+    throw new KnowledgeError("E_REGISTRY_INVALID", "bindings.json must contain a mapping", { paths: [filePath] });
   }
   const record = parsed as Record<string, unknown>;
   if (record.schema !== REGISTRY_SCHEMA) {
-    throw new NgError("E_REGISTRY_INVALID", `bindings.json schema must be ${REGISTRY_SCHEMA}`, { paths: [filePath] });
+    throw new KnowledgeError("E_REGISTRY_INVALID", `bindings.json schema must be ${REGISTRY_SCHEMA}`, { paths: [filePath] });
   }
   if (!Array.isArray(record.bindings)) {
-    throw new NgError("E_REGISTRY_INVALID", "bindings.json bindings must be an array", { paths: [filePath] });
+    throw new KnowledgeError("E_REGISTRY_INVALID", "bindings.json bindings must be an array", { paths: [filePath] });
   }
   const bindings: BindingEntry[] = record.bindings.map((item, index) => {
     if (item === null || typeof item !== "object" || Array.isArray(item)) {
-      throw new NgError("E_REGISTRY_INVALID", `bindings.json entry ${index} must be a mapping`, { paths: [filePath] });
+      throw new KnowledgeError("E_REGISTRY_INVALID", `bindings.json entry ${index} must be a mapping`, { paths: [filePath] });
     }
     const entry = item as Record<string, unknown>;
     for (const field of ["repositoryId", "sourcePath", "knowledgeRoot"] as const) {
       if (typeof entry[field] !== "string" || (entry[field] as string).length === 0) {
-        throw new NgError("E_REGISTRY_INVALID", `bindings.json entry ${index} is missing string field ${field}`, {
+        throw new KnowledgeError("E_REGISTRY_INVALID", `bindings.json entry ${index} is missing string field ${field}`, {
           paths: [filePath]
         });
       }
     }
     if (!REPOSITORY_ID_PATTERN.test(entry.repositoryId as string)) {
-      throw new NgError(
+      throw new KnowledgeError(
         "E_REGISTRY_INVALID",
         `bindings.json entry ${index} has an invalid repositoryId (expected llmdoc-<32 hex>)`,
         { paths: [filePath] }
@@ -175,7 +175,7 @@ export async function withRegistryLock<T>(registryDir: string, operation: () => 
         await new Promise<void>((resolve) => setTimeout(resolve, 50));
         continue;
       }
-      throw new NgError("E_FILESYSTEM_IO", `Failed to acquire the registry lock: ${(error as Error).message}`, {
+      throw new KnowledgeError("E_FILESYSTEM_IO", `Failed to acquire the registry lock: ${(error as Error).message}`, {
         exitCode: 70,
         paths: [lockPath],
         remediation: "Check that the registry directory is usable; llmdoc reports filesystem failures as transaction/IO errors."
@@ -190,7 +190,7 @@ export async function withRegistryLock<T>(registryDir: string, operation: () => 
     } catch {
       // unreadable lock still blocks; report generic holder
     }
-    throw new NgError("E_REGISTRY_LOCKED", "The user binding registry is locked by another writer", {
+    throw new KnowledgeError("E_REGISTRY_LOCKED", "The user binding registry is locked by another writer", {
       exitCode: 70,
       paths: [lockPath],
       remediation: `Retry shortly; if the holder is gone, remove the lock manually. Holder: ${ownerSummary}. llmdoc never deletes locks automatically.`

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
+import matter from "gray-matter";
 
 import { runCli } from "../src/cli.js";
 import { createFixture, readMeta, writeRepoFile } from "./helpers.js";
@@ -100,9 +101,9 @@ describe("llmdoc cli", () => {
     expect(nested.exitCode).toBe(1);
     expect(fs.existsSync(path.join(rootDir, "llmdoc", "api-client", "retry-policy.mdx"))).toBe(true);
 
-    const wrongIndex = await runCli(["mv", "api-client/retry-policy.mdx", "api-client/index.mdx"], rootDir);
-    expect(wrongIndex.exitCode).toBe(1);
-    expect(wrongIndex.stdout).toContain("does not use index.mdx");
+    const rejectedIndex = await runCli(["mv", "api-client/retry-policy.mdx", "api-client/index.mdx"], rootDir);
+    expect(rejectedIndex.exitCode).toBe(1);
+    expect(rejectedIndex.stdout).toContain("does not use index.mdx");
     expect(fs.existsSync(path.join(rootDir, "llmdoc", "api-client", "retry-policy.mdx"))).toBe(true);
 
     const metaMove = await runCli(["mv", "meta.json", "meta2.json"], rootDir);
@@ -149,10 +150,8 @@ describe("llmdoc cli", () => {
     const validated = await runCli(["validate"], rootDir);
     expect(validated.exitCode).toBe(0);
 
-    const index = await runCli(["--json", "index", "--topic", "api-client"], rootDir);
-    const payload = JSON.parse(index.stdout) as { documents: { path: string; description: string }[] };
-    const doc = payload.documents.find((item) => item.path === "llmdoc/api-client/hostile.mdx");
-    expect(doc?.description).toBe(hostile);
+    const createdBody = fs.readFileSync(path.join(rootDir, "llmdoc", "api-client", "hostile.mdx"), "utf8");
+    expect((matter(createdBody).data as { description: string }).description).toBe(hostile);
   });
 
   test("init-state seeds a null-revision ledger and refuses to overwrite", async () => {

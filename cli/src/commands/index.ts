@@ -1,22 +1,17 @@
-import { paginate } from "../lib/pagination.js";
-import { assertDocumentKind } from "../lib/doc-shape.js";
-import { loadWorkspace } from "../lib/workspace.js";
-import { OutputOptions } from "../types.js";
-import { formatPaginationSummary } from "../lib/format.js";
-import { paginationMetadata } from "../lib/pagination.js";
-import { estimateTokens } from "../lib/markdown.js";
-import { ParsedDocument } from "../types.js";
+import { paginate, paginationMetadata } from "../lib/pagination.js";
+import { loadKnowledgeForRead } from "../lib/knowledge/read.js";
+import {
+  assertKnowledgeKind,
+  knowledgeDocumentSummary,
+  knowledgeReadEnvelope,
+  knowledgeReadInput,
+  type KnowledgeReadOptions
+} from "../lib/knowledge/read-view.js";
 
-interface IndexOptions extends OutputOptions {
-  cwd: string;
-  topic?: string;
-  kind?: string;
-}
-
-export function runIndex(options: IndexOptions): unknown {
-  const workspace = loadWorkspace(options.cwd);
-  const kind = options.kind ? assertDocumentKind(options.kind) : undefined;
-  const filtered = workspace.documents.filter((document) => {
+export async function runIndex(options: KnowledgeReadOptions): Promise<unknown> {
+  const loaded = await loadKnowledgeForRead(knowledgeReadInput(options));
+  const kind = assertKnowledgeKind(options.kind);
+  const documents = loaded.model.documents.filter((document) => {
     if (options.topic && document.topic !== options.topic) {
       return false;
     }
@@ -25,42 +20,15 @@ export function runIndex(options: IndexOptions): unknown {
     }
     return true;
   });
-
-  const result = paginate({
-    items: filtered,
-    estimate: (document) => estimateTokens(JSON.stringify(toPayload(document))),
+  const page = paginate({
+    items: documents,
+    estimate: (document) => document.estimatedTokens,
     options
   });
-
-  if (options.json) {
-    return {
-      documents: result.items.map(toPayload),
-      pagination: paginationMetadata(result)
-    };
-  }
-
-  const lines: string[] = [];
-  for (const document of result.items) {
-    lines.push(`llmdoc/${document.llmdocPath}  [${document.frontmatter.kind}]`);
-    lines.push(`  ${document.frontmatter.description}`);
-    if (document.frontmatter.relations?.requires?.length) {
-      lines.push(`  requires: ${document.frontmatter.relations.requires.join(", ")}`);
-    }
-    if (document.frontmatter.code?.paths?.length) {
-      lines.push(`  code.paths: ${document.frontmatter.code.paths.join(", ")}`);
-    }
-    lines.push("");
-  }
-  lines.push(...formatPaginationSummary(result));
-  return lines.join("\n");
-}
-
-function toPayload(document: ParsedDocument): object {
   return {
-    path: `llmdoc/${document.llmdocPath}`,
-    kind: document.frontmatter.kind,
-    description: document.frontmatter.description,
-    relations: document.frontmatter.relations ?? {},
-    code: document.frontmatter.code ?? {}
+    schema: "llmdoc.index/v1",
+    ...knowledgeReadEnvelope(loaded),
+    documents: page.items.map((document) => knowledgeDocumentSummary(loaded, document)),
+    pagination: paginationMetadata(page)
   };
 }

@@ -130,6 +130,8 @@ DocumentStatus 仅上述三种。SourceContext 单独报告 unbound、invalid_he
 
 ## 5. 命令与人机共用协议
 
+`v3-ng` 是设计/分支代号，不是 CLI 子命令、功能开关或运行时 namespace。标准命令和标准库路径直接实现本协议；不得新增 `v3-ng`/`ng` 前缀的平行 command、handler、lib 目录、输出 schema key 或错误类型来与旧 V3 共存。已有旧实现应在调用方迁移后删除或仅封装进显式 migrate reader，不能继续被主入口引用。
+
 | 接口 | 职责 |
 |---|---|
 | tree / index / show / search / context | 只读正式知识，附来源与状态 |
@@ -176,20 +178,22 @@ Source 只读意味着无法阻止检查之后的外部提交，但所有事实�
 
 过期锁不能单凭 TTL 自动删除；只有同机能证明持有者退出才允许显式恢复。跨机或无法判断则报告 owner，由使用者处理。不承诺锁住普通 Git 的任意并发操作；首版不在同一知识工作树同时切换分支。
 
-## 7. 显式迁移与兼容
+## 7. Breaking replacement 与显式迁移
+
+v3-ng 不保留 V3 运行时兼容层。`tree/index/show/search/context/status/validate/commit` 等同名主入口直接采用 v3-ng 双仓协议；不得根据参数、目录形态或绑定缺失回退到旧 `llmdoc/*.mdx`、embedded workspace 或 Source Git。旧 V3 只能由显式 `migrate --dry-run` / `migrate` 读取。
 
 迁移读取旧 V3 布局，默认复制到外置新知识根；旧源文件、ignore、Agent 配置及旧仓 Git history 保持不变。目标 Knowledge Git 默认建立新的 migration baseline，不抽取、修改或重写旧仓历史；保留历史导入能力另列 roadmap。新绑定只在目标校验完成后生效。失败可重试或删除自己创建的未发布目标，不改旧数据。
 
 | 旧项 | 目标处理 |
 |---|---|
-| embedded llmdoc | 只读兼容；复制到独立 Git 后允许新协议写入 |
-| nested-personal | 可显式选择兼容位置；默认仍复制外置，不能偷偷改外层 ignore |
+| embedded llmdoc | 仅作为显式 migrate 输入；主命令不读取、不写入，复制到独立 Git 后使用新协议 |
+| nested-personal | 仅兼容其独立 Git 存储位置；内容协议与命令全部切换为 v3-ng，默认迁移仍复制外置，不能偷偷改外层 ignore |
 | `.mdx` / CodeRef | 转 `.md`、普通链接或文字证据；不可无损表达的组件列入人工复核 |
 | `code.paths` | 转 `source.paths`，重写关系与正文文档链接 |
 | `validatedRevision` | 可保留为迁移来源说明；缺少新 digest/manifest 验证依据时revision/digest 置 null、validatedSourcePaths 置 []、validatedRequires 置 {}，经新 review 后 seal，不把转换内容自动当作已验证 |
 | `llmdoc/meta.json` | `.llmdoc/meta.json`，ID 同步去旧前缀并改扩展名 |
 | source 配置 / preload | 转知识配置或用户设置；不修改源码内旧文件 |
 
-`migrate --dry-run` 给出逐文件目标、转换、碰撞和无法保留的验证证据。不因文件复制成功而把全部文档标为当前验证。嵌套兼容首先兼容独立存储方式，不等于长期提供两套可写 schema。
+`migrate --dry-run` 给出逐文件目标、转换、碰撞和无法保留的验证证据。不因文件复制成功而把全部文档标为当前验证。嵌套只兼容独立存储位置，不提供两套可读或可写 schema。
 
 实现须同步 CLI 类型/schema、viewer、hooks、skills、agent prompts、示例和双语网站；新模式下 hook 无绑定只提供诊断，不能偷偷 init。不删除旧用户数据，不自动升级 npm major。

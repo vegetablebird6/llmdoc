@@ -1,58 +1,62 @@
-import { paginate, paginationMetadata } from "../lib/pagination.js";
-import { loadWorkspace } from "../lib/workspace.js";
-import { CliError } from "../lib/errors.js";
-import { OutputOptions, ParsedDocument } from "../types.js";
-import { DEFAULT_SHOW_BUDGET } from "../lib/constants.js";
-import { formatPaginationSummary } from "../lib/format.js";
-import { estimateTokens } from "../lib/markdown.js";
+import { KnowledgeError } from "../lib/knowledge/errors.js";
+import { loadKnowledgeForRead } from "../lib/knowledge/read.js";
+import type { KnowledgeDocument } from "../lib/knowledge/document.js";
+import { relationsFor, type CanonicalRelations } from "../lib/knowledge/knowledge-model.js";
+import {
+  knowledgeDocumentSummary,
+  knowledgeReadEnvelope,
+  knowledgeReadInput,
+  normalizeDocumentId,
+  type KnowledgeReadOptions
+} from "../lib/knowledge/read-view.js";
 
-interface ShowOptions extends OutputOptions {
-  cwd: string;
-  paths: string[];
+function canonicalFrontmatter(document: KnowledgeDocument, relations: CanonicalRelations): Record<string, unknown> {
+  const frontmatter: Record<string, unknown> = { ...document.frontmatter };
+  const declared: Record<string, string[]> = {};
+  if (relations.requires.length > 0) {
+    declared.requires = relations.requires;
+  }
+  if (relations.related.length > 0) {
+    declared.related = relations.related;
+  }
+  if (relations.supersedes.length > 0) {
+    declared.supersedes = relations.supersedes;
+  }
+  if (Object.keys(declared).length > 0) {
+    frontmatter.relations = declared;
+  } else {
+    delete frontmatter.relations;
+  }
+  return frontmatter;
 }
 
-export function runShow(options: ShowOptions): unknown {
-  const workspace = loadWorkspace(options.cwd);
-  const documents = options.paths.map((rawPath) => {
-    const normalized = rawPath.startsWith("llmdoc/") ? rawPath.slice("llmdoc/".length) : rawPath;
-    const document = workspace.documentsByLlmdocPath.get(normalized);
+export async function runShow(paths: string[], options: KnowledgeReadOptions): Promise<unknown> {
+  const loaded = await loadKnowledgeForRead(knowledgeReadInput(options));
+  const documents: Array<Record<string, unknown>> = [];
+  for (const rawPath of paths) {
+    const id = normalizeDocumentId(rawPath);
+    const document = loaded.model.byId.get(id);
     if (!document) {
-      throw new CliError(`Document does not exist: ${rawPath}`);
+      throw new KnowledgeError("E_KNOWLEDGE_DOC_NOT_FOUND", `Document does not exist: ${rawPath}`, { paths: [rawPath] });
     }
-    return document;
-  });
-
-  const result = paginate({
-    items: documents,
-    estimate: (document) => estimateTokens(JSON.stringify(toDocumentPayload(document))),
-    options: {
-      ...options,
-      budget: options.budget ?? DEFAULT_SHOW_BUDGET
-    }
-  });
-
-  if (options.json) {
-    return {
-      documents: result.items.map(toDocumentPayload),
-      pagination: paginationMetadata(result)
-    };
+    const validity = loaded.validity.byId.get(id);
+    documents.push({
+      ...knowledgeDocumentSummary(loaded, document),
+      status: validity?.status ?? "unverified",
+      frontmatter: canonicalFrontmatter(document, relationsFor(loaded.model, id)),
+      body: document.body
+    });
   }
-
-  const lines: string[] = [];
-  for (const document of result.items) {
-    lines.push(`=== llmdoc/${document.llmdocPath} [${document.frontmatter.kind}] ===`);
-    lines.push(document.body);
-    lines.push("");
-  }
-  lines.push(...formatPaginationSummary(result));
-  return lines.join("\n");
-}
-
-function toDocumentPayload(document: ParsedDocument): object {
   return {
-    path: `llmdoc/${document.llmdocPath}`,
-    kind: document.frontmatter.kind,
-    description: document.frontmatter.description,
-    body: document.body
+    schema: "llmdoc.show/v1",
+    ...knowledgeReadEnvelope(loaded),
+    documents,
+    pagination: {
+      totalItems: documents.length,
+      returnedItems: documents.length,
+      totalEstimatedTokens: documents.reduce((sum, entry) => sum + Math.ceil(JSON.stringify(entry).length / 4), 0),
+      returnedEstimatedTokens: documents.reduce((sum, entry) => sum + Math.ceil(JSON.stringify(entry).length / 4), 0),
+      nextCursor: null
+    }
   };
 }

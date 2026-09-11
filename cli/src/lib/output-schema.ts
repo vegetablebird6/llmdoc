@@ -8,8 +8,7 @@ import { CliError } from "./errors.js";
 import { packageRootFromImport } from "./package-root.js";
 
 export type OutputSchemaName =
-  | "treeTopics"
-  | "treeDocs"
+  | "tree"
   | "index"
   | "show"
   | "search"
@@ -28,7 +27,7 @@ export type OutputSchemaName =
   | "commit"
   | "bind"
   | "init"
-  | "ngError";
+  | "knowledgeError";
 
 type AjvConstructor = new (options: { allErrors: boolean; strict: boolean }) => {
   compile: (schema: unknown) => ValidateFunction;

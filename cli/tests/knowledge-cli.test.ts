@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 vi.setConfig({ testTimeout: 30000 });
 
 import { runCli } from "../src/cli.js";
-import { commitFile, head, initRepo, makeTempDir, realPath, snapshotWorktree, sourceIndexBytes } from "./v3ng-helpers.js";
+import { commitFile, head, initRepo, makeTempDir, realPath, snapshotWorktree, sourceIndexBytes } from "./knowledge-helpers.js";
 
 const createdDirs: string[] = [];
 
@@ -46,7 +46,7 @@ afterAll(async () => {
 });
 
 async function withRegistryEnv<T>(run: () => T | Promise<T>): Promise<{ result: T; registryDir: string }> {
-  const registryBase = makeTempDir("llmdoc-v3ng-cli-reg-");
+  const registryBase = makeTempDir("llmdoc-knowledge-cli-reg-");
   createdDirs.push(registryBase);
   const isWin = process.platform === "win32";
   const key = isWin ? "APPDATA" : "XDG_CONFIG_HOME";
@@ -63,9 +63,9 @@ async function withRegistryEnv<T>(run: () => T | Promise<T>): Promise<{ result: 
   }
 }
 
-describe("v3-ng CLI surface (bind/init)", () => {
+describe("knowledge CLI surface (bind/init)", () => {
   it("init creates the knowledge repository and bind is idempotent; JSON output validates", async () => {
-    const base = makeTempDir("llmdoc-v3ng-cli-");
+    const base = makeTempDir("llmdoc-knowledge-cli-");
     createdDirs.push(base);
     const source = initRepo(`${base}/source`);
     commitFile(source, "src/main.ts", "export {}\n", "init");
@@ -88,8 +88,8 @@ describe("v3-ng CLI surface (bind/init)", () => {
     expect(bindPayload.repositoryId).toBe(initPayload.repositoryId);
   });
 
-  it("renders NgError as {error:{code,message,paths,remediation}} in JSON mode with the protocol exit code", async () => {
-    const base = makeTempDir("llmdoc-v3ng-clierr-");
+  it("renders KnowledgeError as {error:{code,message,paths,remediation}} in JSON mode with the protocol exit code", async () => {
+    const base = makeTempDir("llmdoc-knowledge-clierr-");
     createdDirs.push(base);
     const source = initRepo(`${base}/source`);
     commitFile(source, "src/main.ts", "export {}\n", "init");
@@ -114,7 +114,7 @@ describe("v3-ng CLI surface (bind/init)", () => {
   });
 
   it("refuses non-empty init targets and nested mode without the explicit flag", async () => {
-    const base = makeTempDir("llmdoc-v3ng-clineg-");
+    const base = makeTempDir("llmdoc-knowledge-clineg-");
     createdDirs.push(base);
     const source = initRepo(`${base}/source`);
     commitFile(source, "src/main.ts", "export {}\n", "init");
@@ -141,7 +141,7 @@ describe("v3-ng CLI surface (bind/init)", () => {
   });
 
   it("preserves the source repository byte-identically across CLI init and bind", async () => {
-    const base = makeTempDir("llmdoc-v3ng-clifrozen-");
+    const base = makeTempDir("llmdoc-knowledge-clifrozen-");
     createdDirs.push(base);
     const source = initRepo(`${base}/source`);
     commitFile(source, "src/main.ts", "export {}\n", "init");
@@ -161,8 +161,8 @@ describe("v3-ng CLI surface (bind/init)", () => {
     expect((await runCli(["--json", "--version"], base)).stdout).toBe(statusBefore);
   });
 
-  it("renders E_FILESYSTEM_IO as ngError JSON when the registry root is unusable", async () => {
-    const base = makeTempDir("llmdoc-v3ng-clir6-");
+  it("renders E_FILESYSTEM_IO as KnowledgeError JSON when the registry root is unusable", async () => {
+    const base = makeTempDir("llmdoc-knowledge-clir6-");
     createdDirs.push(base);
     const source = initRepo(`${base}/source`);
     commitFile(source, "src/main.ts", "export {}\n", "init");

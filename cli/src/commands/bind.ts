@@ -1,4 +1,4 @@
-import { bindKnowledge } from "../lib/v3ng/bind.js";
+import { bindKnowledge } from "../lib/knowledge/bind.js";
 
 export interface BindCommandOptions {
   source: string;

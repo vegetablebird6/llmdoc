@@ -5,21 +5,21 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 
 vi.setConfig({ testTimeout: 30000 });
 
-import { resolveWriteBinding } from "../src/lib/v3ng/binding.js";
-import { initKnowledgeRepository } from "../src/lib/v3ng/init.js";
-import { loadKnowledgeLayoutConfig } from "../src/lib/v3ng/knowledge-config.js";
-import { emptyRegistryDocument, insertBinding, readRegistryDocument, writeRegistryDocument } from "../src/lib/v3ng/registry.js";
-import { generateRepositoryId } from "../src/lib/v3ng/identity.js";
+import { resolveWriteBinding } from "../src/lib/knowledge/binding.js";
+import { initKnowledgeRepository } from "../src/lib/knowledge/init.js";
+import { loadKnowledgeLayoutConfig } from "../src/lib/knowledge/knowledge-config.js";
+import { emptyRegistryDocument, insertBinding, readRegistryDocument, writeRegistryDocument } from "../src/lib/knowledge/registry.js";
+import { generateRepositoryId } from "../src/lib/knowledge/identity.js";
 import {
   commitFile,
-  expectNgError,
+  expectKnowledgeError,
   head,
   initRepo,
   makeTempDir,
   realPath,
   snapshotWorktree,
   sourceIndexBytes
-} from "./v3ng-helpers.js";
+} from "./knowledge-helpers.js";
 
 const createdDirs: string[] = [];
 
@@ -49,14 +49,14 @@ function symlinkDir(target: string, linkPath: string): void {
 
 describe("R4: realpath pre-check before any disk writes", () => {
   it("rejects a nested target behind a junction that leaves the source, without creating anything", async () => {
-    const { base, registryDir, source } = makeSource("llmdoc-v3ng-r4a-");
-    const outside = makeTempDir("llmdoc-v3ng-r4a-out-");
+    const { base, registryDir, source } = makeSource("llmdoc-knowledge-r4a-");
+    const outside = makeTempDir("llmdoc-knowledge-r4a-out-");
     createdDirs.push(outside);
     symlinkDir(outside, path.join(source, "junction-out"));
     const sourceReal = realPath(source);
     const filesBefore = snapshotWorktree(sourceReal);
 
-    await expectNgError(
+    await expectKnowledgeError(
       () =>
         initKnowledgeRepository({
           sourceInput: source,
@@ -75,14 +75,14 @@ describe("R4: realpath pre-check before any disk writes", () => {
   });
 
   it("rejects an external target behind a junction that enters the source, without creating anything", async () => {
-    const { base, registryDir, source } = makeSource("llmdoc-v3ng-r4b-");
+    const { base, registryDir, source } = makeSource("llmdoc-knowledge-r4b-");
     fs.mkdirSync(path.join(source, "inner"));
-    const outside = makeTempDir("llmdoc-v3ng-r4b-out-");
+    const outside = makeTempDir("llmdoc-knowledge-r4b-out-");
     createdDirs.push(outside);
     symlinkDir(path.join(source, "inner"), path.join(outside, "junction-in"));
     const outsideBefore = fs.readdirSync(outside);
 
-    await expectNgError(
+    await expectKnowledgeError(
       () =>
         initKnowledgeRepository({
           sourceInput: source,
@@ -101,7 +101,7 @@ describe("R4: realpath pre-check before any disk writes", () => {
 
 describe("R5: init atomicity under registry conflicts, lock waits and faults", () => {
   it("refuses a registry-occupied empty knowledge root before creating anything", async () => {
-    const { base, registryDir } = makeSource("llmdoc-v3ng-r5a-");
+    const { base, registryDir } = makeSource("llmdoc-knowledge-r5a-");
     const other = initRepo(`${base}/other`);
     commitFile(other, "lib/x.ts", "export {}\n", "init");
     const empty = `${base}/empty`;
@@ -110,7 +110,7 @@ describe("R5: init atomicity under registry conflicts, lock waits and faults", (
     insertBinding(document, { repositoryId: generateRepositoryId(), sourcePath: other, knowledgeRoot: empty });
     writeRegistryDocument(registryDir, document);
 
-    await expectNgError(
+    await expectKnowledgeError(
       () => initKnowledgeRepository({ sourceInput: other, knowledgeInput: empty, registryDir }),
       "E_BINDING_CONFLICT"
     );
@@ -120,7 +120,7 @@ describe("R5: init atomicity under registry conflicts, lock waits and faults", (
   });
 
   it("re-checks an empty target after waiting for the registry lock", async () => {
-    const { base, registryDir, source } = makeSource("llmdoc-v3ng-r5b-");
+    const { base, registryDir, source } = makeSource("llmdoc-knowledge-r5b-");
     fs.mkdirSync(registryDir, { recursive: true });
     const target = `${base}/late`;
     fs.mkdirSync(target);
@@ -131,7 +131,7 @@ describe("R5: init atomicity under registry conflicts, lock waits and faults", (
       fs.rmSync(lockPath, { force: true });
     }, 150);
 
-    await expectNgError(
+    await expectKnowledgeError(
       () => initKnowledgeRepository({ sourceInput: source, knowledgeInput: target, registryDir }),
       "E_INIT_TARGET_NOT_EMPTY"
     );
@@ -143,7 +143,7 @@ describe("R5: init atomicity under registry conflicts, lock waits and faults", (
   });
 
   it("removes a self-created target and leaves no registry entry when the skeleton write fails", async () => {
-    const { base, registryDir, source } = makeSource("llmdoc-v3ng-r5c-");
+    const { base, registryDir, source } = makeSource("llmdoc-knowledge-r5c-");
     const target = `${base}/knowledge`;
     const realWrite = fs.writeFileSync.bind(fs);
     const spy = vi.spyOn(fs, "writeFileSync").mockImplementation(((file: unknown, ...rest: unknown[]) => {
@@ -155,7 +155,7 @@ describe("R5: init atomicity under registry conflicts, lock waits and faults", (
     const headBefore = head(source);
     const indexBefore = sourceIndexBytes(realPath(source));
     try {
-      await expectNgError(
+      await expectKnowledgeError(
         () => initKnowledgeRepository({ sourceInput: source, knowledgeInput: target, registryDir }),
         "E_FILESYSTEM_IO",
         70
@@ -172,7 +172,7 @@ describe("R5: init atomicity under registry conflicts, lock waits and faults", (
   });
 
   it("keeps a pre-existing empty target and removes only llmdoc artifacts when the skeleton write fails", async () => {
-    const { base, registryDir, source } = makeSource("llmdoc-v3ng-r5d-");
+    const { base, registryDir, source } = makeSource("llmdoc-knowledge-r5d-");
     const target = `${base}/knowledge`;
     fs.mkdirSync(target);
     const realWrite = fs.writeFileSync.bind(fs);
@@ -183,7 +183,7 @@ describe("R5: init atomicity under registry conflicts, lock waits and faults", (
       return (realWrite as unknown as (...args: unknown[]) => ReturnType<typeof realWrite>)(file, ...rest);
     }) as unknown as typeof fs.writeFileSync);
     try {
-      await expectNgError(
+      await expectKnowledgeError(
         () => initKnowledgeRepository({ sourceInput: source, knowledgeInput: target, registryDir }),
         "E_FILESYSTEM_IO",
         70
@@ -199,12 +199,12 @@ describe("R5: init atomicity under registry conflicts, lock waits and faults", (
   });
 });
 
-describe("R6: registry/config I/O failures surface as stable NgError (exit 70)", () => {
+describe("R6: registry/config I/O failures surface as stable KnowledgeError (exit 70)", () => {
   it("reports E_FILESYSTEM_IO when the registry directory is a file", async () => {
-    const { base, registryDir, source } = makeSource("llmdoc-v3ng-r6a-");
+    const { base, registryDir, source } = makeSource("llmdoc-knowledge-r6a-");
     fs.writeFileSync(registryDir, "not a directory");
 
-    await expectNgError(
+    await expectKnowledgeError(
       () => initKnowledgeRepository({ sourceInput: source, knowledgeInput: `${base}/knowledge`, registryDir }),
       "E_FILESYSTEM_IO",
       70
@@ -213,18 +213,18 @@ describe("R6: registry/config I/O failures surface as stable NgError (exit 70)",
   });
 
   it("reports E_FILESYSTEM_IO when llmdoc.yaml cannot be read as a file", async () => {
-    const { base } = makeSource("llmdoc-v3ng-r6b-");
+    const { base } = makeSource("llmdoc-knowledge-r6b-");
     const knowledge = initRepo(`${base}/knowledge`);
     fs.mkdirSync(path.join(knowledge, "llmdoc.yaml"));
 
-    await expectNgError(() => loadKnowledgeLayoutConfig(knowledge), "E_FILESYSTEM_IO", 70);
+    await expectKnowledgeError(() => loadKnowledgeLayoutConfig(knowledge), "E_FILESYSTEM_IO", 70);
     void base;
   });
 });
 
 describe("R7: a verified precise binding carries the repositoryId on the SourceContext", () => {
   it("fills SourceContext.repositoryId after identity verification", async () => {
-    const base = makeTempDir("llmdoc-v3ng-r7-");
+    const base = makeTempDir("llmdoc-knowledge-r7-");
     createdDirs.push(base);
     const registryDir = `${base}/registry`;
     const source = initRepo(`${base}/source`);
@@ -244,7 +244,7 @@ describe("R7: a verified precise binding carries the repositoryId on the SourceC
 
 describe("R9: target existence is decided at the final in-lock pre-check", () => {
   it("keeps an externally created empty target that appears during the registry lock wait", async () => {
-    const { base, registryDir, source } = makeSource("llmdoc-v3ng-r9-");
+    const { base, registryDir, source } = makeSource("llmdoc-knowledge-r9-");
     fs.mkdirSync(registryDir, { recursive: true });
     const target = `${base}/late-empty`;
     const lockPath = path.join(registryDir, "bindings.lock");
@@ -262,7 +262,7 @@ describe("R9: target existence is decided at the final in-lock pre-check", () =>
       return (realWrite as unknown as (...args: unknown[]) => ReturnType<typeof realWrite>)(file, ...rest);
     }) as unknown as typeof fs.writeFileSync);
     try {
-      await expectNgError(
+      await expectKnowledgeError(
         () => initKnowledgeRepository({ sourceInput: source, knowledgeInput: target, registryDir }),
         "E_FILESYSTEM_IO",
         70

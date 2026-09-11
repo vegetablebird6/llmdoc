@@ -1,4 +1,4 @@
-import { initKnowledgeRepository } from "../lib/v3ng/init.js";
+import { initKnowledgeRepository } from "../lib/knowledge/init.js";
 
 export interface InitCommandOptions {
   source: string;

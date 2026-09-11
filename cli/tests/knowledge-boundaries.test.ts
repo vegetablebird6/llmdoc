@@ -5,15 +5,15 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 
 vi.setConfig({ testTimeout: 30000 });
 
-import { bindKnowledge } from "../src/lib/v3ng/bind.js";
-import { resolveWriteBinding } from "../src/lib/v3ng/binding.js";
-import { resolveSourceContext } from "../src/lib/v3ng/contexts.js";
-import { initKnowledgeRepository } from "../src/lib/v3ng/init.js";
-import { generateRepositoryId } from "../src/lib/v3ng/identity.js";
-import { emptyRegistryDocument, insertBinding, readRegistryDocument, writeRegistryDocument } from "../src/lib/v3ng/registry.js";
+import { bindKnowledge } from "../src/lib/knowledge/bind.js";
+import { resolveWriteBinding } from "../src/lib/knowledge/binding.js";
+import { resolveSourceContext } from "../src/lib/knowledge/contexts.js";
+import { initKnowledgeRepository } from "../src/lib/knowledge/init.js";
+import { generateRepositoryId } from "../src/lib/knowledge/identity.js";
+import { emptyRegistryDocument, insertBinding, readRegistryDocument, writeRegistryDocument } from "../src/lib/knowledge/registry.js";
 import {
   commitFile,
-  expectNgError,
+  expectKnowledgeError,
   git,
   head,
   initRepo,
@@ -21,7 +21,7 @@ import {
   realPath,
   snapshotWorktree,
   sourceIndexBytes
-} from "./v3ng-helpers.js";
+} from "./knowledge-helpers.js";
 
 const createdDirs: string[] = [];
 
@@ -60,7 +60,7 @@ describe("roadmap acceptance 1 (M1): source state is preserved byte-level across
 it(
     "keeps HEAD, index bytes, worktree files and status identical before and after the flows",
     async () => {
-      const { base, registryDir, source } = makeSource("llmdoc-v3ng-acc1-", true);
+      const { base, registryDir, source } = makeSource("llmdoc-knowledge-acc1-", true);
       commitFile(source, "docs/note.md", "note\n", "docs");
       const sourceReal = realPath(source);
       const headBefore = head(source);
@@ -89,20 +89,20 @@ describe("roadmap acceptance 2 (M1): independence failures cannot be bypassed th
 it(
     "blocks missing Git, upward source Git hits, same-repo worktrees, and tracked nested subtrees",
     async () => {
-      const { base, registryDir, source } = makeSource("llmdoc-v3ng-acc2-");
+      const { base, registryDir, source } = makeSource("llmdoc-knowledge-acc2-");
 
     const plain = `${base}/plain`;
     fs.mkdirSync(plain);
-    await expectNgError(() => bindKnowledge({ sourceInput: source, knowledgeInput: plain, registryDir }), "E_KNOWLEDGE_REPO_NOT_FOUND");
+    await expectKnowledgeError(() => bindKnowledge({ sourceInput: source, knowledgeInput: plain, registryDir }), "E_KNOWLEDGE_REPO_NOT_FOUND");
 
-    await expectNgError(
+    await expectKnowledgeError(
       () => bindKnowledge({ sourceInput: source, knowledgeInput: source, registryDir }),
       "E_GIT_IDENTITY_CONFLICT"
     );
 
     const innerPlain = `${base}/source/inner-plain`;
     fs.mkdirSync(innerPlain);
-    await expectNgError(
+    await expectKnowledgeError(
       () => bindKnowledge({ sourceInput: source, knowledgeInput: innerPlain, registryDir }),
       "E_KNOWLEDGE_ROOT_NOT_WORKTREE"
     );
@@ -110,7 +110,7 @@ it(
     const linked = `${base}/linked-worktree`;
     git(source, ["worktree", "add", linked]);
     createdDirs.push(linked);
-    await expectNgError(
+    await expectKnowledgeError(
       () => bindKnowledge({ sourceInput: source, knowledgeInput: linked, registryDir }),
       "E_GIT_IDENTITY_CONFLICT"
     );
@@ -124,7 +124,7 @@ it(
     const bound = await bindKnowledge({ sourceInput: source, knowledgeInput: otherLinked, registryDir });
     expect(bound.status).toBe("bound");
 
-    await expectNgError(
+    await expectKnowledgeError(
       () => initKnowledgeRepository({ sourceInput: source, knowledgeInput: `${base}/second-knowledge`, registryDir }),
       "E_BINDING_CONFLICT"
     );
@@ -135,9 +135,9 @@ it(
 it(
     "requires explicit nested selection and rejects outer-tracked nested subtrees",
     async () => {
-      const { base, registryDir, source } = makeSource("llmdoc-v3ng-acc2n-");
+      const { base, registryDir, source } = makeSource("llmdoc-knowledge-acc2n-");
 
-      await expectNgError(
+      await expectKnowledgeError(
         () => initKnowledgeRepository({ sourceInput: source, knowledgeInput: `${base}/source/nk`, registryDir }),
         "E_NESTED_MODE_REQUIRED"
       );
@@ -159,7 +159,7 @@ it(
       git(source, ["add", "tk/outer-file.md"]);
       git(source, ["commit", "-m", "track nested subtree"]);
       initRepo(trackedNestedDir);
-      await expectNgError(
+      await expectKnowledgeError(
         () => bindKnowledge({ sourceInput: source, knowledgeInput: trackedNestedDir, nested: true, registryDir: fileTrackedRegistry }),
         "E_NESTED_TRACKED_BY_OUTER"
       );
@@ -168,7 +168,7 @@ it(
     const gitlinkTarget = `${base}/source/tk2`;
     fs.mkdirSync(gitlinkTarget, { recursive: true });
     git(source, ["update-index", "--add", "--cacheinfo", `160000,${head(source)},tk2`]);
-    await expectNgError(
+    await expectKnowledgeError(
       () => initKnowledgeRepository({ sourceInput: source, knowledgeInput: gitlinkTarget, nested: true, registryDir: gitlinkRegistry }),
       "E_NESTED_TRACKED_BY_OUTER"
     );
@@ -177,7 +177,7 @@ it(
   );
 
   itOnWindows("treats junction and case-variant knowledge roots as the same binding", async () => {
-    const { base, registryDir, source } = makeSource("llmdoc-v3ng-acc2w-");
+    const { base, registryDir, source } = makeSource("llmdoc-knowledge-acc2w-");
     const result = await initKnowledgeRepository({ sourceInput: source, knowledgeInput: `${base}/knowledge`, registryDir });
 
     const link = path.join(base, "know-link");
@@ -198,8 +198,8 @@ it(
 
 describe("roadmap acceptance 3 (M1): unrelated projects, clones, forks and ambiguous registries never share knowledge", () => {
   it("keeps two unrelated projects strictly separated", async () => {
-    const { base, registryDir, source } = makeSource("llmdoc-v3ng-acc3a-");
-    const otherBase = makeTempDir("llmdoc-v3ng-acc3a2-");
+    const { base, registryDir, source } = makeSource("llmdoc-knowledge-acc3a-");
+    const otherBase = makeTempDir("llmdoc-knowledge-acc3a2-");
     createdDirs.push(otherBase);
     const other = initRepo(`${otherBase}/source`);
     commitFile(other, "lib/x.ts", "export {}\n", "init");
@@ -213,12 +213,12 @@ describe("roadmap acceptance 3 (M1): unrelated projects, clones, forks and ambig
   });
 
   it("requires separate bindings for separate clones and rejects registry ambiguity", async () => {
-    const { base, registryDir, source } = makeSource("llmdoc-v3ng-acc3b-");
+    const { base, registryDir, source } = makeSource("llmdoc-knowledge-acc3b-");
     await initKnowledgeRepository({ sourceInput: source, knowledgeInput: `${base}/k1`, registryDir });
 
     const clone = `${base}/clone`;
     git(source, ["clone", "--quiet", source, clone]);
-    await expectNgError(() => resolveWriteBinding({ sourceInput: clone, registryDir }), "E_BINDING_NOT_FOUND");
+    await expectKnowledgeError(() => resolveWriteBinding({ sourceInput: clone, registryDir }), "E_BINDING_NOT_FOUND");
     const cloneInit = await initKnowledgeRepository({ sourceInput: clone, knowledgeInput: `${base}/k2`, registryDir });
     expect((await resolveWriteBinding({ sourceInput: clone, registryDir })).knowledge.worktreeRoot).toBe(cloneInit.knowledgeRoot);
 
@@ -226,11 +226,11 @@ describe("roadmap acceptance 3 (M1): unrelated projects, clones, forks and ambig
     insertBinding(ambiguous, { repositoryId: generateRepositoryId(), sourcePath: source, knowledgeRoot: `${base}/ka` });
     insertBinding(ambiguous, { repositoryId: generateRepositoryId(), sourcePath: source, knowledgeRoot: `${base}/kb` });
     writeRegistryDocument(registryDir, ambiguous);
-    await expectNgError(() => resolveWriteBinding({ sourceInput: source, registryDir }), "E_BINDING_AMBIGUOUS");
+    await expectKnowledgeError(() => resolveWriteBinding({ sourceInput: source, registryDir }), "E_BINDING_AMBIGUOUS");
   });
 
   it("gives forks and alias-sharing clones no identity: only explicit binding authorizes writes", async () => {
-    const { base, registryDir } = makeSource("llmdoc-v3ng-acc3c-", true);
+    const { base, registryDir } = makeSource("llmdoc-knowledge-acc3c-", true);
     const fork = initRepo(`${base}/fork`);
     git(fork, ["remote", "add", "origin", "https://example.com/org/project.git"]);
     commitFile(fork, "src/main.ts", "export {}\n", "init");
@@ -244,12 +244,12 @@ describe("roadmap acceptance 3 (M1): unrelated projects, clones, forks and ambig
   });
 
   it("blocks init under a locked registry without touching the source", async () => {
-    const { base, registryDir, source } = makeSource("llmdoc-v3ng-acc3d-");
+    const { base, registryDir, source } = makeSource("llmdoc-knowledge-acc3d-");
     fs.mkdirSync(registryDir, { recursive: true });
     fs.writeFileSync(path.join(registryDir, "bindings.lock"), JSON.stringify({ ownerToken: "x", pid: 4321, host: "h" }));
 
     const headBefore = head(source);
-    await expectNgError(
+    await expectKnowledgeError(
       () => initKnowledgeRepository({ sourceInput: source, knowledgeInput: `${base}/knowledge`, registryDir }),
       "E_REGISTRY_LOCKED",
       70

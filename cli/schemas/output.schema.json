@@ -152,315 +152,6 @@
         }
       }
     },
-    "treeTopics": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "root",
-        "rootSingletons",
-        "topics",
-        "pagination"
-      ],
-      "properties": {
-        "root": {
-          "type": "string",
-          "const": "llmdoc"
-        },
-        "rootSingletons": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/docRef"
-          }
-        },
-        "topics": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "topic",
-              "summary",
-              "documentCount",
-              "estimatedTokens"
-            ],
-            "properties": {
-              "topic": {
-                "type": "string",
-                "minLength": 1
-              },
-              "documentCount": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "summary": {
-                "type": "string"
-              },
-              "estimatedTokens": {
-                "type": "integer",
-                "minimum": 0
-              }
-            }
-          }
-        },
-        "pagination": {
-          "$ref": "#/$defs/pagination"
-        }
-      }
-    },
-    "treeDocs": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "root",
-        "documents",
-        "pagination"
-      ],
-      "properties": {
-        "root": {
-          "type": "string",
-          "const": "llmdoc"
-        },
-        "documents": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "path",
-              "kind",
-              "description",
-              "topic"
-            ],
-            "properties": {
-              "path": {
-                "$ref": "#/$defs/path"
-              },
-              "kind": {
-                "$ref": "#/$defs/kind"
-              },
-              "description": {
-                "type": "string",
-                "minLength": 1
-              },
-              "topic": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              }
-            }
-          }
-        },
-        "pagination": {
-          "$ref": "#/$defs/pagination"
-        }
-      }
-    },
-    "index": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "documents",
-        "pagination"
-      ],
-      "properties": {
-        "documents": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "path",
-              "kind",
-              "description",
-              "relations",
-              "code"
-            ],
-            "properties": {
-              "path": {
-                "$ref": "#/$defs/path"
-              },
-              "kind": {
-                "$ref": "#/$defs/kind"
-              },
-              "description": {
-                "type": "string",
-                "minLength": 1
-              },
-              "relations": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                  "requires": {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "minLength": 1
-                    }
-                  },
-                  "related": {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "minLength": 1
-                    }
-                  }
-                }
-              },
-              "code": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                  "paths": {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "minLength": 1
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "pagination": {
-          "$ref": "#/$defs/pagination"
-        }
-      }
-    },
-    "show": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "documents",
-        "pagination"
-      ],
-      "properties": {
-        "documents": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "path",
-              "kind",
-              "description",
-              "body"
-            ],
-            "properties": {
-              "path": {
-                "$ref": "#/$defs/path"
-              },
-              "kind": {
-                "$ref": "#/$defs/kind"
-              },
-              "description": {
-                "type": "string",
-                "minLength": 1
-              },
-              "body": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "pagination": {
-          "$ref": "#/$defs/pagination"
-        }
-      }
-    },
-    "search": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "query",
-        "searchMode",
-        "results",
-        "pagination"
-      ],
-      "properties": {
-        "query": {
-          "type": "string",
-          "minLength": 1
-        },
-        "searchMode": {
-          "type": "string",
-          "enum": [
-            "lexical",
-            "cjk-bigram-fallback"
-          ]
-        },
-        "results": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "path",
-              "kind",
-              "description",
-              "snippet",
-              "score"
-            ],
-            "properties": {
-              "path": {
-                "$ref": "#/$defs/path"
-              },
-              "kind": {
-                "$ref": "#/$defs/kind"
-              },
-              "description": {
-                "type": "string",
-                "minLength": 1
-              },
-              "snippet": {
-                "type": "string"
-              },
-              "score": {
-                "type": "number"
-              }
-            }
-          }
-        },
-        "pagination": {
-          "$ref": "#/$defs/pagination"
-        }
-      }
-    },
-    "context": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "impacted",
-        "prerequisites",
-        "unmappedFiles",
-        "pagination"
-      ],
-      "properties": {
-        "impacted": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/docRef"
-          }
-        },
-        "prerequisites": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/docRef"
-          }
-        },
-        "unmappedFiles": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "pagination": {
-          "$ref": "#/$defs/pagination"
-        }
-      }
-    },
     "validate": {
       "type": "object",
       "additionalProperties": false,
@@ -1092,7 +783,7 @@
         }
       }
     },
-    "ngError": {
+    "knowledgeError": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -1125,6 +816,761 @@
               "type": "string"
             }
           }
+        }
+      }
+    },
+    "knowledgeKind": {
+      "type": "string",
+      "enum": [
+        "architecture",
+        "decision",
+        "guide",
+        "reference"
+      ]
+    },
+    "knowledgeStatus": {
+      "type": "string",
+      "enum": [
+        "unverified",
+        "current",
+        "needs_review"
+      ]
+    },
+    "readMode": {
+      "type": "string",
+      "enum": [
+        "bound",
+        "explicit",
+        "unbound"
+      ]
+    },
+    "knowledgeDocumentSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "description",
+        "topic",
+        "status",
+        "reasons",
+        "sourcePaths",
+        "requires",
+        "supersededBy"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "$ref": "#/$defs/knowledgeKind"
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "topic": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/knowledgeStatus"
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sourcePaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "requires": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "supersededBy": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "knowledgeSearchResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "description",
+        "status",
+        "reasons",
+        "supersededBy",
+        "supersedes",
+        "score",
+        "snippet"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "$ref": "#/$defs/knowledgeKind"
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/knowledgeStatus"
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "supersededBy": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "supersedes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "score": {
+          "type": "number"
+        },
+        "snippet": {
+          "type": "string"
+        }
+      }
+    },
+    "search": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "mode",
+        "repositoryId",
+        "sourceRevision",
+        "unbound",
+        "query",
+        "searchMode",
+        "results",
+        "pagination",
+        "knowledgeRevision",
+        "lastGlobalReviewRevision",
+        "sourceBlockers",
+        "historyAvailable",
+        "issues"
+      ],
+      "properties": {
+        "schema": {
+          "const": "llmdoc.search/v1"
+        },
+        "mode": {
+          "$ref": "#/$defs/readMode"
+        },
+        "repositoryId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sourceRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "unbound": {
+          "type": "boolean"
+        },
+        "query": {
+          "type": "string"
+        },
+        "searchMode": {
+          "type": "string",
+          "enum": [
+            "lexical",
+            "cjk-bigram-fallback"
+          ]
+        },
+        "results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/knowledgeSearchResult"
+          }
+        },
+        "pagination": {
+          "$ref": "#/$defs/pagination"
+        },
+        "knowledgeRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lastGlobalReviewRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sourceBlockers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/knowledgeSourceBlocker"
+          }
+        },
+        "historyAvailable": {
+          "type": "boolean"
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/knowledgeIssue"
+          }
+        }
+      }
+    },
+    "index": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "mode",
+        "repositoryId",
+        "sourceRevision",
+        "unbound",
+        "documents",
+        "pagination",
+        "knowledgeRevision",
+        "lastGlobalReviewRevision",
+        "sourceBlockers",
+        "historyAvailable",
+        "issues"
+      ],
+      "properties": {
+        "schema": {
+          "const": "llmdoc.index/v1"
+        },
+        "mode": {
+          "$ref": "#/$defs/readMode"
+        },
+        "repositoryId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sourceRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "unbound": {
+          "type": "boolean"
+        },
+        "documents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/knowledgeDocumentSummary"
+          }
+        },
+        "pagination": {
+          "$ref": "#/$defs/pagination"
+        },
+        "knowledgeRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lastGlobalReviewRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sourceBlockers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/knowledgeSourceBlocker"
+          }
+        },
+        "historyAvailable": {
+          "type": "boolean"
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/knowledgeIssue"
+          }
+        }
+      }
+    },
+    "tree": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "mode",
+        "repositoryId",
+        "sourceRevision",
+        "unbound",
+        "topics",
+        "rootSingletons",
+        "pagination",
+        "knowledgeRevision",
+        "lastGlobalReviewRevision",
+        "sourceBlockers",
+        "historyAvailable",
+        "issues"
+      ],
+      "properties": {
+        "schema": {
+          "const": "llmdoc.tree/v1"
+        },
+        "mode": {
+          "$ref": "#/$defs/readMode"
+        },
+        "repositoryId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sourceRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "unbound": {
+          "type": "boolean"
+        },
+        "topics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "topic",
+              "documents"
+            ],
+            "properties": {
+              "topic": {
+                "type": "string",
+                "minLength": 1
+              },
+              "documents": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/knowledgeDocumentSummary"
+                }
+              }
+            }
+          }
+        },
+        "rootSingletons": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/knowledgeDocumentSummary"
+          }
+        },
+        "pagination": {
+          "$ref": "#/$defs/pagination"
+        },
+        "knowledgeRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lastGlobalReviewRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sourceBlockers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/knowledgeSourceBlocker"
+          }
+        },
+        "historyAvailable": {
+          "type": "boolean"
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/knowledgeIssue"
+          }
+        }
+      }
+    },
+    "show": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "mode",
+        "repositoryId",
+        "sourceRevision",
+        "unbound",
+        "documents",
+        "pagination",
+        "knowledgeRevision",
+        "lastGlobalReviewRevision",
+        "sourceBlockers",
+        "historyAvailable",
+        "issues"
+      ],
+      "properties": {
+        "schema": {
+          "const": "llmdoc.show/v1"
+        },
+        "mode": {
+          "$ref": "#/$defs/readMode"
+        },
+        "repositoryId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sourceRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "unbound": {
+          "type": "boolean"
+        },
+        "documents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "kind",
+              "title",
+              "description",
+              "topic",
+              "status",
+              "reasons",
+              "sourcePaths",
+              "requires",
+              "supersededBy",
+              "frontmatter",
+              "body"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "$ref": "#/$defs/knowledgeKind"
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "description": {
+                "type": "string"
+              },
+              "topic": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "$ref": "#/$defs/knowledgeStatus"
+              },
+              "reasons": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "sourcePaths": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "requires": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "supersededBy": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "frontmatter": {
+                "type": "object"
+              },
+              "body": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "pagination": {
+          "$ref": "#/$defs/pagination"
+        },
+        "knowledgeRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lastGlobalReviewRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sourceBlockers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/knowledgeSourceBlocker"
+          }
+        },
+        "historyAvailable": {
+          "type": "boolean"
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/knowledgeIssue"
+          }
+        }
+      }
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "mode",
+        "repositoryId",
+        "sourceRevision",
+        "unbound",
+        "impacted",
+        "prerequisites",
+        "unmappedFiles",
+        "matchedDocumentCount",
+        "knowledgeRevision",
+        "lastGlobalReviewRevision",
+        "sourceBlockers",
+        "historyAvailable",
+        "issues"
+      ],
+      "properties": {
+        "schema": {
+          "const": "llmdoc.context/v1"
+        },
+        "mode": {
+          "$ref": "#/$defs/readMode"
+        },
+        "repositoryId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sourceRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "unbound": {
+          "type": "boolean"
+        },
+        "impacted": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "kind",
+              "status",
+              "matchedPaths"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "$ref": "#/$defs/knowledgeKind"
+              },
+              "status": {
+                "$ref": "#/$defs/knowledgeStatus"
+              },
+              "matchedPaths": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "prerequisites": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "kind",
+              "status"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "$ref": "#/$defs/knowledgeKind"
+              },
+              "status": {
+                "$ref": "#/$defs/knowledgeStatus"
+              }
+            }
+          }
+        },
+        "unmappedFiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "matchedDocumentCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "knowledgeRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lastGlobalReviewRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sourceBlockers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/knowledgeSourceBlocker"
+          }
+        },
+        "historyAvailable": {
+          "type": "boolean"
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/knowledgeIssue"
+          }
+        }
+      }
+    },
+    "knowledgeSourceBlocker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message",
+        "paths"
+      ],
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "knowledgeIssue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "severity",
+        "code",
+        "path",
+        "message"
+      ],
+      "properties": {
+        "severity": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning"
+          ]
+        },
+        "code": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
         }
       }
     }

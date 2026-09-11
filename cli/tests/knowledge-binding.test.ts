@@ -4,13 +4,13 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 
 vi.setConfig({ testTimeout: 30000 });
 
-import { resolveWriteBinding } from "../src/lib/v3ng/binding.js";
-import { generateRepositoryId } from "../src/lib/v3ng/identity.js";
-import { emptyRegistryDocument, insertBinding, writeRegistryDocument } from "../src/lib/v3ng/registry.js";
-import { initKnowledgeRepository } from "../src/lib/v3ng/init.js";
+import { resolveWriteBinding } from "../src/lib/knowledge/binding.js";
+import { generateRepositoryId } from "../src/lib/knowledge/identity.js";
+import { emptyRegistryDocument, insertBinding, writeRegistryDocument } from "../src/lib/knowledge/registry.js";
+import { initKnowledgeRepository } from "../src/lib/knowledge/init.js";
 import {
   commitFile,
-  expectNgError,
+  expectKnowledgeError,
   git,
   head,
   initRepo,
@@ -18,7 +18,7 @@ import {
   realPath,
   snapshotWorktree,
   sourceIndexBytes
-} from "./v3ng-helpers.js";
+} from "./knowledge-helpers.js";
 
 const createdDirs: string[] = [];
 
@@ -49,7 +49,7 @@ async function setupBoundPair(prefix: string): Promise<{ source: string; knowled
 
 describe("resolveWriteBinding", () => {
   it("resolves the precise binding recorded in the user registry", async () => {
-    const { source, knowledge, registryDir } = await setupBoundPair("llmdoc-v3ng-bindok-");
+    const { source, knowledge, registryDir } = await setupBoundPair("llmdoc-knowledge-bindok-");
 
     const binding = await resolveWriteBinding({ sourceInput: source, registryDir });
 
@@ -60,45 +60,45 @@ describe("resolveWriteBinding", () => {
   });
 
   it("rejects an unbound source instead of granting identity from the path", async () => {
-    const base = makeTempDir("llmdoc-v3ng-bindnf-");
+    const base = makeTempDir("llmdoc-knowledge-bindnf-");
     createdDirs.push(base);
     const registryDir = `${base}/registry`;
     const source = initRepo(`${base}/source`);
     commitFile(source, "src/main.ts", "export {}\n", "init");
 
-    await expectNgError(() => resolveWriteBinding({ sourceInput: source, registryDir }), "E_BINDING_NOT_FOUND");
+    await expectKnowledgeError(() => resolveWriteBinding({ sourceInput: source, registryDir }), "E_BINDING_NOT_FOUND");
   });
 
   it("reports ambiguity when the registry has multiple entries for one source path", async () => {
-    const { source, registryDir, knowledge } = await setupBoundPair("llmdoc-v3ng-bindamb-");
+    const { source, registryDir, knowledge } = await setupBoundPair("llmdoc-knowledge-bindamb-");
     const document = emptyRegistryDocument();
     insertBinding(document, { repositoryId: generateRepositoryId(), sourcePath: source, knowledgeRoot: `${knowledge}x` });
     insertBinding(document, { repositoryId: generateRepositoryId(), sourcePath: source, knowledgeRoot: `${knowledge}y` });
     writeRegistryDocument(registryDir, document);
 
-    await expectNgError(() => resolveWriteBinding({ sourceInput: source, registryDir }), "E_BINDING_AMBIGUOUS");
+    await expectKnowledgeError(() => resolveWriteBinding({ sourceInput: source, registryDir }), "E_BINDING_AMBIGUOUS");
   });
 
   it("rejects an explicit knowledge root that conflicts with the binding", async () => {
-    const { source, knowledge, registryDir } = await setupBoundPair("llmdoc-v3ng-bindconf-");
+    const { source, knowledge, registryDir } = await setupBoundPair("llmdoc-knowledge-bindconf-");
     const second = initRepo(`${knowledge}2`);
     fs.writeFileSync(`${knowledge}2/llmdoc.yaml`, fs.readFileSync(`${knowledge}/llmdoc.yaml`));
 
-    await expectNgError(
+    await expectKnowledgeError(
       () => resolveWriteBinding({ sourceInput: source, knowledgeInput: second, registryDir }),
       "E_BINDING_CONFLICT"
     );
   });
 
   it("reports identity mismatch when the knowledge repository declares another repositoryId", async () => {
-    const { source, registryDir, knowledge } = await setupBoundPair("llmdoc-v3ng-bindmis-");
+    const { source, registryDir, knowledge } = await setupBoundPair("llmdoc-knowledge-bindmis-");
     fs.writeFileSync(`${knowledge}/llmdoc.yaml`, fs.readFileSync(`${knowledge}/llmdoc.yaml`).toString().replace(/llmdoc-[0-9a-f]{32}/, generateRepositoryId()));
 
-    await expectNgError(() => resolveWriteBinding({ sourceInput: source, registryDir }), "E_SOURCE_IDENTITY_MISMATCH");
+    await expectKnowledgeError(() => resolveWriteBinding({ sourceInput: source, registryDir }), "E_SOURCE_IDENTITY_MISMATCH");
   });
 
   it("requires an llmdoc-initialized knowledge repository", async () => {
-    const base = makeTempDir("llmdoc-v3ng-bindnoinit-");
+    const base = makeTempDir("llmdoc-knowledge-bindnoinit-");
     createdDirs.push(base);
     const registryDir = `${base}/registry`;
     const source = initRepo(`${base}/source`);
@@ -108,23 +108,23 @@ describe("resolveWriteBinding", () => {
     insertBinding(document, { repositoryId: generateRepositoryId(), sourcePath: source, knowledgeRoot: knowledge });
     writeRegistryDocument(registryDir, document);
 
-    await expectNgError(() => resolveWriteBinding({ sourceInput: source, registryDir }), "E_KNOWLEDGE_NOT_INITIALIZED");
+    await expectKnowledgeError(() => resolveWriteBinding({ sourceInput: source, registryDir }), "E_KNOWLEDGE_NOT_INITIALIZED");
   });
 
   it("never falls back to the source Git when the bound knowledge Git disappears", async () => {
-    const { source, knowledge, registryDir } = await setupBoundPair("llmdoc-v3ng-bindfb-");
+    const { source, knowledge, registryDir } = await setupBoundPair("llmdoc-knowledge-bindfb-");
     fs.rmSync(`${knowledge}/.git`, { recursive: true, force: true });
 
-    await expectNgError(() => resolveWriteBinding({ sourceInput: source, registryDir }), "E_KNOWLEDGE_REPO_NOT_FOUND");
+    await expectKnowledgeError(() => resolveWriteBinding({ sourceInput: source, registryDir }), "E_KNOWLEDGE_REPO_NOT_FOUND");
   });
 
   it("keeps clones independent: every clone needs its own explicit binding", async () => {
-    const { source, knowledge, registryDir } = await setupBoundPair("llmdoc-v3ng-bindclone-");
+    const { source, knowledge, registryDir } = await setupBoundPair("llmdoc-knowledge-bindclone-");
     const clone = `${source}-clone`;
     git(source, ["clone", "--quiet", source, clone]);
     createdDirs.push(clone);
 
-    await expectNgError(() => resolveWriteBinding({ sourceInput: clone, registryDir }), "E_BINDING_NOT_FOUND");
+    await expectKnowledgeError(() => resolveWriteBinding({ sourceInput: clone, registryDir }), "E_BINDING_NOT_FOUND");
 
     const cloneResult = await initKnowledgeRepository({
       sourceInput: clone,
@@ -140,7 +140,7 @@ describe("resolveWriteBinding", () => {
   });
 
   it("leaves the source repository byte-identical across binding resolutions", async () => {
-    const { source, registryDir } = await setupBoundPair("llmdoc-v3ng-bindfrozen-");
+    const { source, registryDir } = await setupBoundPair("llmdoc-knowledge-bindfrozen-");
     const headBefore = head(source);
     const indexBefore = sourceIndexBytes(source);
     const filesBefore = snapshotWorktree(source);

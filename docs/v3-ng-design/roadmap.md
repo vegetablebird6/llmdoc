@@ -7,10 +7,10 @@
 | 阶段 | 交付与主要触点 | 通过条件 |
 |---|---|---|
 | M1 仓库边界 | workspace/fs/git/config；bind/init；用户 registry；独立 context | 外置和嵌套可绑定；缺 Git、同 common Git、路径逃逸失败；所有操作保留 source 状态 |
-| M2 内容与读取 | types/schema/markdown/search；docs `.md`、decision、source.paths、双 revision；viewer | 正式检索不混入 inbox/cache；多层目录、链接、来源和有效性正确 |
+| M2 内容与读取 | types/schema/markdown/search；docs `.md`、decision、source.paths、双 revision；标准 lib/commands 原位替换；viewer | 不存在 `lib/v3ng`、`ng-*` handler/schema key 或 V3 dispatch/fallback；`tree/index/show/search/context` 直接使用新双仓读取；正式检索不混入 inbox/cache；多层目录、链接、来源和有效性正确 |
 | M3 语义提交 | state/commit/status/delta；Review Manifest、digest、锁、临时 index/CAS | docs + meta 单提交；人工 draft 可提交；全仓 dirty、manifest 失效、CAS 冲突不假成功 |
 | M4 最小维护闭环 | capture、update/prune 编排、导航生成、显式迁移 | 候选可拒绝/晋升；普通编辑不自动验证；迁移失败不影响旧知识和 source |
-| M5 接入与发布 | hooks、skills、agents、CLI 帮助、双语文档、viewer、示例 | 全部入口使用相同双仓契约；端到端 dogfood 通过后再确定版本号 |
+| M5 接入与发布 | hooks、skills、agents、CLI 帮助、双语文档、viewer、示例 | 读取入口已在 M2 完成 breaking replacement，其余入口使用相同双仓契约；端到端 dogfood 通过后再确定版本号 |
 
 当前工作树已有大量未提交 V3 演进内容。实施前先明确其保留/提交边界，再分阶段提交；本设计不将已有修改批量提交，也不从零重写已具备的 source/projection 能力。
 
@@ -26,6 +26,7 @@
 8. capture 可以持久化未验证候选但正式检索不召回；promote 的文档、meta、关系和候选移除原子发布；README 导航不扩大验证范围。
 9. V3 迁移 dry-run 展示所有映射；扩展名碰撞、CodeRef 无损转换失败、旧 revision 无法解释时保守处理；旧仓零修改，重复执行不覆盖目标草稿。
 10. CLI JSON schema、viewer 和各 Agent 接入口端到端一致；Windows 与 Linux 都运行关键集成用例。
+11. v3-ng 同名主命令不得保留 V3 dispatch 或 embedded/source fallback；旧 `.mdx` 只能由显式 migrate 读取。缺绑定应返回 v3-ng 绑定错误，而不是进入旧 workspace。
 
 测试优先真实临时双 Git 仓与故障注入，不只 mock Git 或测试字段改名。每阶段执行对应测试；最终再运行项目要求的 lint/typecheck/test、文档链接与 prompt 检查。本次只新增设计，不声称这些验收已经通过。
 

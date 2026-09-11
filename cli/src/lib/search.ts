@@ -255,7 +255,7 @@ function buildSearchableText(document: ParsedDocument): string {
     .toLowerCase();
 }
 
-function tokenizeQuery(input: string): string[] {
+export function tokenizeQuery(input: string): string[] {
   const tokens: string[] = [];
   let singleCjkBuffer: string[] = [];
   const flushSingleCjkBuffer = (): void => {
@@ -286,7 +286,7 @@ function tokenizeQuery(input: string): string[] {
   return unique(tokens);
 }
 
-function cjkBigrams(input: string): string[] {
+export function cjkBigrams(input: string): string[] {
   const bigrams: string[] = [];
   for (const match of input.toLowerCase().matchAll(CJK_RUN)) {
     const characters = [...match[0]];
@@ -297,7 +297,7 @@ function cjkBigrams(input: string): string[] {
   return unique(bigrams);
 }
 
-function countWords(input: string): number {
+export function countWords(input: string): number {
   let count = 0;
   for (const part of WORD_SEGMENTER.segment(input)) {
     if (part.isWordLike && part.segment.trim()) {
@@ -311,7 +311,7 @@ function unique(values: string[]): string[] {
   return [...new Set(values)];
 }
 
-function buildSnippet(body: string, tokens: string[]): string {
+export function buildSnippet(body: string, tokens: string[]): string {
   const lines = body.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const loweredTokens = tokens.map((token) => token.toLowerCase());
   const line =
@@ -321,7 +321,7 @@ function buildSnippet(body: string, tokens: string[]): string {
   return line.slice(0, 180);
 }
 
-function countSubstring(haystack: string, needle: string): number {
+export function countSubstring(haystack: string, needle: string): number {
   if (!needle) {
     return 0;
   }

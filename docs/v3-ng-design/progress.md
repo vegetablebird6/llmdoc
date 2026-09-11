@@ -1,6 +1,6 @@
 # v3-ng 实施进度与续接记录
 
-最后更新：2026-09-10（M1 已通过 Codex 集中复审，等待创建里程碑 commit；OpenCode 后续进入 M2）。
+最后更新：2026-09-10（M2 达到三轮返修阈值后由 Codex 直接接管收口；R3 四项遗漏已修复，最终复审与全量门禁通过，M2 完成并提交后进入 M3）。
 
 ## 执行约定
 
@@ -20,7 +20,7 @@
 | D3 评审收敛 | 完成 | 全仓 clean、digest、manifest、临时 index/CAS、三态、supersedes、opaque gitlink、显式绑定与 reference data 已同步 |
 | D4 协议冻结补齐 | 完成 | validatedRequires/validatedSourcePaths、clean knowledge index、同步收尾及 P1 已落地；协议主线冻结 |
 | M1 仓库边界 | 完成（R8 收口：连续两次原样 `npm test` exit 0，24 files / 142/142，无 unhandled；R9 保持） | 见「M1 第三轮最终返修 — 2026-09-10」 |
-| M2 内容与读取 | 未开始 | 见 roadmap.md |
+| M2 内容与读取 | 完成（breaking replacement；Codex R3 直接收口，28 files / 179 tests 全过） | 见「M2 Codex R3 直接修复与最终复审通过」 |
 | M3 语义提交 | 未开始 | 见 roadmap.md |
 | M4 最小维护闭环 | 未开始 | 见 roadmap.md |
 | M5 接入与发布 | 未开始 | 见 roadmap.md |
@@ -411,3 +411,480 @@ R8 期间保留的跨平台兼容改动全部随测试体原样迁移：`tests/h
 - 环境核对：真实 `%APPDATA%\llmdoc` 及 bindings.json 不存在；提交前 index 为空，工作树只含 M1/v3-ng 设计、实现、测试和因测试拆分同步更新的仓库知识路径。
 
 下一步具体入口：创建 M1 里程碑 commit；提交后将 M2 整体交给 OpenCode，继续执行“设计/进度先行、完整 M 后集中 review”的闭环。
+
+## M2 设计拆解与实施计划 — 2026-09-10
+
+状态：设计先行，先写入本文件再写代码。M2 范围以冻结的 README/architecture/roadmap 为准，只做“内容与读取”；不实现 M3 的 Review Manifest/seal/CAS、M4 的 capture/migrate、M5 的 hooks/发布接入。
+
+### 核心与协议不变量（M2 必须始终成立）
+
+1. **读取严格只读**：不写 Source Git、不写 Knowledge Git、不获取写锁、不为读取初始化 Git；不创建 source 侧缓存或索引。搜索缓存只在知识目录 `.llmdoc-cache/`（可重建、knowledge `.gitignore` 已排除）或纯内存，绝不落到 source。
+2. **正式知识面 = `docs/**/*.md`，任意层级**。`inbox/`、`.llmdoc-cache/`、`.llmdoc/`、`README.md` 不属于正式知识节点；正式 tree/index/show/search/context 不召回候选与缓存。
+3. **文档 ID = docs 相对 POSIX 路径**；正文为标准 Markdown，不执行 JSX/脚本/组件（v3-ng 不再有 CodeRef/MDX 语义，遇到组件语法按普通文本或结构诊断处理）。
+4. **kind ∈ {architecture, decision, guide, reference}**。每篇正式文档 `source.paths` 非空、相对 source 根、禁止绝对路径与 `..`；glob 允许但结构层只做语法与逃逸检查（snapshot 存在性属 M3 复核）。
+5. **四项验证证据**存于 `.llmdoc/meta.json`（`schema: llmdoc.meta/v3-ng`）：`validatedSourceRevision`、`validatedContentDigest`、`validatedSourcePaths`、`validatedRequires`。未验证时 revision/digest 为 null、paths 为 []、requires 为 {}。
+6. **digest 定义**：完整文档 UTF-8 内容（含 front matter、scope、关系、正文）先统一 CRLF/CR 为 LF，再做 SHA-256，记为 `sha256:<hex>`；不做其他语义归一化。普通 Git/编辑器改动后 digest 直接不符 → `needs_review`。
+7. **DocumentStatus 只有 unverified / current / needs_review**；SourceContext 阻断原因（unbound/invalid_head/source_dirty/history_unavailable/diverged）独立输出，不能伪装成文档状态。
+8. **requires 是有向无环**：禁止自引用与环；`validatedRequires` 键集合须等于当时的 requires 集合；目标缺失、非 current、或当前 digest ≠ 已记录 digest → 依赖方 needs_review；目标重新 seal 成 current **不会**自动刷新依赖方。
+9. **supersedes**：从新 decision 指向旧 decision，目标须存在且为 decision，禁止自引用与环；检索标注“被替代/替代者”并默认优先当前决策；supersedes 不改变验证状态。
+10. **无绑定只读**：显式 `--knowledge` 指向无 Git 目录时只做内容检索，报告 `unbound`，不声称 revision 有效；缺绑定且无显式 knowledge 时失败，**绝不回退 source Git**（M1 已建立的 `E_*` 契约继续沿用）。
+
+### 已废止的兼容判断（由后续 breaking replacement 协议修订取代）
+
+- 冲突：architecture §5 用裸命令名列出 `tree/index/show/search/context`；README「与当前 V3 的衔接」明确“现有 V3 用户行为不随文档自动改变”，且 M4 才做迁移、M5 才做“全部入口使用相同双仓契约”。若在 M2 直接把裸命令改为 v3-ng，会破坏仍在用 V3 `llmdoc/*.mdx` 的用户与仓库自身 dogfood。
+- 当时采用的替代方案是为同一批只读命令增加 `--source` / `--knowledge`，未给出时保持 V3 行为。用户随后明确 v3-ng 是 breaking change；该判断已废止，不能继续作为实现依据。M2 必须让裸读取命令直接使用 v3-ng，并删除 V3 dispatch/fallback。
+
+### 子步骤拆解
+
+| 子步骤 | 范围 | 通过条件 |
+|---|---|---|
+| M2a 文档模型与解析 | `v3ng/document.ts`（4 kind、source.paths、relations、digest、链接抽取）+ `v3ng/knowledge-model.ts`（`docs/**/*.md` 任意层级扫描、ID、topic、supersedes/requires 图、结构校验） | 多层目录、decision、source.paths、digest/链接/关系正确；inbox/cache 不进模型 |
+| M2b 有效性与双 revision 投影 | `v3ng/meta.ts`（读 `.llmdoc/meta.json` v3-ng）+ `v3ng/validity.ts`（三态、四项证据、requires DAG、digest 篡改、SourceContext 阻断） | unverified/current/needs_review 正确；Git 篡改 → needs_review；requires 目标变化不自动刷新依赖方 |
+| M2c 只读检索 | `v3ng/search.ts`（词法 + CJK，排除 inbox/cache）+ `v3ng/read.ts`（bound/explicit/unbound 解析，无 source fallback、无写） | 正式检索不混入候选；unbound 只读不声称 revision；source 字节/状态不变 |
+| M2d 读取命令与来源/有效性展示 | `tree/index/show/search/context` 新增 `--source/--knowledge` 走 v3-ng；输出附 kind/来源/status/superseded | 多层目录、链接、来源、有效性正确；JSON 输出 schema 校验 |
+| M2e viewer 读取一致性 | `v3ng/viewer-state.ts`：从同一 model/validity 投影 viewer DTO | viewer 节点/边/status 与 CLI 一致；不另建有效性规则 |
+
+### 验收路径（真实独立 Source/Knowledge Git）
+
+- 用真实临时双 Git 仓构造知识库：多层 `docs/`、decision+supersedes、requires、source.paths、`.llmdoc/meta.json` 四项证据、`inbox/` 候选、`.llmdoc-cache/` 缓存。
+- 断言：多层目录与 ID；正式检索排除 inbox/cache；digest 篡改（普通 Git 改正文）→ needs_review；requires 目标 digest 变化 → 依赖方 needs_review 且目标重 seal 不自动刷新；supersedes 类型/环/自引用拒绝；unbound 显式无 Git 目录只读且不声称 revision；所有读取前后 Source HEAD/`.git/index` 字节/工作树文件/`git status --porcelain` 逐项不变。
+- 定向：新增 `v3ng-*` 测试文件串行；`npm run typecheck`、`npm run lint`、原样全量 `npm test`（记录真实 exit code，连续两次）。
+
+### 续接入口与边界
+
+- M2 负责替换只读主入口并删除 V3 dispatch/fallback；不做 M3/M4/M5 的写事务、维护或发布接入。
+- 每完成一个子步骤即在本文件追加文件、真实验证证据与下一步入口。
+- M2 完成后停止，交 Codex 集中 review；通过前不进入 M3。不 stage/commit/reset/push。
+
+## M2 实施记录（M2a–M2e）— 2026-09-10
+
+状态：完成。M2a–M2e 代码与定向测试完成；连续两次原样全量 `npm test` exit 0；待 Codex 集中复审。
+
+### 关键实现决策
+
+- **读取固定知识 HEAD**（architecture §6）：bound/explicit 且知识仓有 Git 时，`docs/**/*.md` 从 `HEAD` 提交树读取（`git ls-tree -r HEAD -- docs` + 单进程 `git cat-file --batch` 批量取 blob），工作树未提交内容不进入正式知识；无 Git 的显式目录按 `unbound` 读文件系统。`knowledgeRevision` 记录所读 HEAD。
+- **只读、无 fallback**：读取不写 source/knowledge Git、不取写锁、不 init Git、不落缓存（搜索纯内存）；source 无绑定时 `E_BINDING_NOT_FOUND`，绝不回退 source Git。
+- **已废止的命令面过渡方案**：初版通过 `--source`/`--knowledge` 选择 v3-ng，未给出时保留 V3。用户明确 breaking replacement 后，该实现必须在 M2 返修中删除，不能带入里程碑提交。
+- **M2 不含 v3-ng `validate` 命令**：结构校验（front matter/kind/source.paths/链接/关系/supersedes/requires 环）作为模型 `issues` 实现并由测试覆盖；`validate`/review 的写集语义属 M3，未提前实现。
+
+### 文件
+
+- 新增 `cli/src/lib/v3ng/document.ts`：4 kind、source.paths、relations(requires/related/supersedes)、`.md` front matter 解析、CRLF→LF 归一化、`sha256:` digest、链接/标题抽取。
+- 新增 `cli/src/lib/v3ng/knowledge-model.ts`：从原始条目或 `docs/**/*.md` 任意层级构建模型（ID=topic 首段、rootSingletons、requires 环、supersedes 目标/类型/自引用/环、链接缺失、source.paths 逃逸、inbox/cache 跳过）；`buildKnowledgeModelFromRaw` 供 HEAD/内存读取。
+- 新增 `cli/src/lib/v3ng/meta.ts`：`.llmdoc/meta.json`（`llmdoc.meta/v3-ng`）四项证据严格解析/校验（digest 格式、repositoryId、requires 映射）。
+- 新增 `cli/src/lib/v3ng/validity.ts`：三态投影（unverified/current/needs_review）、digest 篡改、requires DAG 拓扑、依赖 digest/集合变化、source revision 历史存在性（只读 `cat-file -e`）、scope 变化、SourceContext 阻断独立输出。
+- 新增 `cli/src/lib/v3ng/search.ts`：词法 + CJK bigram 降级；复用 V3 分词纯函数（`src/lib/search.ts` 导出 `tokenizeQuery/cjkBigrams/countWords/buildSnippet/countSubstring`）；结果附 kind/status/reasons/supersededBy/supersedes。
+- 新增 `cli/src/lib/v3ng/read.ts`：`loadKnowledgeForRead`（bound/explicit/unbound；HEAD/fs 内容源；无写）。
+- 新增 `cli/src/lib/v3ng/viewer-state.ts`：`projectNgViewerState` 从同一 model/validity 投影节点/边/来源/状态，不另建有效性规则。
+- 新增 `cli/src/commands/ng-read.ts`：5 个只读命令的 v3-ng handler（含 context 的 source.paths 映射与 requires 闭包）。
+- 修改 `cli/src/cli.ts`：5 个只读命令新增 `--source/--knowledge` 分支。
+- 修改 `cli/src/lib/v3ng/errors.ts`：新增 `E_DOCUMENT_INVALID`、`E_META_INVALID`、`E_KNOWLEDGE_DOC_NOT_FOUND`、`E_INVALID_KIND`、`E_INVALID_SOURCE_FILE`（结构错误，exit 2）。
+- 修改 `cli/src/lib/v3ng/git-core.ts`：新增 `listTreeFiles`、`readGitBlobs`（单进程批量读 blob）。
+- 修改 `cli/src/lib/output-schema.ts` + `cli/schemas/output.schema.json`：新增 `ngTree/ngIndex/ngShow/ngSearch/ngContext` 输出契约（additive）。
+- 测试：新增 `cli/tests/v3ng-content.test.ts`（10）与 `cli/tests/v3ng-read.test.ts`（13，真实独立 Source/Knowledge Git）。
+- v3-ng 只读命令的输入错误（非法 kind、`../`/绝对 file、缺失文档）改由 `NgError` 抛出（`E_INVALID_KIND`/`E_INVALID_SOURCE_FILE`/`E_KNOWLEDGE_DOC_NOT_FOUND`，exit 2），`--json` 下输出 `{error:{code,message,paths,remediation}}`，符合 architecture §5，而非 CliError 裸文本。
+
+### 验证命令及真实结果
+
+- `npx vitest run tests/v3ng-content.test.ts tests/v3ng-read.test.ts` → exit 0，2 files / 23 tests 全过。
+- 覆盖：多层目录与四 kind；CRLF/LF digest 一致；source.paths 缺失/逃逸拒绝；requires 环、supersedes 目标非 decision/自引用/环；链接缺失；unverified/current/needs_review；digest 篡改；requires 目标变化后依赖方 needs_review 且目标重 seal 不自动刷新；source revision 缺失与 scope 变化；`--knowledge` 显式（bound/未绑定无 Git）与 `--source` 绑定读取；inbox 候选与 `.llmdoc-cache` 不进入正式检索；未提交工作树编辑不算正式知识；context 的 requires 闭包与 unmapped；5 个命令 JSON schema 校验；viewer 与 CLI status 一致；读取前后 source HEAD/`.git/index` 字节/工作树逐项不变；无绑定 `E_BINDING_NOT_FOUND` 不回退；非法输入的 ngError JSON 与 exit 2。
+- `npm run typecheck` → exit 0；`npm run lint` → exit 0。
+
+### 独立协议核对结论（不依赖测试数量）
+
+- **只读 Source 边界**：`loadKnowledgeForRead` 仅经 `resolveSourceContext`/`runGit` 只读调用；测试对读取前后 source HEAD、`.git/index` 字节、工作树全部文件做逐项比对，且 M1 的 source 冻结测试仍全过。
+- **固定 Knowledge HEAD**：bound/explicit 有 Git 时 `docs/**/*.md` 来自 `HEAD` 提交树（`ls-tree` + `cat-file --batch`），`knowledgeRevision` 等于知识 HEAD；未提交工作树编辑不进入模型，`inbox/`、`.llmdoc-cache/` 结构性排除。
+- **四项验证证据**：`meta.ts` 严格解析/校验 `validatedSourceRevision`/`validatedContentDigest`/`validatedSourcePaths`/`validatedRequires`；非法 ledger 直接拒绝而非信任。
+- **路径逃逸**：`source.paths` 拒绝绝对路径与 `..`；关系/链接目标经 `normalizeDocTarget` 拒绝 `..`/绝对；context `--files` 拒绝 `../`/绝对。独立用编译产物复核：`../secret`、`/etc/passwd`、`../../escape.md` 分别报 `source.paths.invalid`/`relations.requires.invalid-path`，CLI `context --files ../outside.ts` 报 `E_INVALID_SOURCE_FILE`（exit 2，结构化）。
+- **历史不可用**：`computeValidity` 只读 `cat-file -e <rev>^{commit}`；不可解析的 revision 使文档 `needs_review` 并给出原因，不伪称 current。
+- **digest/requires 失配**：正文改动（digest 不符）→ needs_review；requires 目标非 current 或记录 digest 与当前不符 → 依赖方 needs_review；目标重 seal 不自动刷新依赖方。
+- **unbound 只读语义**：显式无 Git 目录以 `mode=unbound`、`repositoryId=null`、`sourceRevision=null` 读取，仅内容检索，不声称 revision 有效；source 无绑定直接 `E_BINDING_NOT_FOUND`，绝不回退 Source Git。
+
+### 全量门禁与下一步
+
+- 连续两次原样全量 `npm test`（`cmd /c "npm test > 日志 2>&1"` 后立即读 `$LASTEXITCODE`，无管道筛选）：
+  - gate A：exit 0，26 files / 165 tests 全过，无 unhandled，Duration 645.42s（日志 `.llmdoc-tmp/m2gateA.log`）。
+  - gate B：exit 0，26 files / 165 tests 全过，无 unhandled，Duration 682.37s（日志 `.llmdoc-tmp/m2gateB.log`）。
+- `git diff --check` exit 0（仅 LF/CRLF 提示）；真实 `%APPDATA%\llmdoc\bindings.json` 与目录均不存在；`git diff --cached` 为空（index 无 staged）；分支 `v3-ng`；未 stage/commit/reset/push。
+- 下一步：停止，交 Codex 集中 review M2；通过前不进入 M3/M4/M5。
+- 边界：alias 只读发现、v3-ng 布局自动发现、v3-ng `validate` 命令、HTTP viewer 接线、CLI 帮助/双语同步留待 M3–M5。
+
+## M2 Codex 集中复审 R1 — 2026-09-10
+
+结论：不通过，退回 OpenCode 修复；这是 M2 第 1 轮返修。定向与全量测试虽通过，但没有覆盖以下协议级错误。
+
+1. **正式读取混用了 Knowledge HEAD 与工作树 meta/config。** `loadEntries` 从固定 HEAD 读取 `docs/**/*.md`，但 `readKnowledgeMeta(metaPath)` 与 `loadKnowledgeLayoutConfig(...)` 从工作树读取。未提交的 `.llmdoc/meta.json` 可改变 committed docs 的状态甚至伪造 `current`，输出中的 `knowledgeRevision` 因而不能代表同一份知识快照。正式 Git 知识读取必须从同一个 K 读取 docs、meta 及决定身份/布局的配置；无 Git 的 unbound 内容读取才允许读文件系统。
+2. **有效性没有检查 `validatedSourceRevision..source HEAD` 的源码变化与祖先关系。** 当前实现只确认旧 commit 对象存在、scope 字符串相等；映射路径在后续 committed source commit 中已经变化时仍会被标为 `current`。必须在固定 source HEAD 上区分历史缺失/分叉，并按 `validatedSourcePaths ∪ current source.paths` 判断相关 committed diff；命中即 `needs_review`，不得读取 live worktree 作为事实。
+3. **显式 `--source + --knowledge` 绕过了 repositoryId 与仓库独立性边界。** `loadExplicit` 不解析精确绑定、不校验 source/knowledge common Git、不校验 `meta.source.repositoryId` 与 knowledge config/source identity；`computeValidity` 也忽略这些身份字段。任意 clone/同源仓或错误配对在 commit 可达时可能宣称 `current`。没有可证明的逻辑身份关联时只能内容只读并报告 unbound/阻断，不能声明 revision validity；同 common Git 必须拒绝。
+4. **CLI 的“双 revision / SourceContext”投影不完整。** `baseEnvelope` 只输出当前 `sourceRevision`，遗漏 `knowledgeRevision`、`lastGlobalReviewRevision`、`sourceBlockers` 和确定性结构/meta issues；五个 JSON schema 同样无法表达这些字段。读取结果无法说明自己来自哪个 K，也无法把 source dirty/invalid/history 问题与三态文档状态分开呈现。
+5. **关系规范化只存在于校验临时值，后续消费者仍使用原始 front matter。** `./b.md`、反斜杠等被模型接受并解析到规范 ID，但 validity、viewer、context 与 search 又读取原始 `relations`，导致同一关系在不同接口中消失或被误判 missing。关系要么在模型中一次规范化并由所有消费者复用，要么作为非规范输入拒绝，不能形成两套图。
+6. **`supersedes` 结构环错误被混入文档 validity。** `cyclicIds` 同时收集 requires 与 supersedes，`computeValidity` 因此把 supersedes 环改成 `needs_review`，违反“supersedes 不改变验证状态”。结构 issue 可以保留，但 validity 依赖图只能由 requires 决定。
+7. **四项 evidence 的成组不变量未严格校验。** meta parser 接受 revision/digest 为 null 但 paths/requires 非空、或 digest 非空而 revision 为 null；也未校验 document ID/require key 的规范路径及 full commit OID。未验证必须严格是 null/null/[]/{}，已验证必须四项共同成立；非法 ledger 不得参与 validity。
+
+返修验收必须增加真实双仓回归：未提交 meta/config 篡改不影响 K 的正式读取；mapped source 在 S 后提交变化会 needs_review、无关路径变化保持 current、分叉/历史缺失保守降级；错误 repositoryId、无精确身份和同 common Git 不得宣称 current；五个 CLI 输出含双 revision 与独立 blockers/issues；规范关系在 CLI/viewer/validity 一致；supersedes 不改三态；非法 evidence tuple 被拒绝。先更新本节下方的修复设计和状态，再改代码；完成后重新记录真实测试证据并停止，仍不进入 M3，不 stage/commit/reset/push。
+
+## M2 第 1 轮返修设计与独立判断 — 2026-09-10
+
+状态：进行中。先记录独立判断与修复设计，再改代码；不改冻结协议。
+
+### 对七项根因的独立判断（逐项核对 architecture 原文，不迎合）
+
+1. **确认**（§6 L157「默认读固定知识 HEAD」；§4 L124 current 定义）。`read.ts` 只对 docs 取 HEAD，`readKnowledgeMeta(metaPath)` 与 `loadKnowledgeLayoutConfig` 读工作树 → 快照不一致，未提交 meta 可伪造 current。修复：Git 知识读取统一从同一 K 取 `docs/**`、`.llmdoc/meta.json`、`llmdoc.yaml`；unbound（无 Git）才读文件系统。
+2. **确认**（§4 L124「证据范围无相关源码差异」；L113「validatedSourcePaths ∪ current source.paths 检查 validatedSourceRevision..S」；L127「历史缺失或分叉时不能...宣称 current」）。当前仅对象存在性 + scope 字符串相等。修复：在固定 source HEAD 上验证 `validatedSourceRevision` 为 HEAD 祖先（相等视同）；只读 `git diff --name-only validatedSourceRevision HEAD` 取 committed diff，按 `validatedSourcePaths ∪ current source.paths` 过滤，命中即 needs_review；非祖先/历史不可用保守 needs_review；不读 live worktree。
+3. **确认**（§3 L85「只读指定无 Git 目录...报告 unbound，不声称 revision 有效」；§1 L27「source 与 knowledge 的 Git common directory 必须不同」；§3「repositoryId 是...用户显式关联的逻辑身份」）。修复：`--source + --knowledge` 校验 common Git 不同、容器关系、registry 精确绑定与 config/meta repositoryId 一致；无可证明身份关联（无 registry 绑定）时 content-only，`identityVerified=false`，不得 current；同 common Git 拒绝 `E_GIT_IDENTITY_CONFLICT`。
+4. **确认**（§4 L127 SourceContext 阻断独立输出；§1 L19 SourceContext 含 repositoryId/sourceRevision；§6 L157）。修复：五个 ng 输出统一带 `knowledgeRevision`、`lastGlobalReviewRevision`、`sourceBlockers`、`issues`，schema 同步。
+5. **确认**（§2 L44 关系指向 docs 相对路径；单一图）。当前 `document.ts` 保留原始 relations，模型临时规范化，消费者仍读原始值 → 两套图。修复：解析时一次性规范关系目标（`\`→`/`、去 `./`、posix normalize），模型/validity/viewer/context/search 共用同一值。
+6. **确认**（§2 L61「supersedes 不改变文档的验证状态」）。修复：`cyclicIds` 只收集 requires 环供 validity；supersedes 环仅结构 issue。
+7. **确认**（§4 L109/L111 四项 evidence 成组；L99 digest；L91 meta schema）。修复：meta parser 强制成组不变量（digest null ⇒ revision null/paths []/requires {}；digest 非空 ⇒ revision 为 full OID、paths 规范化非空），校验 document ID/require key 为规范 docs 相对 `.md`、revision 与 lastGlobalReviewRevision 为 full OID、validatedSourcePaths 去重排序；非法 ledger 返回 meta=null，不参与 validity。
+
+### 协议不变量（返修后必须成立）
+
+- 同一 K：正式 Git 读取的 docs、meta、config 来自同一 `knowledgeRevision`；`knowledgeRevision` 是唯一快照标识。
+- 只读：不写 source/knowledge Git、不取写锁、不 init Git、不落缓存；source 无绑定不回退。
+- 身份：只有精确 registry 绑定（或显式 `--source+--knowledge` 且 registry 绑定/身份一致）才 `identityVerified`；无绑定/无 Git/身份不符 → content-only（unbound/阻断），不得 current。
+- 独立性：source 与 knowledge common Git 必须不同；违反即拒绝。
+- 三态：unverified/current/needs_review；current 需 digest 匹配 + revision 为 HEAD 祖先 + `validatedSourcePaths ∪ current source.paths` 范围内 committed diff 为空 + requires 目标 current 且 digest 等于 validatedRequires；supersedes 不参与三态。
+- 单一关系图：`./b.md`、反斜杠在解析后规范化为同一 ID，被所有消费者复用。
+- evidence 成组：null/null/[]/{} 或 full-OID/sha256/规范化路径/规范 require key 四者齐备；非法 ledger 不参与 validity。
+- SourceContext 阻断（unbound/invalid_head/source_dirty/history_unavailable/diverged）与 DocumentStatus 分离输出。
+
+### 修复设计（文件/函数）
+
+- `document.ts`：新增关系目标规范化（`\`→`/`、循环去 `./`、`path.posix.normalize`），`normalizeRelations` 输出规范值。
+- `knowledge-model.ts`：`cyclicIds` 仅 requires；supersedes 环仅 issue；模型校验复用规范值。
+- `meta.ts`：新增 `parseKnowledgeMeta(raw, label)`（供 K 内容解析）；严格成组 + 规范路径 + full OID 校验；`readKnowledgeMeta(path)` 委托。
+- `knowledge-config.ts`：新增 `parseKnowledgeLayoutConfig(raw, label)`；`loadKnowledgeLayoutConfig(path)` 委托。
+- `git-core.ts`：新增 `readGitBlobs` 已在；补 `isAncestor(layout, a, b)`、`changedPathsBetween(layout, a, b)`（只读）。
+- `validity.ts`：`computeValidity` 输入增加 `identityVerified`、`knowledgeRevision`；祖先/committed diff 检查（按 scope 并集，缓存）；无身份/无 K/历史不可用 → needs_review。
+- `read.ts`：`assemble` 对 Git 知识从同一 K 取 docs+meta+config；`loadExplicit` 解析 source/knowledge 身份与独立性；返回 `identityVerified`；mode 判定 = bound（绑定）/ explicit（有 Git+config 无 source 身份）/ unbound（无 Git 或身份不可证）。
+- `ng-read.ts` + `output.schema.json`：`baseEnvelope` 增 `knowledgeRevision/lastGlobalReviewRevision/sourceBlockers/issues`；新增 `ngSourceBlocker`/`ngIssue` defs；5 个 schema 同步。
+
+### 测试矩阵（真实独立双 Git 仓）
+
+1. 未提交 `.llmdoc/meta.json` / `llmdoc.yaml` 篡改不影响 bound 读取（仍按 K 判定；config 篡改不改 identity）。
+2. mapped source 在 S 后提交变化 → needs_review；无关路径提交变化 → current；`validatedSourceRevision` 非祖先（分叉）/对象缺失 → needs_review。
+3. 错误 repositoryId、同 common Git（linked worktree）、无 registry 绑定显式 pair → 拒绝或不得 current。
+4. 五个 CLI 输出含 `knowledgeRevision/lastGlobalReviewRevision/sourceBlockers/issues` 且 schema 校验通过。
+5. `./b.md`、`a\\b.md` 规范化后 validity/viewer/search/context 一致。
+6. supersedes 环只产生结构 issue，文档仍可 current。
+7. 非法 evidence tuple（digest null 但 paths 非空 / digest 非空 revision null / 非法 document ID / 短 OID）被拒绝，meta=null。
+
+### 与冻结协议的冲突检查
+
+- R1-3 的严格性（无 registry 绑定即不得 current）与 §3「repositoryId 是 llmdoc 创建并由用户显式关联的逻辑身份」一致；`--knowledge` 是路径而非绑定，不能授权 validity。无冲突。
+- R1-2 的 committed diff 属 §4 current 定义（读取期只读判定），不是 M3 review 的写集/manifest。无冲突。
+- 其余五项均为对当时冻结语义的落实；随后用户新增 breaking replacement 决策，architecture/roadmap 已按下一节同步修订。
+
+## M2 breaking replacement 协议修订 — 2026-09-10
+
+状态：设计已先行修订，代码待新 OpenCode 会话执行；本节取代 M2 初版的 V3 兼容/双 dispatch 决策。
+
+用户明确：**v3-ng 是 breaking change，不需要考虑 V3 运行时兼容，直接覆盖。** Codex 判断该修订正确：若保留“有 `--source/--knowledge` 才走 v3-ng、否则走 V3”的分支，同名命令会长期拥有两套 workspace、schema、错误和安全边界，Source Git fallback 也无法从产品入口彻底消失。
+
+设计同步：
+
+- `README.md` 明确 v3-ng 是 breaking replacement；旧 V3 只作为显式 migrate 输入。
+- `architecture.md` §7 改为 breaking replacement 与显式迁移；同名主入口不得按参数、目录或绑定失败回退 V3/embedded/source Git。
+- `roadmap.md` 将裸 `tree/index/show/search/context` 的替换归入 M2，通过条件增加“无 V3 dispatch/fallback”；M5 只负责其余 hooks/skills/agents/docs/release 接入。
+
+M2 新增返修要求：
+
+1. `cli.ts` 的 `tree/index/show/search/context` 无条件进入 v3-ng handler；`--source`/`--knowledge` 只选择 v3-ng Source/KnowledgeContext，不再是模式开关。
+2. 未传参数时，从 cwd 解析 SourceContext 并查精确用户绑定；无绑定返回稳定 v3-ng 错误，禁止调用旧 `findProjectRoot/loadWorkspace`。
+3. 删除这些命令对旧 `runTree/runIndex/runShow/runSearch/runContext` 的 import 与 dispatch；旧实现文件可暂留为 migrate/删除前参考，但不能由 v3-ng 主入口到达。是否物理删除所有 V3 模块由 M5 发布清理决定，运行时兼容在 M2 即结束。
+4. CLI help、argument 描述和 JSON schema 以 v3-ng 为唯一语义；默认 `show` 路径为 docs 相对 `.md`，kind 包含 decision。
+5. 新增回归：裸命令在已绑定 source cwd 读取 v3-ng；裸命令在无绑定 cwd 返回 `E_BINDING_NOT_FOUND`；旧 `llmdoc/*.mdx` 即使存在也不被读取；无任何测试以“未给参数保持 V3”为期望。
+
+OpenCode 续接入口：新建干净会话，同时完成本节 breaking replacement 与 M2 R1 七项协议返修；先阅读冻结设计和 progress 的两个未关闭章节，再实现、测试、记录证据。完成后交 Codex R2，不进入 M3，不 stage/commit/reset/push。
+
+## M2 运行时命名空间修订 — 2026-09-10
+
+状态：设计已先行修订；前一个新会话在只读取设计后被中止，未允许继续按 `v3ng/ng-*` 双栈实现。下一执行会话必须按本节原位替换。
+
+用户进一步明确：v3-ng 是 V3 下一代探索分支，不是需要激活的产品特性；`lib/v3ng/` 和任何 `v3-ng`/`ng` CLI 激活方式都违背这一定位。Codex 判断：只删除 CLI 条件分支仍不够，若保留版本化 lib、handler、schema key 和错误类，代码结构仍会固化双栈，后续 M3–M5 会在错误抽象上继续扩张。
+
+统一实现边界：
+
+1. 将 `cli/src/lib/v3ng/` 的已提交 M1 能力和未提交 M2 能力迁入中性的领域目录，例如 `cli/src/lib/knowledge/`；最终不得保留运行时 `v3ng` 目录。不要简单复制后留两份实现。
+2. `cli/src/commands/ng-read.ts` 拆回或改写标准 `tree.ts`、`index.ts`、`show.ts`、`search.ts`、`context.ts`；标准导出名为 `runTree/runIndex/runShow/runSearch/runContext`，删除 `runNg*`。
+3. `bind/init` 等已接入命令改为引用中性领域模块。旧 V3 workspace/state/search 实现若已无主入口引用，应删除；显式 migrate 所需的旧格式 reader 后续放在 migrate 边界内，不得成为通用 fallback。
+4. 输出 schema 使用标准 key 与 payload 名称，移除 `ngTree/ngIndex/ngShow/ngSearch/ngContext/ngError` 和 `llmdoc.ng-*`。本轮不强行把知识 meta 的 schema version 与 npm semver绑定；数据 schema 命名是持久格式版本，不得用来激活旧/新运行时。
+5. CLI 不出现 `v3-ng` 子命令或“传参数才激活”的说明。`--source/--knowledge` 只解析同一套新协议的上下文；默认 cwd + registry 同样进入该协议。
+6. 测试文件和描述也采用能力名称，避免 `v3ng-*` 成为永久测试分层；历史 progress 可保留旧名称作为审计记录，当前实现和新测试不得继续扩张这些名称。
+
+新增验收：`rg` 检查运行时源码、command、测试和 output schema 中不再存在 `lib/v3ng` import、`runNg`、`ng-read`、`ngTree/ngError`、`llmdoc.ng-` 或以参数决定 V3/v3-ng dispatch 的条件；标准裸命令和显式 context 参数均执行同一实现。设计目录名与历史记录中的 v3-ng 不受此检查约束。
+
+下一步：确认无旧写者后再创建全新 OpenCode 会话，注入 R1、breaking replacement 和本节三组未关闭要求；先写统一迁移计划，再实施。完成后交 Codex R2。
+
+## M2 统一迁移计划与独立推演 — 2026-09-10
+
+状态：本轮执行计划。先落本计划，再改代码。不进入 M3–M5，不 stage/commit/reset/push，不把 `.codegraph/` 纳入实现或提交。读取冻结 README/architecture/roadmap 与本文件末尾三节后独立推演；未发现协议自相矛盾，无需先改设计。
+
+### 1. 产品与结构决定（不可回退）
+
+- v3-ng 是 breaking replacement：标准裸 `tree/index/show/search/context` 与 `bind/init` 直接使用新双仓协议；不传参数时从 cwd 解析 `SourceContext` 并查精确 registry 绑定。`--source`/`--knowledge` 只是同一协议内选择/覆盖 context，不是激活开关，也不存在可回退的第二模式。
+- 旧 `llmdoc/*.mdx`、embedded workspace、Source Git fallback 对主读取入口不可达；旧 V3 只允许显式 `migrate`（M4）读取。无绑定稳定返回 `E_BINDING_NOT_FOUND`，绝不回退 source Git。
+- 运行时命名空间原位替换：`cli/src/lib/v3ng/` → `cli/src/lib/knowledge/`；删除 `commands/ng-read.ts`；标准 command 模块直接承载新协议。运行时不出现 `runNg*`、`NgError`、`ngTree/ngError`、`llmdoc.ng-*`、`lib/v3ng` import 或以参数决定 V3/v3-ng dispatch 的条件。
+- 持久数据 schema（`llmdoc.meta/v3-ng`、`llmdoc.knowledge/v1`、`llmdoc.bindings/v1`）是格式版本，不用于运行时激活；architecture §4 明确保留 meta schema，本轮不改。设计目录名与历史 progress 的 v3-ng 保留为审计记录。
+- M2 只替换只读入口。status/delta/validate/commit/new/adopt/mv/fingerprint/prune/upgrade/hook/serve 仍为既有 V3 实现，属 M3–M5，不在本轮删除（除被替换的旧只读命令模块）。
+
+### 2. 文件归属（迁移映射）
+
+| 旧 | 新 | 处理 |
+|---|---|---|
+| `lib/v3ng/errors.ts` | `lib/knowledge/errors.ts` | `NgError→KnowledgeError`、`NgErrorCode→KnowledgeErrorCode`、`NgErrorOptions→KnowledgeErrorOptions`、`runFileSystemIo` 不变 |
+| `lib/v3ng/{paths,identity,git-core,contexts,registry,knowledge-config,binding,init,bind}.ts` | `lib/knowledge/` 同名 | 仅改 import 路径与错误类名 |
+| `lib/v3ng/{document,knowledge-model,meta,validity,search,read}.ts` | `lib/knowledge/` 同名 | 同上 |
+| `lib/v3ng/viewer-state.ts` | `lib/knowledge/viewer-state.ts` | `projectNgViewerState→projectKnowledgeViewerState`，`NgViewer*→KnowledgeViewer*`，去掉 v3-ng 文案 |
+| `commands/ng-read.ts` | 拆入 `commands/{tree,index,show,search,context}.ts` | 标准导出 `runTree/runIndex/runShow/runSearch/runContext`；删除 `runNg*` |
+| `cli.ts` | 同文件 | 删除 5 个只读命令的双 dispatch 与 `ng-read` import；`bind/init` 改引 `lib/knowledge` |
+| `lib/output-schema.ts` + `schemas/output.schema.json` | 同文件 | `ngError→knowledgeError`；`ngTree/ngIndex/ngShow/ngSearch/ngContext→tree/index/show/search/context`；子 defs 去 `ng` 前缀；删除旧 `treeTopics/treeDocs` 与旧 `index/show/search/context` defs |
+| `tests/v3ng-helpers.ts` | `tests/knowledge-helpers.ts` | `expectNgError→expectKnowledgeError` |
+| `tests/v3ng-*.test.ts` | `tests/knowledge-*.test.ts` | 能力命名；历史名不保留 |
+| `tests/cli-read.test.ts` | 删除 | 旧 V3 只读命令已不存在 |
+| `tests/cli-output-schema.test.ts` | 同文件 | 只读命令改走新协议 fixture/字段 |
+
+### 3. R1 七项落点（含当前实现状态与补口）
+
+1. **同一 K 取 docs/meta/config**：`read.ts::readKnowledgeSnapshot` 已从同一 Knowledge HEAD 批量读 `docs/**`、`.llmdoc/meta.json`、`llmdoc.yaml`；unbound 无 Git 才读文件系统。补真实测试：未提交 meta/config 篡改不影响 bound 读取。
+2. **祖先与 committed diff**：`validity.ts` 已有 `isAncestor` + `changedPathsBetween`，按 `validatedSourcePaths ∪ current source.paths` 过滤 committed diff；非祖先/对象缺失保守 needs_review。补测试：S 后 mapped 源变化→needs_review、无关路径变化→current、分叉/缺失→needs_review。
+3. **repositoryId / 精确身份 / common Git**：`read.ts::loadExplicit` 已走 `resolveKnowledgeContext`（common Git 不同、包含方向、worktree 根相等）并校验 registry 精确绑定与 config/meta repositoryId；无精确关联时 `identityVerified=false` 且不 current。补测试：错误 repositoryId、同 common Git、无绑定 explicit pair。
+4. **CLI 双 revision / SourceContext 投影**：**当前缺口**。`baseEnvelope` 只输出 `mode/repositoryId/sourceRevision/unbound`。补 `knowledgeRevision/lastGlobalReviewRevision/sourceBlockers/issues`，五个新 schema 同步。
+5. **单一关系图**：`document.ts::normalizeRelations` 解析即规范化（`\→/`、去 `./`、posix normalize）；model/validity/viewer/context/search 复用同一值。补一致性测试。
+6. **supersedes 不改 validity**：`knowledge-model.ts` 的 `cyclicIds` 只收 requires；supersedes 环仅结构 issue。补测试：supersedes 环文档仍可 current。
+7. **四项 evidence 成组**：`meta.ts::validateEvidence` 已强制 `null/null/[]/{}` 或 full-OID/sha256/规范化非空路径/规范 require key 四项齐备；非法 ledger → meta=null。补拒绝测试。
+
+### 4. 失败路径矩阵（独立推演，均需真实双 Git 测试）
+
+| 场景 | 期望 |
+|---|---|
+| 无绑定裸命令（cwd 无 registry 绑定） | `E_BINDING_NOT_FOUND`，exit 2，绝不回退 source Git |
+| `--source` 指向未绑定 source | `E_BINDING_NOT_FOUND` |
+| `--source+--knowledge` 有 Git 但无 registry 关联 | `mode=explicit`、`identityVerified=false`、不得 current |
+| config/meta repositoryId 与 registry 不一致 | `E_SOURCE_IDENTITY_MISMATCH` |
+| 知识根无 `llmdoc.yaml`（绑定路径） | `E_KNOWLEDGE_NOT_INITIALIZED` |
+| source 与 knowledge 同 common Git / source 子目录无自有 Git / 同仓 linked worktree | `E_GIT_IDENTITY_CONFLICT` / `E_KNOWLEDGE_ROOT_NOT_WORKTREE` |
+| `source.paths` 绝对路径或 `..` | 结构 issue（`source.paths.invalid`），不 current |
+| `context --files ../`、绝对路径 | `E_INVALID_SOURCE_FILE`，exit 2 |
+| relation/link 目标 `../` 或绝对 | 结构 issue（`relations.*.invalid-path`） |
+| `validatedSourceRevision` 不在历史 | needs_review，reason「not available in history」 |
+| `validatedSourceRevision` 非 HEAD 祖先（分叉） | needs_review，reason「not an ancestor」 |
+| source invalid_head / source_dirty | `sourceBlockers` 独立输出；文档不 current |
+| 文档 digest ≠ validatedContentDigest | needs_review（digest mismatch）；未提交工作树编辑不进入 K |
+| requires 目标非 current 或 digest 变化 | 依赖方 needs_review；目标重 seal 不自动刷新 |
+| 未提交 meta/config 篡改 | 不影响 K 快照 |
+| 非法 evidence tuple（部分字段） | `E_META_INVALID` / meta=null，不参与 validity |
+
+### 5. 测试矩阵（真实临时双 Git + 故障注入，不 mock Git）
+
+- `tests/knowledge-content.test.ts`（迁移自 v3ng-content，并修正 computeValidity 新签名）：四 kind/多层目录、CRLF digest、source.paths 校验、requires 环、supersedes 类型/自引用/环、digest 篡改、requires 传播与不自动刷新、历史缺失/scope 变化、meta 成组拒绝。
+- `tests/knowledge-read.test.ts`（迁移自 v3ng-read，补 R1）：固定 K 读取与排除 inbox/cache、未提交编辑非正式、digest 篡改、search 排除候选、无绑定失败、unbound 只读、source 字节冻结、context 闭包；**新增** R1-1 未提交 meta/config、R1-2 mapped/无关/分叉、R1-3 错误身份/同仓/无绑定 pair、R1-4 五命令双 revision+blockers+issues、R1-5 规范关系一致、R1-6 supersedes 不改三态、R1-7 非法 evidence。
+- `tests/knowledge-replacement.test.ts`（新增，breaking replacement 验收）：裸命令在已绑定 cwd 读新协议；无绑定 cwd 稳定失败；存在旧 `llmdoc/*.mdx` 与旧 workspace 时仍不可达；`--source/--knowledge` 不激活另一模式（无分支）；`bind/init` 走新协议。
+- `tests/knowledge-helpers.ts`：重命名与 `expectKnowledgeError`。
+- 迁移重命名：`knowledge-contexts/registry/binding/init-bind/cli/init-hardening/boundaries.test.ts`；删除 `cli-read.test.ts`；`cli-output-schema.test.ts` 改新协议字段。
+- 命名空间静态检查：`rg` 扫 `cli/src`/`commands`/`tests`/`schemas`，禁止 `lib/v3ng`、`runNg`、`ng-read`、`ngTree|ngError`、`llmdoc.ng-`、以及只读命令的 `--source||--knowledge` dispatch 条件。
+
+### 6. 验证命令与记录
+
+- 定向：`npx vitest run tests/knowledge-*.test.ts`（串行）、`npm run typecheck`、`npm run lint`。
+- 命名空间：`rg -n "lib/v3ng|runNg|ng-read|ngTree|ngError|ngIndex|ngShow|ngSearch|ngContext|llmdoc\\.ng-" cli/src cli/tests cli/schemas`（期望无命中；守卫测试/文档除外）。
+- `git diff --check`；连续两次原样全量 `npm test`（`cmd /c "... > 日志 2>&1"` 后立即读真实 `$LASTEXITCODE`，不经筛选），记录 exit code、文件/用例数与 unhandled。
+- 环境核对：真实 `%APPDATA%\llmdoc` 不存在；index 无 staged；未 stage/commit/reset/push；`.codegraph/` 不被写入测试产物。
+
+## M2 返修实施记录（breaking replacement + R1 + 命名空间）— 2026-09-10
+
+状态：完成。按统一迁移计划原位替换运行时命名空间、完成 breaking replacement 与 R1 七项；未进入 M3–M5，未 stage/commit/reset/push。
+
+### 完成内容与文件
+
+- **命名空间原位替换**：`cli/src/lib/v3ng/`（17 文件）迁移为 `cli/src/lib/knowledge/`，无副本；`NgError/NgErrorCode/NgErrorOptions→KnowledgeError*`、`projectNgViewerState→projectKnowledgeViewerState`、`NgViewer*→KnowledgeViewer*`。新增 `cli/src/lib/knowledge/read-view.ts`（`KnowledgeReadEnvelope`/document summary/kind/路径规范化）。
+- **标准 command 重写**：删除 `commands/ng-read.ts`；`commands/tree|index|show|search|context.ts` 直接导出 `runTree/runIndex/runShow/runSearch/runContext` 并实现新协议（不再有 `runNg*`）。`commands/bind|init.ts` 改引 `lib/knowledge`。
+- **cli.ts**：删除 5 个只读命令的 `--source||--knowledge` 双 dispatch 与 `ng-read` import；裸命令无条件进入新协议；`--source/--knowledge` 仅选择 context；`KnowledgeError` catch 输出 `knowledgeError` schema；bind/init 描述去 `v3-ng:`。
+- **输出契约**：`lib/output-schema.ts` 与 `schemas/output.schema.json` 用标准 key `tree/index/show/search/context/knowledgeError` 取代 `ngTree/ngIndex/ngShow/ngSearch/ngContext/ngError` 及旧 `treeTopics/treeDocs/index/show/search/context`；子 defs 去 `ng` 前缀（`knowledgeKind/knowledgeStatus/readMode/knowledgeDocumentSummary/knowledgeSearchResult`）；payload schema 字符串改为 `llmdoc.tree|index|show|search|context/v1`。
+- **R1-4 补齐**：`read-view.ts::knowledgeReadEnvelope` 为五命令统一输出 `knowledgeRevision/lastGlobalReviewRevision/sourceBlockers/issues`；schema 同步新增 `knowledgeSourceBlocker/knowledgeIssue`。
+- **持久数据 schema 保留**：`llmdoc.meta/v3-ng`、`llmdoc.knowledge/v1`、`llmdoc.bindings/v1` 作为格式版本不变（architecture §4），不用于运行时激活。
+
+### R1 七项落点
+
+1. 同一 K 取 docs/meta/config：`read.ts::readKnowledgeSnapshot`（HEAD `ls-tree`+`cat-file --batch`）；测试 R1-1 未提交 meta/config 篡改不影响 bound 读取。
+2. 祖先/committed diff：`validity.ts`（scope 并集 + `merge-base --is-ancestor` + `diff --name-only`）；测试 R1-2 无关变化 current、mapped 变化 needs_review、非祖先 needs_review。
+3. 身份/独立性：`read.ts::loadExplicit` + `contexts.ts`；测试 R1-3 meta/config 身份不符 `E_SOURCE_IDENTITY_MISMATCH`、同 common Git `E_GIT_IDENTITY_CONFLICT`、无精确关联 explicit 不 current。
+4. CLI 投影：见上 R1-4；测试覆盖五命令 envelope 与 dirty source blocker 分离。
+5. 单一关系图：`document.ts::normalizeRelations`；测试 R1-5 `./b.md`/`refs\api.md` 在 model/validity/viewer/context 一致。
+6. supersedes 不改 validity：`knowledge-model.ts::cyclicIds` 仅 requires；测试 R1-6 环仅结构 issue 且两决策 current。
+7. evidence 成组：`meta.ts::validateEvidence`；测试 R1-7 部分成组/非规范 ID/短 OID 拒绝，committed 非法 ledger→meta=null→unverified。
+
+### 验证命令及真实结果
+
+- 定向（串行真实临时双 Git）：`knowledge-content` 10/10、`search-cjk` 4/4、`knowledge-read` 13/13、`knowledge-contexts/registry/binding/init-bind/init-hardening` 64/64、`knowledge-boundaries` 8/8、`knowledge-replacement` 4/4、`knowledge-r1` 10/10，全部 exit 0。
+- `npm run typecheck` exit 0；`npm run lint` exit 0；`git diff --check` exit 0（仅 LF→CRLF 提示）。
+- 命名空间扫描：`rg -n "lib/v3ng|runNg|ng-read|ngTree|ngError|ngIndex|ngShow|ngSearch|ngContext|llmdoc\.ng-" src tests schemas` 无命中（exit 1）；无 `if (commandOptions.source||commandOptions.knowledge)` 双 dispatch；`src/lib/v3ng` 不存在。运行时代码仅剩数据 schema 字符串 `llmdoc.meta/v3-ng`。
+- 全量门禁（`cmd /c "npm test > .llmdoc-tmp/... 2>&1"` 后立即读真实 `$LASTEXITCODE`，无筛选管道）：
+  - gate1：exit 0，27 files / 169 tests 全过，无 `Errors`/`Timeout`/`Unhandled`，Duration 796.82s（`m2fix-gate1.log`）。
+  - gate2：exit 0，27 files / 169 tests 全过，无 `Errors`/`Timeout`/`Unhandled`，Duration 794.81s（`m2fix-gate2.log`）。
+- 环境核对：真实 `%APPDATA%\llmdoc` 不存在；`git diff --cached` 为空（index 无 staged）；分支 `v3-ng`；未 stage/commit/reset/push；`.codegraph/` 仅作临时缓存，未纳入实现或提交。
+
+### 边界与下一步
+
+- M2 只替换只读入口；`status/delta/validate/commit/new/adopt/mv/fingerprint/prune/upgrade/hook/serve` 仍为既有 V3 实现，属 M3–M5，不在本轮。旧 `llmdoc/*.mdx` 只允许 M4 显式 `migrate` 读取。
+- 只读命令的非 JSON 文本模式沿用 M2 初版的 JSON 序列化（`stringifyOutput`），未新增人类可读渲染；JSON `schema` 契约与字段为验收面。若 R2 要求，另立人类渲染步骤。
+- 停止，交 Codex R2；通过前不进入 M3/M4/M5。
+
+## M2 Codex 集中复审 R2 — 2026-09-10
+
+状态：未通过。返修轮次累计 **2/3**。本轮认可同一 Knowledge commit 读取、breaking replacement 主入口、双 revision 输出、committed source diff、evidence 基本成组、supersedes 与 validity 解耦均已落地；但以下问题仍会违反冻结协议，因此不能提交 M2。
+
+### 必须修复
+
+1. **`source.paths` 没有在固定 Source revision 上验证实际证据范围。** `knowledge-model.ts::validateSourcePath` 只检查空值、绝对路径和 `..`，`validity.ts` 只在 revision 之间有 diff 时匹配 scope。一个从未匹配任何源码对象的 glob（例如 `src/does-not-exist/**`）只要 digest/meta 对齐，就会被标为 `current` 且 `issues=[]`。这违反 architecture §2“具体路径必须在指定 snapshot 存在；glob 零匹配需要诊断”。修复时必须只读固定 `source.headRevision` 的 tree，对每个当前 `source.paths` 区分 literal/glob 并产生确定性 issue；不存在的 literal 或零匹配 glob 不得得到 `current`。同时统一 source path 的 POSIX 规范形式，拒绝 `./`、`.` 段、反斜杠别名等非 canonical evidence，避免字符串不同但语义相同的 scope 漂移。
+2. **历史缺失/分叉没有进入 SourceContext 阻断输出。** `SourceBlockerCode` 目前只有 `invalid_head | source_dirty`；`computeValidity` 把 missing commit / non-ancestor 仅写进单篇文档 reasons，而 `historyAvailable` 只按“source 有 HEAD”计算。复现实测：`validatedSourceRevision=ffffffff...` 时文档为 `needs_review`，但 `sourceBlockers=[]` 且 `historyAvailable=true`。这违反 architecture §4“SourceContext 单独报告 history_unavailable、diverged”等约定，也使 R1-4 新增的 `sourceBlockers` 在关键场景仍失真。应按固定 S 聚合明确的 `history_unavailable` / `diverged` blocker（必要时附受影响文档 ID/revision），并让 CLI/schema/viewer 使用同一结果。
+3. **关系仍不是单一权威图。** `knowledge-model.ts::normalizeTargets` 会过滤 missing/self/非法路径并构建局部 `requiresEdges`/`supersedes`，但不会把过滤结果写回统一关系结构；validity、context、viewer、search 和 read summary 仍分别读取 `document.frontmatter.relations`。因此 missing/self/非法关系会在不同投影中被保留、丢弃或转成不同状态：例如 missing requires 出现在 summary 和 validity reason，却被 viewer/context 静默丢弃；self requires 甚至会让 context 把当前文档加入自身 prerequisites。请在 model 中建立 `requires/related/supersedes` 的唯一 canonical graph，所有消费者只读该图；结构 issue 可以保留，但不得再从 front matter 各自解释第二遍。
+4. **CLI 帮助仍宣传已删除的接口。** `cli.ts` 的示例仍包含 `llmdoc tree --docs`，而 breaking replacement 后 `tree` 已移除 `--docs`。这会让标准命令自相矛盾；同步改为实际可执行的新协议示例，并加入帮助输出回归检查。
+
+### R3 验收补充
+
+- 增加真实双 Git 测试：literal 不存在、glob 零匹配、glob 有匹配、固定 S 后 live worktree 新文件不算匹配；前三类结果同时核对 status 与 issues。
+- 增加 missing revision 与 non-ancestor 两类 CLI/viewer 测试，断言 `sourceBlockers` 与文档 reasons 一致，且不得把“存在 HEAD”误报为完整历史可用。
+- 对 missing/self/非法/规范化 relation 分别比较 model、validity、tree/index/show/search/context、viewer，确认全部消费同一 canonical graph。
+- 修复后使用新的 OpenCode 会话完成定向、typecheck、lint、namespace scan、`git diff --check` 和一遍原样全量 `npm test`；更新本文件后停止，交 Codex R3。不得进入 M3，不得 stage/commit/reset/push。
+
+## M2 返修轮 2（R2）计划与独立推演 — 2026-09-10
+
+状态：本轮执行计划。先落本计划，再改代码。仅关闭 R2 四项「必须修复」；不进入 M3–M5，不改冻结协议，不 stage/commit/reset/push，不把 `.codegraph/` 纳入实现、测试或提交。
+
+### 独立判断（逐项核对 architecture 原文）
+
+1. **source.paths 证据未落在固定 Source revision 上——确认。** §2 L59「具体路径必须在指定 snapshot 存在；glob 零匹配需要诊断」；§4 L124 current 要求「证据范围无相关源码差异」。当前 `validateSourcePath` 只查空值/绝对/`..`，evidence 只在 revision 间有 diff 时按 scope 过滤；一个从不匹配任何对象的 glob 会 current 且 `issues=[]`。必须在固定 `source.headRevision` 的 tree 上对每个当前 `source.paths` 做 literal/glob 判定。
+2. **history_unavailable / diverged 未进入 SourceContext 阻断——确认。** §4 L127「SourceContext 单独报告 ... history_unavailable、diverged」；当前 `SourceBlockerCode` 只有 `invalid_head | source_dirty`，missing/non-ancestor 只写进单篇 reasons，`historyAvailable` 只看「source 有 HEAD」。
+3. **关系不是单一权威图——确认。** §2 L44「关系指向 docs 相对路径」要求一组关系只有一个语义；当前 `normalizeTargets` 只在局部建 `requiresEdges`/`supersedes`，validity/summary/search/viewer/context 各自读 `document.frontmatter.relations`，导致同一缺失/自引用/非法边在不同投影被保留、丢弃或转态。
+4. **CLI 帮助宣传已删除接口——确认。** `cli.ts` 快速示例仍是 `llmdoc tree --docs`，breaking replacement 后 `tree` 无 `--docs`。
+
+### 所有权（本轮改动文件）
+
+- `cli/src/lib/knowledge/document.ts`：source path / relation target 的 canonical POSIX 规范化；拒绝绝对与 `..`。
+- `cli/src/lib/knowledge/knowledge-model.ts`：canonical relation graph（`relations`）、requires 结构问题集合（`requiresProblems`）、source.paths 规范化与 `source.paths.invalid` 复核。
+- `cli/src/lib/knowledge/validity.ts`：固定 Source HEAD tree 证据判定、`history_unavailable`/`diverged` blocker 聚合、`historyAvailable`、`issues` 输出、消费 canonical graph。
+- `cli/src/lib/knowledge/read.ts`：合并 validity issues 到 loaded issues。
+- `cli/src/lib/knowledge/read-view.ts` / `search.ts` / `viewer-state.ts` / `commands/{show,context}.ts`：改为只读 canonical graph。
+- `cli/src/cli.ts`：快速示例去掉 `tree --docs`。
+- `cli/tests/knowledge-r2.test.ts`（新增）+ `knowledge-helpers.ts`（如需）。
+
+### 协议不变量（返修后必须成立）
+
+- **固定 S 证据**：literal 必须在 `source.headRevision` tree 存在（文件本身或以其为目录前缀）；glob 必须在同一 tree 至少命中一个 committed 文件；否则文档不得 current，且产生确定性 issue。live worktree 未提交文件不参与匹配。
+- **canonical source path**：POSIX 相对形式；反斜杠、`./`、`.` 段、重复/尾随 `/` 归一到单一形式；绝对路径与 `..` 拒绝（`source.paths.invalid`，不 current）。`validatedSourcePaths ∪ current source.paths` 的字符串比较在规范形式上进行。
+- **阻断分离**：DocumentStatus 仍只有三态；`history_unavailable`（validated revision 对象缺失）与 `diverged`（非 HEAD 祖先）作为独立 `SourceBlocker` 输出，CLI envelope 与 viewer 共用同一 projection；存在缺失/分叉时 `historyAvailable=false`，不得仅凭「有 HEAD」宣称完整历史可用。
+- **单一关系图**：model 的 `relations` 是唯一权威；missing/self/非法路径边既产生结构 issue 又被过滤出图，所有消费者（validity、tree/index/show/search/context、viewer）只读该图，不再二次解释 front matter。
+- **supersedes 不改三态**：仅 requires 驱动 validity；supersedes 环只保留结构 issue。
+- **只读**：不写 source/knowledge Git、不取写锁、不 init Git、不落缓存；source 无绑定不回退。
+
+### 失败路径矩阵（真实双 Git 测试目标）
+
+| 场景 | 期望 |
+|---|---|
+| literal 在当前 S tree 不存在 | 文档 needs_review，`issues` 含 `source.paths.missing` |
+| glob 在当前 S tree 零匹配 | 文档 needs_review，`issues` 含 `source.paths.glob-empty` |
+| glob 在当前 S 有匹配 | 保持 current；无对应 issue |
+| live worktree 新增未提交文件匹配某 glob | 不计入固定 S 匹配；该 glob 若 S 内无其它匹配仍 zero-match |
+| `validatedSourceRevision` 对象缺失 | 文档 needs_review + `sourceBlockers` 含 `history_unavailable`；`historyAvailable=false` |
+| `validatedSourceRevision` 非 HEAD 祖先 | 文档 needs_review + `sourceBlockers` 含 `diverged`；`historyAvailable=false` |
+| missing / self / 非法 / 规范化 relation | model graph 与 validity、tree/index/show/search/context、viewer 全部一致（missing/self/非法为结构 issue 且不入图；规范化边入图） |
+| `../` / 绝对 source path | `source.paths.invalid`，不 current |
+| CLI `--help` | 不再出现 `--docs`，示例可执行 |
+
+### 测试矩阵（真实临时双 Git + 故障注入，不 mock Git）
+
+- `tests/knowledge-r2.test.ts`：
+  1. **R2-1 fixed-S scope evidence**：literal 不存在、glob 零匹配、glob 有匹配三类同时核对 status 与 issues；固定 S 后 live worktree 新文件不计入匹配。
+  2. **R2-2 history blockers**：missing revision 与 non-ancestor 两类，经 CLI（index/search）与 viewer 断言 `sourceBlockers` 与文档 reasons 一致，`historyAvailable=false`。
+  3. **R2-3 canonical graph**：missing / self / 非法路径 / 规范化 relation 在 model、validity、tree/index/show/search/context、viewer 一致；missing 只在 issues，self 不再进入 context prerequisites。
+  4. **R2-4 help**：`--help` 不含 `--docs` 且列出标准读取命令。
+- 既有 `knowledge-content` / `knowledge-read` / `knowledge-r1` / `knowledge-replacement` / `search-cjk` 适配新签名并保持通过。
+
+### 验证命令与记录
+
+- 定向：`npx vitest run tests/knowledge-*.test.ts`（串行）、`npm run typecheck`、`npm run lint`。
+- 命名空间：`rg -n "lib/v3ng|runNg|ng-read|ngTree|ngError|ngIndex|ngShow|ngSearch|ngContext|llmdoc\.ng-" cli/src cli/tests cli/schemas`（期望无命中）。
+- `git diff --check`；一遍原样全量 `npm test`（`cmd /c "... > 日志 2>&1"` 后立即读真实 `$LASTEXITCODE`，不经筛选），记录 exit code、文件/用例数与 unhandled。
+- 环境核对：真实 `%APPDATA%\llmdoc` 不存在；index 无 staged；未 stage/commit/reset/push；`.codegraph/` 未被测试写入或纳入。
+
+## M2 返修轮 2（R2）实施与验证记录 — 2026-09-10
+
+状态：完成 R2 四项「必须修复」并取得完整验证结果；未进入 M3，未 stage/commit/reset/push，未改冻结协议。
+
+### 完成内容与文件
+
+- `cli/src/lib/knowledge/document.ts`：新增 `canonicalizeSourcePath`（POSIX 相对规范形式；拒绝绝对/盘符/`..`/`.` 空段/尾随分隔符/反斜杠别名）。
+- `cli/src/lib/knowledge/knowledge-model.ts`：`assembleModel` 对每篇 `source.paths` 做一次规范判定——非规范或逃逸写 `source.paths.invalid` 并剔除；新增唯一权威 `relations: Map<docId, CanonicalRelations>`（missing/self/非法路径/错误 kind 边写入结构 issue 后过滤出图，规范化边入图）与 `requiresProblems: Set<docId>`；`findCycles` 仍只由 requires 驱动，supersedes 环只留结构 issue；导出 `relationsFor`。
+- `cli/src/lib/knowledge/validity.ts`：新增 `collectSourceScopeEvidence`——只读固定 `source.headRevision` 的 tree（`git ls-tree -r`），对每个当前 `source.paths` 区分 literal/glob：literal 必须为 tree 内文件或目录前缀，glob 必须在同一 tree 至少命中一个 committed 文件；否则写 `source.paths.missing` / `source.paths.glob-empty` 并让文档 `needs_review`，live worktree 未提交文件不参与。`history_unavailable`（validated revision 对象缺失）与 `diverged`（非 HEAD 祖先）聚合成独立 `SourceBlocker`，`historyAvailable` 在这些情况下为 false；projection 新增 `issues`。
+- `cli/src/lib/knowledge/contexts.ts`：`SourceBlockerCode` 增加 `history_unavailable | diverged`。
+- `cli/src/lib/knowledge/read.ts`：loaded issues 合并 `validity.issues`。
+- `cli/src/lib/knowledge/read-view.ts` / `search.ts` / `viewer-state.ts` / `commands/{show,context}.ts`：validity、tree/index/show/search/context、viewer 全部改为只读 `model.relations`（show 的 frontmatter 关系也回写为 canonical 图）；viewer DTO 增加 `historyAvailable`。
+- `cli/src/cli.ts`：快速示例删除已移除的 `tree --docs`，改为可执行的 `llmdoc tree` / `llmdoc search ...`。
+- 测试：新增 `cli/tests/knowledge-r2.test.ts`（7，真实双 Git）；`cli/tests/search-cjk.test.ts` 适配新增 `issues` 字段。
+
+### R2 四项落点
+
+1. **固定 S 证据**：`collectSourceScopeEvidence` 只读 `source.headRevision` tree；literal 不存在 → `source.paths.missing` + needs_review；glob 零匹配 → `source.paths.glob-empty` + needs_review；有匹配保持 current；固定 S 后 live worktree 新文件不计入。source path 规范形式统一，非规范/逃逸为结构 issue 且不入 scope。
+2. **历史阻断**：missing revision 与 non-ancestor 分别聚合 `history_unavailable` / `diverged` blocker，文档 reasons 与 blocker 同源；`historyAvailable=false`；CLI envelope、schema（`knowledgeSourceBlocker`）与 viewer DTO 共用同一 projection。
+3. **单一关系图**：model 的 `relations` 为唯一权威；missing/self/非法路径只留结构 issue 不入图，规范化边入图；validity、五个读取命令、search、context、viewer、show 均消费该图（self 不再进入 context prerequisites，missing 不再被某投影静默保留）。
+4. **CLI 帮助**：`--help` 不再出现 `--docs`，示例为标准读取命令。
+
+### 验证命令及真实结果
+
+- 定向（真实临时双 Git，串行）：`npx vitest run tests/knowledge-r2.test.ts` → exit 0，1 file / 7 tests（fixed-S literal/glob/live、history_unavailable、diverged、canonical graph、help）。
+- 既有回归：`knowledge-content` 10/10、`knowledge-read` 13/13、`knowledge-r1` 10/10、`knowledge-replacement` 4/4、`search-cjk` 4/4 全部通过；缺失的 8 个文件（cli-output-schema / cli-startup-preload / cold-start / knowledge-registry / search-cjk / viewer-assets / viewer-http / viewer-state）单独补跑 29/29 通过。
+- `npm run typecheck` → exit 0；`npm run lint` → exit 0。
+- 命名空间扫描：`rg -n "lib/v3ng|runNg|ng-read|ngTree|ngError|ngIndex|ngShow|ngSearch|ngContext|llmdoc\.ng-" cli/src cli/tests cli/schemas` 无命中（exit 1）；`cli/src/lib/v3ng` 不存在；无 `commandOptions.source || commandOptions.knowledge` 双 dispatch。
+- `git diff --check` → exit 0（仅 LF/CRLF 提示）；`git diff --cached` 为空（index 无 staged）。
+- **原样全量 `npm test`（无筛选，`cmd /c "npm test > log 2>&1"`，读真实 `$LASTEXITCODE`）**：
+  - 首次尝试（`r2-full.log`）在 20 files 后无 summary、日志长时间不增长，由 Codex 判定挂起并终止。独立定位：缺失的 8 个文件全部单独通过；随后以 PowerShell job 监视重跑（`r2-full3.log`）**exit 0，28 files / 176 tests 全过，无 `Errors`/`Unhandled`/`onTaskUpdate Timeout`，Duration 979.38s**。结论：此前为 runner 级瞬时异常，非新增改动导致的确定性挂起，未对测试做降级/过滤/吞错。
+- 环境核对：真实 `%APPDATA%\llmdoc` 不存在；分支 `v3-ng`；未 stage/commit/reset/push；`.codegraph/` 与 `.llmdoc-tmp/` 未纳入实现或提交。
+
+### 边界与下一步
+
+- 仍只做 M2 只读内容与读取；`status/delta/validate/commit/new/adopt/mv/fingerprint/prune/upgrade/hook/serve` 及旧 `.mdx` 只读迁移属 M3–M5。
+- 停止，交 Codex R3；通过前不进入 M3/M4/M5。
+- 关联 commit：无（按约定不提交、不暂存）。
+
+## M2 Codex 集中复审 R3 与直接接管计划 — 2026-09-10
+
+状态：未通过；达到同一里程碑三轮返修阈值，Codex 按约定直接接管 M2 修复，不再退回 OpenCode。OpenCode 已停止；修复完成、复审通过并提交前不进入 M3。
+
+### R3 发现
+
+1. `validity.ts::topologicalOrder` 仍读取 `document.frontmatter.relations.requires`，绕过 `model.relations`。规范化边（例如 `./z.md` → `z.md`）可能不参与依赖排序，使依赖方在目标状态尚未计算时错误变为 `needs_review`。这违反“关系只有一个权威图”。
+2. `knowledge-model.ts` 会把非法 `source.paths` 从文档 scope 中剔除，但 `computeValidity` 只消费固定 S 的 missing/glob 问题，不消费 `source.paths.invalid` model issue。文档同时声明合法路径与非法别名、而 ledger 记录合法 scope 时，仍可能得到 `current`。
+3. missing/non-ancestor revision 的聚合位于文档 validity 的 `else-if` 链中；如果同篇文档先发生 digest mismatch、identity failure 等原因，就不会检查其历史 revision，导致 `sourceBlockers` 与 `historyAvailable` 依赖无关的正文状态而失真。
+4. Viewer 输出了共享 projection 的 `historyAvailable`，五个标准 CLI read envelope 与 output schema 只输出 `sourceBlockers`，没有输出该字段；CLI/schema/viewer 尚未完整使用同一 SourceContext 历史结果。
+
+### Codex 修复计划
+
+- `validity.ts`：拓扑排序只读 `relationsFor(model, id).requires`；在文档状态计算前独立扫描所有已记录 source revision，统一聚合 missing/diverged，文档 reasons 复用该分类；把该文档的 `source.paths.invalid` model issue 纳入非-current 原因。
+- `read-view.ts` 与 `output.schema.json`：五个标准读取命令统一输出并校验 `historyAvailable`。
+- `knowledge-r2.test.ts`：新增 canonical alias requires 的依赖顺序/current 回归、合法+非法 source scope 不得 current、digest mismatch 仍报告 history blocker、五个 CLI envelope 的 `historyAvailable=false` schema 回归。
+- 完成定向测试、typecheck、lint、namespace scan、`git diff --check`；必要时执行完整门禁。Codex 复审通过后只暂存 M2 文件并提交，不包含 `.codegraph/` 或 `.llmdoc-tmp/`。
+
+## M2 Codex R3 直接修复与最终复审通过 — 2026-09-10
+
+状态：通过。R3 发现的四项遗漏已由 Codex 直接修复并用真实双 Git 回归锁定；M2 内容、读取与 breaking replacement 边界完成。提交后下一里程碑为 M3。
+
+### 直接修复
+
+- `cli/src/lib/knowledge/validity.ts`：`topologicalOrder` 改为只读 `relationsFor(model, id).requires`，canonical alias 关系与所有投影共用同一图；在文档状态分支前独立扫描 ledger 的全部 validation revision，missing/diverged 不再被 digest mismatch 等先行原因短路；`source.paths.invalid` model issue 明确阻止文档成为 `current`。
+- `cli/src/lib/knowledge/read-view.ts`、`cli/schemas/output.schema.json`：`tree/index/show/search/context` 的共享 envelope 与 schema 全部增加必填 `historyAvailable`，与 viewer 复用同一 validity projection。
+- `cli/tests/knowledge-r2.test.ts`：7 个用例增至 10 个；新增合法+非法混合 source scope、digest mismatch 同时缺历史、canonical alias requires 的拓扑/current 回归，并让 missing-history 场景核对五个标准 CLI 输出的 `historyAvailable=false`。
+
+### 最终复审证据
+
+- CodeGraph 与静态扫描确认：正式读取的 docs/meta/config 同取固定 Knowledge HEAD；source scope 只读固定 committed Source HEAD tree；标准读取命令无 V3 workspace/source Git fallback；显式 identity、registry 精确绑定与不同 common Git 边界保持。
+- `rg "frontmatter\\.relations"` 在新读取路径只剩 parse、canonical graph 构建与 show 将 canonical graph 写回 DTO；validity、tree/index/show/search/context、search、viewer 均不再自行解释原始关系。
+- 定向：`knowledge-r2.test.ts` 10/10；`knowledge-r1.test.ts` 10/10；`knowledge-r2 + cli-output-schema` 12/12。一次把多个重型真实 Git 文件并行执行时，R1 五命令用例触及 30 秒测试时限；隔离重跑 6.8 秒通过，最终原样全量门禁也通过，判定为审查命令资源竞争而非产品失败。
+- `npm run typecheck` exit 0；`npm run lint` exit 0；namespace scan 无 `lib/v3ng`、`runNg`、`ng-read`、`ngTree/ngError`、`llmdoc.ng-*` 或参数双 dispatch；`git diff --check` exit 0（仅行尾转换提示）。
+- 最终原样 `npm test`：**exit 0，28 files / 179 tests 全过，Duration 306.64s**。包含 build、M1 边界回归、M2 固定 K/S、身份、历史、关系、schema、breaking replacement 与既有测试。
+- 提交边界：只纳入 M2 实现、测试与四份 v3-ng 设计/进度文档；`.codegraph/`、`.llmdoc-tmp/` 不纳入。未 push。
+
+### 下一步
+
+- 新建 OpenCode 会话实施完整 M3；先读取冻结设计与本检查点，在 progress.md 落地 M3 计划后再写代码。
+- 关联 commit：由本次里程碑提交承载（精确 OID 以 Git log 为准）。

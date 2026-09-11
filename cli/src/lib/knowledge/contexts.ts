@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { NgError } from "./errors.js";
+import { KnowledgeError } from "./errors.js";
 import {
   assertDirectory,
   probeGitLayout,
@@ -12,7 +12,7 @@ import {
 } from "./git-core.js";
 import { isWithinRootReal, sameRealPath } from "./paths.js";
 
-export type SourceBlockerCode = "invalid_head" | "source_dirty";
+export type SourceBlockerCode = "invalid_head" | "source_dirty" | "history_unavailable" | "diverged";
 
 export interface SourceBlocker {
   code: SourceBlockerCode;
@@ -56,13 +56,13 @@ export async function resolveSourceContext(rootInput: string): Promise<SourceCon
   const root = assertDirectory(rootInput, "E_SOURCE_REPO_NOT_FOUND", "Source root does not exist or is not a directory");
   const probe = await probeGitLayout(root);
   if (probe.kind === "missing") {
-    throw new NgError("E_SOURCE_REPO_NOT_FOUND", "No Git worktree found at the source root", {
+    throw new KnowledgeError("E_SOURCE_REPO_NOT_FOUND", "No Git worktree found at the source root", {
       paths: [root],
       remediation: "Run the command from inside the source worktree or pass its worktree root."
     });
   }
   if (probe.kind === "bare") {
-    throw new NgError("E_SOURCE_REPO_NOT_FOUND", "The source repository is bare and has no worktree", {
+    throw new KnowledgeError("E_SOURCE_REPO_NOT_FOUND", "The source repository is bare and has no worktree", {
       paths: [probe.gitDir],
       remediation: "Bind a non-bare source worktree."
     });
@@ -114,20 +114,20 @@ export async function resolveKnowledgeContext(rootInput: string, options: Resolv
   const root = assertDirectory(rootInput, "E_KNOWLEDGE_REPO_NOT_FOUND", "Knowledge root does not exist or is not a directory");
   const probe = await probeGitLayout(root);
   if (probe.kind === "missing") {
-    throw new NgError("E_KNOWLEDGE_REPO_NOT_FOUND", "No Git repository found at the knowledge root", {
+    throw new KnowledgeError("E_KNOWLEDGE_REPO_NOT_FOUND", "No Git repository found at the knowledge root", {
       paths: [root],
       remediation: "Create an independent knowledge repository with `llmdoc init` or an explicit `git init`."
     });
   }
   if (probe.kind === "bare") {
-    throw new NgError("E_KNOWLEDGE_REPO_NOT_FOUND", "The knowledge repository is bare and has no worktree", {
+    throw new KnowledgeError("E_KNOWLEDGE_REPO_NOT_FOUND", "The knowledge repository is bare and has no worktree", {
       paths: [probe.gitDir],
       remediation: "Use a non-bare knowledge worktree."
     });
   }
   const layout = probe.layout;
   if (!sameRealPath(layout.worktreeRoot, root)) {
-    throw new NgError("E_KNOWLEDGE_ROOT_NOT_WORKTREE", "The knowledge root must be the knowledge Git worktree root itself", {
+    throw new KnowledgeError("E_KNOWLEDGE_ROOT_NOT_WORKTREE", "The knowledge root must be the knowledge Git worktree root itself", {
       paths: [root, layout.worktreeRoot],
       remediation: `Pass the worktree root of the knowledge repository (${layout.worktreeRoot}) instead of a subdirectory.`
     });
@@ -138,7 +138,7 @@ export async function resolveKnowledgeContext(rootInput: string, options: Resolv
     commonDir: options.source.commonDir
   };
   if (sameRealPath(layout.commonDir, sourceLayout.commonDir)) {
-    throw new NgError("E_GIT_IDENTITY_CONFLICT", "The knowledge Git and the source Git share the same common directory; the knowledge repository is not independent", {
+    throw new KnowledgeError("E_GIT_IDENTITY_CONFLICT", "The knowledge Git and the source Git share the same common directory; the knowledge repository is not independent", {
       paths: [layout.worktreeRoot, sourceLayout.worktreeRoot],
       remediation: "Create the knowledge repository as a separate Git repository (`git init` in a distinct root); a subdirectory of the source repository without its own Git, or a linked worktree of the same repository, is not acceptable."
     });
@@ -147,19 +147,19 @@ export async function resolveKnowledgeContext(rootInput: string, options: Resolv
   const sourceWithinKnowledge = isWithinRootReal(layout.worktreeRoot, sourceLayout.worktreeRoot);
   if (knowledgeWithinSource) {
     if (options.mode !== "nested") {
-      throw new NgError("E_NESTED_MODE_REQUIRED", "The knowledge root is inside the source worktree, which requires the nested mode to be selected explicitly", {
+      throw new KnowledgeError("E_NESTED_MODE_REQUIRED", "The knowledge root is inside the source worktree, which requires the nested mode to be selected explicitly", {
         paths: [layout.worktreeRoot, sourceLayout.worktreeRoot],
         remediation: "Pass mode \"nested\" to accept a nested knowledge repository, or move the knowledge repository outside the source worktree (external is the default)."
       });
     }
     await assertNestedSubtreeUntracked(sourceLayout, layout);
   } else if (sourceWithinKnowledge) {
-    throw new NgError("E_KNOWLEDGE_CONTAINS_SOURCE", "The knowledge repository contains the source worktree; this containment direction is forbidden", {
+    throw new KnowledgeError("E_KNOWLEDGE_CONTAINS_SOURCE", "The knowledge repository contains the source worktree; this containment direction is forbidden", {
       paths: [layout.worktreeRoot, sourceLayout.worktreeRoot],
       remediation: "Keep the source worktree outside the knowledge repository."
     });
   } else if (options.mode === "nested") {
-    throw new NgError("E_NESTED_NOT_INSIDE_SOURCE", "Nested mode was selected but the knowledge root is not inside the source worktree", {
+    throw new KnowledgeError("E_NESTED_NOT_INSIDE_SOURCE", "Nested mode was selected but the knowledge root is not inside the source worktree", {
       paths: [layout.worktreeRoot, sourceLayout.worktreeRoot],
       remediation: "Use external mode for a knowledge repository outside the source worktree."
     });
@@ -178,13 +178,13 @@ export async function resolveKnowledgeContext(rootInput: string, options: Resolv
 async function assertNestedSubtreeUntracked(sourceLayout: GitRepoLayout, knowledgeLayout: GitRepoLayout): Promise<void> {
   const relative = path.relative(sourceLayout.worktreeRoot, knowledgeLayout.worktreeRoot).replaceAll(path.sep, "/");
   if (!relative || relative.startsWith("..")) {
-    throw new NgError("E_NESTED_NOT_INSIDE_SOURCE", "The knowledge root is not a strict subtree of the source worktree", {
+    throw new KnowledgeError("E_NESTED_NOT_INSIDE_SOURCE", "The knowledge root is not a strict subtree of the source worktree", {
       paths: [knowledgeLayout.worktreeRoot, sourceLayout.worktreeRoot]
     });
   }
   const tracked = await runGit(sourceLayout, ["ls-files", "--", `:(literal)${relative}`]);
   if (tracked.trim().length > 0) {
-    throw new NgError("E_NESTED_TRACKED_BY_OUTER", "The outer source Git already tracks the knowledge subtree (files or a submodule gitlink)", {
+    throw new KnowledgeError("E_NESTED_TRACKED_BY_OUTER", "The outer source Git already tracks the knowledge subtree (files or a submodule gitlink)", {
       paths: [relative],
       remediation: "The outer index must not track the knowledge subtree; llmdoc never modifies outer Git state, so remove the entries yourself or choose an external knowledge root."
     });

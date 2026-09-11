@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
-import { NgError, type NgErrorCode } from "./errors.js";
+import { KnowledgeError, type KnowledgeErrorCode } from "./errors.js";
 import { realPath } from "./paths.js";
 
 export interface GitRepoLayout {
@@ -50,7 +50,7 @@ export function runGit(
 export async function runGit(layout: GitRepoLayout, args: string[], options: GitInvocationOptions = {}): Promise<string | null> {
   const result = await spawnGitProcess(layout.worktreeRoot, args, options.env);
   if (result.error) {
-    throw new NgError("E_GIT_INVOCATION_FAILED", `Failed to execute git: ${result.error.message}`, {
+    throw new KnowledgeError("E_GIT_INVOCATION_FAILED", `Failed to execute git: ${result.error.message}`, {
       exitCode: 70,
       paths: [layout.worktreeRoot]
     });
@@ -60,7 +60,7 @@ export async function runGit(layout: GitRepoLayout, args: string[], options: Git
       return null;
     }
     const detail = (result.stderr || result.stdout || "git command failed").trim();
-    throw new NgError("E_GIT_INVOCATION_FAILED", `git ${args[0] ?? ""} failed: ${detail}`, {
+    throw new KnowledgeError("E_GIT_INVOCATION_FAILED", `git ${args[0] ?? ""} failed: ${detail}`, {
       exitCode: 70,
       paths: [layout.worktreeRoot]
     });
@@ -179,7 +179,7 @@ export async function readCleanSnapshot(layout: GitRepoLayout, options: ReadClea
       "--ignore-submodules=dirty"
     ]);
   } catch (error) {
-    if (options.allowUnavailable && error instanceof NgError) {
+    if (options.allowUnavailable && error instanceof KnowledgeError) {
       return unavailableCleanSnapshot(error.message);
     }
     throw error;
@@ -261,21 +261,111 @@ async function spawnGitText(cwd: string, args: string[]): Promise<string | null>
   return result.stdout;
 }
 
-export function assertDirectory(input: string, code: NgErrorCode, message: string): string {
+export async function listTreeFiles(layout: GitRepoLayout, revision: string, subdir: string): Promise<string[]> {
+  const output = await runGit(layout, ["ls-tree", "-r", "--name-only", revision, "--", subdir]);
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+/**
+ * Reads a batch of blobs from one revision in a single `git cat-file --batch` process.
+ * Requests are `revision:path`; the returned map is keyed by the requested path.
+ */
+export async function readGitBlobs(layout: GitRepoLayout, revision: string, paths: string[]): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  if (paths.length === 0) {
+    return result;
+  }
+  const buffer = await new Promise<Buffer>((resolve, reject) => {
+    const child = spawn("git", ["-C", layout.worktreeRoot, "-c", "core.quotePath=false", "--no-optional-locks", "cat-file", "--batch"], {
+      cwd: layout.worktreeRoot,
+      env: sanitizedGitEnv()
+    });
+    const chunks: Buffer[] = [];
+    let stderr = "";
+    child.stdout!.on("data", (chunk: Buffer) => chunks.push(chunk));
+    child.stderr!.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("error", (error) => {
+      reject(
+        new KnowledgeError("E_GIT_INVOCATION_FAILED", `Failed to execute git: ${error.message}`, {
+          exitCode: 70,
+          paths: [layout.worktreeRoot]
+        })
+      );
+    });
+    child.on("close", (code) => {
+      if (code !== 0) {
+        reject(
+          new KnowledgeError("E_GIT_INVOCATION_FAILED", `git cat-file --batch failed: ${stderr.trim() || "unknown error"}`, {
+            exitCode: 70,
+            paths: [layout.worktreeRoot]
+          })
+        );
+        return;
+      }
+      resolve(Buffer.concat(chunks));
+    });
+    child.stdin!.write(`${paths.map((requestPath) => `${revision}:${requestPath}`).join("\n")}\n`);
+    child.stdin!.end();
+  });
+
+  let offset = 0;
+  for (const requestPath of paths) {
+    const headerEnd = buffer.indexOf(0x0a, offset);
+    if (headerEnd === -1) {
+      break;
+    }
+    const header = buffer.subarray(offset, headerEnd).toString("utf8");
+    if (header.endsWith(" missing")) {
+      offset = headerEnd + 1;
+      continue;
+    }
+    const match = /^[0-9a-f]+ (\w+) (\d+)$/.exec(header);
+    if (!match) {
+      break;
+    }
+    const size = Number(match[2]);
+    const contentStart = headerEnd + 1;
+    result.set(requestPath, buffer.subarray(contentStart, contentStart + size).toString("utf8"));
+    offset = contentStart + size + 1;
+  }
+  return result;
+}
+
+/** Read-only ancestor test; returns false for a non-ancestor or unavailable history. */
+export async function isAncestor(layout: GitRepoLayout, ancestor: string, descendant: string): Promise<boolean> {
+  const result = await runGit(layout, ["merge-base", "--is-ancestor", ancestor, descendant], { allowMissing: true });
+  return result !== null;
+}
+
+/** Read-only committed diff between two revisions, as source-root-relative paths. */
+export async function changedPathsBetween(layout: GitRepoLayout, from: string, to: string): Promise<string[]> {
+  const output = await runGit(layout, ["diff", "--name-only", "--no-renames", from, to, "--"]);
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+export function assertDirectory(input: string, code: KnowledgeErrorCode, message: string): string {
   let resolved: string;
   try {
     resolved = fs.realpathSync(path.resolve(input));
   } catch {
-    throw new NgError(code, `${message} (${input})`, { paths: [input] });
+    throw new KnowledgeError(code, `${message} (${input})`, { paths: [input] });
   }
   let stat: fs.Stats;
   try {
     stat = fs.statSync(resolved);
   } catch {
-    throw new NgError(code, `${message} (${input})`, { paths: [input] });
+    throw new KnowledgeError(code, `${message} (${input})`, { paths: [input] });
   }
   if (!stat.isDirectory()) {
-    throw new NgError(code, `${message} (${input})`, { paths: [input] });
+    throw new KnowledgeError(code, `${message} (${input})`, { paths: [input] });
   }
   return resolved;
 }

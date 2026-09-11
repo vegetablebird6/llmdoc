@@ -1,4 +1,4 @@
-export type NgErrorCode =
+export type KnowledgeErrorCode =
   | "E_SOURCE_REPO_NOT_FOUND"
   | "E_KNOWLEDGE_REPO_NOT_FOUND"
   | "E_GIT_IDENTITY_CONFLICT"
@@ -18,23 +18,28 @@ export type NgErrorCode =
   | "E_REGISTRY_INVALID"
   | "E_REGISTRY_LOCKED"
   | "E_REGISTRY_UNAVAILABLE"
-  | "E_FILESYSTEM_IO";
+  | "E_FILESYSTEM_IO"
+  | "E_DOCUMENT_INVALID"
+  | "E_META_INVALID"
+  | "E_KNOWLEDGE_DOC_NOT_FOUND"
+  | "E_INVALID_KIND"
+  | "E_INVALID_SOURCE_FILE";
 
-export interface NgErrorOptions {
+export interface KnowledgeErrorOptions {
   paths?: string[];
   remediation?: string;
   exitCode?: number;
 }
 
-export class NgError extends Error {
-  readonly code: NgErrorCode;
+export class KnowledgeError extends Error {
+  readonly code: KnowledgeErrorCode;
   readonly exitCode: number;
   readonly paths: string[];
   readonly remediation: string;
 
-  constructor(code: NgErrorCode, message: string, options: NgErrorOptions = {}) {
+  constructor(code: KnowledgeErrorCode, message: string, options: KnowledgeErrorOptions = {}) {
     super(message);
-    this.name = "NgError";
+    this.name = "KnowledgeError";
     this.code = code;
     this.exitCode = options.exitCode ?? 2;
     this.paths = options.paths ?? [];
@@ -46,10 +51,10 @@ export function runFileSystemIo<T>(operation: () => T, message: string, paths: s
   try {
     return operation();
   } catch (error) {
-    if (error instanceof NgError) {
+    if (error instanceof KnowledgeError) {
       throw error;
     }
-    throw new NgError("E_FILESYSTEM_IO", `${message}: ${(error as Error).message}`, {
+    throw new KnowledgeError("E_FILESYSTEM_IO", `${message}: ${(error as Error).message}`, {
       exitCode: 70,
       paths,
       remediation: "Check that the path exists, is a directory, and is writable; llmdoc reports filesystem failures as transaction/IO errors."

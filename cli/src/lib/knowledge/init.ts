@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { NgError, runFileSystemIo } from "./errors.js";
+import { KnowledgeError, runFileSystemIo } from "./errors.js";
 import { generateRepositoryId } from "./identity.js";
 import { runGit, type GitRepoLayout } from "./git-core.js";
 import { collectSourceRemotes, knowledgeConfigPath, renderKnowledgeLayoutConfig, type KnowledgeRemote } from "./knowledge-config.js";
@@ -56,13 +56,13 @@ export async function initKnowledgeRepository(options: InitOptions): Promise<Ini
   );
   const targetWithinSource = isWithinRootReal(source.worktreeRoot, resolvedTarget);
   if (targetWithinSource && !options.nested) {
-    throw new NgError("E_NESTED_MODE_REQUIRED", "The new knowledge root is inside the source worktree, which requires the nested mode to be selected explicitly", {
+    throw new KnowledgeError("E_NESTED_MODE_REQUIRED", "The new knowledge root is inside the source worktree, which requires the nested mode to be selected explicitly", {
       paths: [resolvedTarget, source.worktreeRoot],
       remediation: "Pass --nested to create a nested knowledge repository, or choose a root outside the source worktree (external is the default)."
     });
   }
   if (!targetWithinSource && options.nested) {
-    throw new NgError("E_NESTED_NOT_INSIDE_SOURCE", "Nested mode was selected but the new knowledge root is not inside the source worktree", {
+    throw new KnowledgeError("E_NESTED_NOT_INSIDE_SOURCE", "Nested mode was selected but the new knowledge root is not inside the source worktree", {
       paths: [resolvedTarget, source.worktreeRoot],
       remediation: "Use external mode for a knowledge repository outside the source worktree."
     });
@@ -77,14 +77,14 @@ export async function initKnowledgeRepository(options: InitOptions): Promise<Ini
     const document = readRegistryDocument(registryDir);
     const existingForSource = findBindingsBySourcePath(document, source.worktreeRoot);
     if (existingForSource.length > 0) {
-      throw new NgError("E_BINDING_CONFLICT", "This source worktree already has a binding; init never rebinds", {
+      throw new KnowledgeError("E_BINDING_CONFLICT", "This source worktree already has a binding; init never rebinds", {
         paths: existingForSource.map((entry) => entry.knowledgeRoot),
         remediation: "Use `llmdoc bind` for an existing association or remove the stale registry entry explicitly."
       });
     }
     const byKnowledge = findBindingsByKnowledgeRoot(document, resolvedTarget);
     if (byKnowledge.length > 0) {
-      throw new NgError("E_BINDING_CONFLICT", "The knowledge root is already bound to another source path", {
+      throw new KnowledgeError("E_BINDING_CONFLICT", "The knowledge root is already bound to another source path", {
         paths: byKnowledge.map((entry) => entry.sourcePath),
         remediation: "Each knowledge repository serves exactly one bound source worktree; choose another root or remove the stale registry entry explicitly."
       });
@@ -208,13 +208,13 @@ function assertInitTargetAvailable(targetInput: string): void {
   runFileSystemIo(() => {
     const stat = fs.statSync(targetInput);
     if (!stat.isDirectory()) {
-      throw new NgError("E_INIT_TARGET_NOT_EMPTY", "The init target exists and is not a directory", {
+      throw new KnowledgeError("E_INIT_TARGET_NOT_EMPTY", "The init target exists and is not a directory", {
         paths: [targetInput],
         remediation: "Choose a new, empty target root for the knowledge repository."
       });
     }
     if (fs.readdirSync(targetInput).length > 0) {
-      throw new NgError("E_INIT_TARGET_NOT_EMPTY", "The init target exists and is not empty; llmdoc never overwrites an existing target", {
+      throw new KnowledgeError("E_INIT_TARGET_NOT_EMPTY", "The init target exists and is not empty; llmdoc never overwrites an existing target", {
         paths: [targetInput],
         remediation: "Choose a new, empty target root for the knowledge repository."
       });
