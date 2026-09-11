@@ -123,7 +123,7 @@ const GIT_ENV_DENY = new Set([
 
 const GIT_ENV_DENY_PREFIXES = ["GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"];
 
-function sanitizedGitEnv(): NodeJS.ProcessEnv {
+export function sanitizedGitEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(process.env)) {
     const upper = key.toUpperCase();

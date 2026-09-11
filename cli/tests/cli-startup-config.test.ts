@@ -1,7 +1,10 @@
 import { describe, expect, test } from "vitest";
 
 import { runCli } from "../src/cli.js";
-import { commitAll, createFixture, writeRepoFile } from "./helpers.js";
+import { commitAll, createFixture, legacyValidationIssues, writeRepoFile } from "./helpers.js";
+import { loadWorkspace } from "../src/lib/workspace.js";
+import { analyzeDelta } from "../src/lib/state.js";
+import { readRepositoryRevisionHealth } from "../src/lib/repository-health.js";
 
 describe("llmdoc cli", () => {
   test("session-start follows startup config for skill reminders and direct document preload", async () => {
@@ -22,8 +25,8 @@ describe("llmdoc cli", () => {
       )}\n`
     );
 
-    const validate = await runCli(["validate"], rootDir);
-    expect(validate.exitCode).toBe(0);
+    const validate = legacyValidationIssues(rootDir);
+    expect(validate.filter((issue) => issue.severity === "error")).toEqual([]);
 
     const sessionStart = await runCli(["hook", "session-start"], rootDir);
     expect(sessionStart.exitCode).toBe(0);
@@ -44,14 +47,14 @@ describe("llmdoc cli", () => {
     expect(compactReentry.stdout).not.toContain("# 错误模型");
     expect(compactReentry.stdout).not.toContain("startup preload complete");
 
-    const status = await runCli(["--json", "status"], rootDir);
-    const statusJson = JSON.parse(status.stdout) as { unmapped: { dirty: string[] } };
-    expect(statusJson.unmapped.dirty).not.toContain("llmdoc.config.json");
+    const delta = analyzeDelta(loadWorkspace(rootDir));
+    expect(delta.unmappedDirtyPaths).not.toContain("llmdoc.config.json");
 
     commitAll(rootDir, "configure llmdoc startup context");
-    const committedStatus = await runCli(["--json", "status"], rootDir);
-    const committedStatusJson = JSON.parse(committedStatus.stdout) as { relevantCommitsBehindHead: number };
-    expect(committedStatusJson.relevantCommitsBehindHead).toBe(0);
+    const after = loadWorkspace(rootDir);
+    const afterDelta = analyzeDelta(after);
+    const health = readRepositoryRevisionHealth(after.rootDir, after.meta?.baseline.revision ?? null, afterDelta.git);
+    expect(health.relevantCommitsBehindHead).toBe(0);
     const configOnlySessionStart = await runCli(["hook", "session-start"], rootDir);
     expect(configOnlySessionStart.stdout).toContain("documents have no actionable impacts");
     expect(configOnlySessionStart.stdout).not.toContain("behind HEAD");
@@ -94,10 +97,9 @@ describe("llmdoc cli", () => {
       )}\n`
     );
 
-    const validate = await runCli(["validate"], rootDir);
-    expect(validate.exitCode).toBe(1);
-    expect(validate.stdout).toContain("config.startup.preload.missing");
-    expect(validate.stdout).not.toMatch(/[\p{Script=Han}]/u);
+    const validate = legacyValidationIssues(rootDir);
+    expect(validate.some((issue) => issue.code === "config.startup.preload.missing")).toBe(true);
+    expect(validate.map((issue) => issue.message).join("\n")).not.toMatch(/[\p{Script=Han}]/u);
 
     const sessionStart = await runCli(["hook", "session-start"], rootDir);
     expect(sessionStart.exitCode).toBe(0);

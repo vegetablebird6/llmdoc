@@ -156,24 +156,28 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "schema",
         "ok",
         "errors",
         "warnings"
       ],
       "properties": {
+        "schema": {
+          "const": "llmdoc.validate/v1"
+        },
         "ok": {
           "type": "boolean"
         },
         "errors": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/issue"
+            "$ref": "#/$defs/knowledgeIssue"
           }
         },
         "warnings": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/issue"
+            "$ref": "#/$defs/knowledgeIssue"
           }
         }
       }
@@ -182,63 +186,104 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "baseline",
-        "head",
-        "commitsBehindHead",
-        "relevantCommitsBehindHead",
-        "degradedReason",
+        "schema",
+        "repositoryId",
+        "knowledgeRoot",
+        "sourceRevision",
+        "knowledgeRevision",
+        "knowledgeBranch",
+        "sourceBlockers",
+        "historyAvailable",
+        "lastGlobalReviewRevision",
+        "index",
+        "drafts",
         "documents",
-        "unmapped",
-        "growth"
+        "reviewObligations",
+        "issues"
       ],
       "properties": {
-        "baseline": {
+        "schema": {
+          "const": "llmdoc.status/v1"
+        },
+        "repositoryId": {
+          "type": "string"
+        },
+        "knowledgeRoot": {
+          "type": "string"
+        },
+        "sourceRevision": {
           "type": [
             "string",
             "null"
           ]
         },
-        "head": {
+        "knowledgeRevision": {
           "type": [
             "string",
             "null"
           ]
         },
-        "commitsBehindHead": {
+        "knowledgeBranch": {
           "type": [
-            "integer",
+            "string",
             "null"
+          ]
+        },
+        "sourceBlockers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/knowledgeSourceBlocker"
+          }
+        },
+        "historyAvailable": {
+          "type": "boolean"
+        },
+        "lastGlobalReviewRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "index": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "clean",
+            "stagedPaths"
           ],
-          "minimum": 0
+          "properties": {
+            "clean": {
+              "type": "boolean"
+            },
+            "stagedPaths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
         },
-        "relevantCommitsBehindHead": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "minimum": 0
-        },
-        "degradedReason": {
-          "type": [
-            "string",
-            "null"
-          ]
+        "drafts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "documents": {
           "type": "object",
           "additionalProperties": false,
           "required": [
             "total",
-            "impacted",
+            "current",
             "needsReview",
-            "dirty"
+            "unverified"
           ],
           "properties": {
             "total": {
               "type": "integer",
               "minimum": 0
             },
-            "impacted": {
+            "current": {
               "type": "integer",
               "minimum": 0
             },
@@ -246,38 +291,43 @@
               "type": "integer",
               "minimum": 0
             },
-            "dirty": {
+            "unverified": {
               "type": "integer",
               "minimum": 0
             }
           }
         },
-        "unmapped": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "committed",
-            "dirty"
-          ],
-          "properties": {
-            "committed": {
-              "type": "array",
-              "items": {
-                "type": "string",
-                "minLength": 1
-              }
-            },
-            "dirty": {
-              "type": "array",
-              "items": {
-                "type": "string",
-                "minLength": 1
+        "reviewObligations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "status",
+              "reasons"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "status": {
+                "$ref": "#/$defs/knowledgeStatus"
+              },
+              "reasons": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
               }
             }
           }
         },
-        "growth": {
-          "$ref": "#/$defs/growth"
+        "issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/knowledgeIssue"
+          }
         }
       }
     },
@@ -285,15 +335,58 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "schema",
+        "repositoryId",
+        "sourceRevision",
+        "knowledgeRevision",
+        "knowledgeBranch",
+        "sourceBlockers",
+        "historyAvailable",
+        "lastGlobalReviewRevision",
         "suggestedMode",
         "reasons",
-        "degradedReason",
-        "impacted",
-        "needsReview",
-        "unmapped",
-        "pagination"
+        "impacted"
       ],
       "properties": {
+        "schema": {
+          "const": "llmdoc.delta/v1"
+        },
+        "repositoryId": {
+          "type": "string"
+        },
+        "sourceRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "knowledgeRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "knowledgeBranch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sourceBlockers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/knowledgeSourceBlocker"
+          }
+        },
+        "historyAvailable": {
+          "type": "boolean"
+        },
+        "lastGlobalReviewRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "suggestedMode": {
           "type": "string",
           "enum": [
@@ -304,15 +397,8 @@
         "reasons": {
           "type": "array",
           "items": {
-            "type": "string",
-            "minLength": 1
+            "type": "string"
           }
-        },
-        "degradedReason": {
-          "type": [
-            "string",
-            "null"
-          ]
         },
         "impacted": {
           "type": "array",
@@ -320,64 +406,42 @@
             "type": "object",
             "additionalProperties": false,
             "required": [
-              "path",
-              "changedCommittedPaths",
-              "dirtyPaths"
+              "id",
+              "action",
+              "contentChanged",
+              "scopeRemoved",
+              "requiresChanged",
+              "reasons"
             ],
             "properties": {
-              "path": {
-                "$ref": "#/$defs/path"
+              "id": {
+                "type": "string",
+                "minLength": 1
               },
-              "changedCommittedPaths": {
+              "action": {
+                "type": "string",
+                "minLength": 1
+              },
+              "contentChanged": {
+                "type": "boolean"
+              },
+              "scopeRemoved": {
                 "type": "array",
                 "items": {
-                  "type": "string",
-                  "minLength": 1
+                  "type": "string"
                 }
               },
-              "dirtyPaths": {
+              "requiresChanged": {
+                "type": "boolean"
+              },
+              "reasons": {
                 "type": "array",
                 "items": {
-                  "type": "string",
-                  "minLength": 1
+                  "type": "string"
                 }
               }
             }
           }
-        },
-        "needsReview": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "unmapped": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "committed",
-            "dirty"
-          ],
-          "properties": {
-            "committed": {
-              "type": "array",
-              "items": {
-                "type": "string",
-                "minLength": 1
-              }
-            },
-            "dirty": {
-              "type": "array",
-              "items": {
-                "type": "string",
-                "minLength": 1
-              }
-            }
-          }
-        },
-        "pagination": {
-          "$ref": "#/$defs/pagination"
         }
       }
     },
@@ -693,11 +757,26 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "schema",
         "status",
-        "commits",
-        "updated"
+        "reviewId",
+        "repositoryId",
+        "sourceRevision",
+        "knowledgeBaseRevision",
+        "knowledgeRevision",
+        "branch",
+        "metaOnly",
+        "changedDocuments",
+        "refreshedDocuments",
+        "deletedDocuments",
+        "lastGlobalReviewRevision",
+        "cleanupRequired",
+        "sync"
       ],
       "properties": {
+        "schema": {
+          "const": "llmdoc.commit/v1"
+        },
         "status": {
           "type": "string",
           "enum": [
@@ -705,22 +784,299 @@
             "no_change"
           ]
         },
-        "commits": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+        "reviewId": {
+          "type": "string"
         },
-        "updated": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+        "repositoryId": {
+          "type": "string"
         },
-        "baselineAdvanced": {
+        "sourceRevision": {
+          "type": "string"
+        },
+        "knowledgeBaseRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "knowledgeRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "branch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "metaOnly": {
           "type": "boolean"
+        },
+        "changedDocuments": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "refreshedDocuments": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "deletedDocuments": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "lastGlobalReviewRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cleanupRequired": {
+          "type": "boolean"
+        },
+        "sync": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "index",
+            "files",
+            "errors"
+          ],
+          "properties": {
+            "index": {
+              "type": "string",
+              "enum": [
+                "synced",
+                "failed",
+                "skipped"
+              ]
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "synced"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "synced": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "errors": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "status",
+        "reviewId",
+        "repositoryId",
+        "sourceRevision",
+        "knowledgeBaseRevision",
+        "knowledgeRoot",
+        "global",
+        "confirmed",
+        "writeSet",
+        "documents"
+      ],
+      "properties": {
+        "schema": {
+          "const": "llmdoc.review/v1"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "generated",
+            "confirmed"
+          ]
+        },
+        "reviewId": {
+          "type": "string"
+        },
+        "repositoryId": {
+          "type": "string"
+        },
+        "sourceRevision": {
+          "type": "string"
+        },
+        "knowledgeBaseRevision": {
+          "type": "string"
+        },
+        "knowledgeRoot": {
+          "type": "string"
+        },
+        "global": {
+          "type": "boolean"
+        },
+        "confirmed": {
+          "type": "boolean"
+        },
+        "writeSet": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "documents",
+            "refresh",
+            "deletions",
+            "meta",
+            "generated"
+          ],
+          "properties": {
+            "documents": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "refresh": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "deletions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "meta": {
+              "type": "boolean"
+            },
+            "generated": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "documents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "action",
+              "proposedConclusion",
+              "conclusion",
+              "oldDigest",
+              "candidateDigest",
+              "oldScope",
+              "newScope",
+              "removedScope",
+              "oldSourceRevision",
+              "oldValidatedRequires",
+              "candidateRequires",
+              "reasons"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string"
+              },
+              "proposedConclusion": {
+                "type": "string"
+              },
+              "conclusion": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "oldDigest": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "candidateDigest": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "oldScope": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "newScope": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "removedScope": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "oldSourceRevision": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "oldValidatedRequires": {
+                "type": "object"
+              },
+              "candidateRequires": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "digest"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "digest": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "reasons": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
         }
       }
     },

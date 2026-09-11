@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import { describe, expect, test } from "vitest";
 
 import { runCli } from "../src/cli.js";
+import { legacyValidationIssues } from "./helpers.js";
 
 describe("cold-start workflow", () => {
   test("new creates the first llmdoc directory at the nearest Git root", async () => {
@@ -56,9 +57,9 @@ describe("cold-start workflow", () => {
     const created = await runCli(["new", "architecture.mdx", "--kind", "architecture"], rootDir);
     expect(created.exitCode).toBe(0);
 
-    const missingMeta = await runCli(["validate"], rootDir);
-    expect(missingMeta.exitCode).toBe(1);
-    expect(missingMeta.stdout).toContain("init-state");
+    const missingMeta = legacyValidationIssues(rootDir);
+    expect(missingMeta.some((issue) => issue.code === "meta.missing")).toBe(true);
+    expect(missingMeta.map((issue) => issue.message).join("\n")).toContain("init-state");
 
     const unborn = await runCli(["init-state"], rootDir);
     expect(unborn.exitCode).toBe(1);
@@ -74,8 +75,8 @@ describe("cold-start workflow", () => {
     expect(payload.next).toContain("commit --all");
     expect(payload.next).not.toContain("fingerprint");
 
-    const validated = await runCli(["validate"], rootDir);
-    expect(validated.exitCode).toBe(0);
+    const validated = legacyValidationIssues(rootDir);
+    expect(validated.filter((issue) => issue.severity === "error")).toEqual([]);
   });
 
   test("new synchronizes an existing ledger without repeating the bootstrap hint", async () => {

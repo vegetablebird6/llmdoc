@@ -42,7 +42,7 @@ export interface LoadKnowledgeForReadInput {
   registryDir?: string;
 }
 
-interface KnowledgeSnapshot {
+export interface KnowledgeSnapshot {
   knowledgeRoot: string;
   docsRoot: string;
   metaPath: string;
@@ -184,7 +184,7 @@ async function resolveExplicitIdentity(
   return assemble({ mode: "bound", identityVerified: true, repositoryId: entry.repositoryId, source, snapshot });
 }
 
-async function readKnowledgeSnapshot(
+export async function readKnowledgeSnapshot(
   knowledgeGit: GitRepoLayout | null,
   knowledgeRoot: string,
   docsRoot: string,

@@ -298,3 +298,11 @@ function initGit(rootDir: string): void {
 function currentHead(rootDir: string): string {
   return spawnSync("git", ["rev-parse", "HEAD"], { cwd: rootDir, encoding: "utf8" }).stdout.trim();
 }
+
+import { loadWorkspace, validateWorkspace } from "../src/lib/workspace.js";
+import type { ValidationIssue } from "../src/types.js";
+
+/** v3-ng replaced the CLI `validate` command; legacy V3 workspace checks run through the library. */
+export function legacyValidationIssues(rootDir: string): ValidationIssue[] {
+  return validateWorkspace(loadWorkspace(rootDir));
+}

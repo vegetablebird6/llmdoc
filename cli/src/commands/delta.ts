@@ -1,92 +1,114 @@
-import { CliError } from "../lib/errors.js";
-import { analyzeDelta, parseScope } from "../lib/state.js";
-import { loadWorkspace } from "../lib/workspace.js";
-import { formatPaginationSummary } from "../lib/format.js";
-import { paginate, paginationMetadata } from "../lib/pagination.js";
-import { estimateTokens } from "../lib/markdown.js";
+import { buildReviewItems } from "../lib/knowledge/review.js";
+import { resolveKnowledgeWriteContext, type KnowledgeWriteContext } from "../lib/knowledge/write-context.js";
 
-interface DeltaOptions {
+export interface DeltaOptions {
   cwd: string;
+  source?: string;
+  knowledge?: string;
+  nested?: boolean;
+  registryDir?: string;
   json?: boolean;
-  cursor?: string;
-  budget?: number;
-  limit?: number;
   scope?: string[];
 }
 
-export function runDelta(options: DeltaOptions): unknown {
-  const workspace = loadWorkspace(options.cwd);
-  let scope;
-  try {
-    scope = parseScope(options.scope, workspace);
-  } catch (error) {
-    throw new CliError((error as Error).message);
-  }
-  const delta = analyzeDelta(workspace, scope);
-  const rows = [
-    ...delta.impacts.map((impact) => ({ type: "impacted" as const, impact })),
-    ...delta.needsReview.map((document) => ({ type: "needs-review" as const, impact: { document, changedCommittedPaths: [], dirtyPaths: [], needsReviewBecauseOf: [] } }))
-  ];
-  const paginated = paginate({
-    items: rows,
-    estimate: (row) =>
-      estimateTokens(
-        JSON.stringify({
-          type: row.type,
-          path: `llmdoc/${row.impact.document.llmdocPath}`,
-          changedCommittedPaths: row.impact.changedCommittedPaths,
-          dirtyPaths: row.impact.dirtyPaths
-        })
-      ),
-    options
+export interface DeltaImpact {
+  id: string;
+  action: string;
+  contentChanged: boolean;
+  scopeRemoved: string[];
+  requiresChanged: boolean;
+  reasons: string[];
+}
+
+export interface DeltaPayload {
+  schema: "llmdoc.delta/v1";
+  repositoryId: string;
+  sourceRevision: string | null;
+  knowledgeRevision: string | null;
+  knowledgeBranch: string | null;
+  sourceBlockers: KnowledgeWriteContext["validity"]["sourceBlockers"];
+  historyAvailable: boolean;
+  lastGlobalReviewRevision: string | null;
+  suggestedMode: "light" | "deep";
+  reasons: string[];
+  impacted: DeltaImpact[];
+}
+
+export async function runDelta(options: DeltaOptions): Promise<unknown> {
+  const context = await resolveKnowledgeWriteContext({
+    sourceInput: options.source ?? options.cwd,
+    knowledgeInput: options.knowledge,
+    nested: options.nested,
+    registryDir: options.registryDir
   });
-
+  const payload = buildDeltaPayload(context, options.scope);
   if (options.json) {
-    return {
-      suggestedMode: delta.suggestedMode,
-      reasons: delta.reasons,
-      degradedReason: delta.git.degradedReason,
-      impacted: paginated.items
-        .filter((row) => row.type === "impacted")
-        .map((row) => ({
-          path: `llmdoc/${row.impact.document.llmdocPath}`,
-          changedCommittedPaths: row.impact.changedCommittedPaths,
-          dirtyPaths: row.impact.dirtyPaths
-        })),
-      needsReview: paginated.items
-        .filter((row) => row.type === "needs-review")
-        .map((row) => `llmdoc/${row.impact.document.llmdocPath}`),
-      unmapped: {
-        committed: delta.unmappedCommittedPaths,
-        dirty: delta.unmappedDirtyPaths
-      },
-      pagination: paginationMetadata(paginated)
-    };
+    return payload;
   }
+  return renderDelta(payload);
+}
 
-  const lines = [`mode: ${delta.suggestedMode}`, `impacted: ${delta.impacts.length}, needs-review: ${delta.needsReview.length}`, ""];
-  for (const row of paginated.items) {
-    const prefix = row.type === "needs-review" ? "needs-review" : "impacted";
-    lines.push(`${prefix}: llmdoc/${row.impact.document.llmdocPath}`);
-    if (row.impact.changedCommittedPaths.length > 0) {
-      lines.push(`  committed: ${row.impact.changedCommittedPaths.join(", ")}`);
+export function buildDeltaPayload(context: KnowledgeWriteContext, scope?: string[]): DeltaPayload {
+  const scopeFilter = scope !== undefined && scope.length > 0 ? new Set(scope) : null;
+  const items = buildReviewItems(context, {});
+  const impacted: DeltaImpact[] = [];
+  const reasons: string[] = [];
+  for (const item of items) {
+    if (scopeFilter !== null && !scopeFilter.has(item.id)) {
+      continue;
     }
-    if (row.impact.dirtyPaths.length > 0) {
-      lines.push(`  dirty: ${row.impact.dirtyPaths.join(", ")}`);
+    const requiresChanged =
+      item.candidateRequires.length > 0 &&
+      JSON.stringify(item.candidateRequires) !==
+        JSON.stringify(Object.entries(item.oldValidatedRequires).map(([id, digest]) => ({ id, digest })).sort(byId));
+    const contentChanged = item.action === "add" || item.action === "delete" || item.oldDigest !== item.candidateDigest;
+    impacted.push({
+      id: item.id,
+      action: item.action,
+      contentChanged,
+      scopeRemoved: [...item.removedScope],
+      requiresChanged,
+      reasons: [...item.reasons]
+    });
+    for (const reason of item.reasons) {
+      if (!reasons.includes(reason)) {
+        reasons.push(reason);
+      }
     }
   }
-  if (delta.unmappedCommittedPaths.length > 0 || delta.unmappedDirtyPaths.length > 0) {
-    lines.push("");
-    if (delta.unmappedCommittedPaths.length > 0) {
-      lines.push(`unmapped committed: ${delta.unmappedCommittedPaths.join(", ")}`);
-    }
-    if (delta.unmappedDirtyPaths.length > 0) {
-      lines.push(`unmapped dirty: ${delta.unmappedDirtyPaths.join(", ")}`);
-    }
+  impacted.sort((left, right) => left.id.localeCompare(right.id));
+  const deep = impacted.some((impact) => impact.contentChanged || impact.requiresChanged);
+  return {
+    schema: "llmdoc.delta/v1",
+    repositoryId: context.entry.repositoryId,
+    sourceRevision: context.source.headRevision,
+    knowledgeRevision: context.knowledgeHead,
+    knowledgeBranch: context.knowledgeBranch,
+    sourceBlockers: context.validity.sourceBlockers.map((blocker) => ({ ...blocker, paths: [...blocker.paths] })),
+    historyAvailable: context.validity.historyAvailable,
+    lastGlobalReviewRevision: context.validity.lastGlobalReviewRevision,
+    suggestedMode: deep ? "deep" : "light",
+    reasons,
+    impacted
+  };
+}
+
+function byId(left: { id: string }, right: { id: string }): number {
+  return left.id.localeCompare(right.id);
+}
+
+function renderDelta(payload: DeltaPayload): string {
+  const lines = [
+    `mode: ${payload.suggestedMode}`,
+    `source: ${payload.sourceRevision ?? "invalid"}`,
+    `knowledge: ${payload.knowledgeRevision ?? "unborn"}`,
+    `impacted: ${payload.impacted.length}`
+  ];
+  for (const impact of payload.impacted.slice(0, 20)) {
+    lines.push(`  ${impact.action}: ${impact.id}${impact.contentChanged ? " (content)" : ""}${impact.requiresChanged ? " (requires)" : ""}`);
   }
-  if (delta.reasons.length > 0) {
-    lines.push("", `reasons: ${delta.reasons.join("; ")}`);
+  if (payload.reasons.length > 0) {
+    lines.push(`reasons: ${payload.reasons.join("; ")}`);
   }
-  lines.push("", ...formatPaginationSummary(paginated));
   return lines.join("\n");
 }

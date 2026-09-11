@@ -5,7 +5,7 @@ import { describe, expect, test } from "vitest";
 import matter from "gray-matter";
 
 import { runCli } from "../src/cli.js";
-import { createFixture, readMeta, writeRepoFile } from "./helpers.js";
+import { commitAll, createFixture, legacyValidationIssues, readMeta, writeRepoFile } from "./helpers.js";
 
 describe("llmdoc cli", () => {
   test("new scaffolds a document under llmdoc", async () => {
@@ -89,10 +89,9 @@ describe("llmdoc cli", () => {
     };
     expect(config.startup.preload).toEqual(["architecture.mdx", "llmdoc/api-client/retry-strategy.mdx"]);
 
-    const validate = await runCli(["validate"], rootDir);
-    expect(validate.exitCode).toBe(0);
-    const commit = await runCli(["commit", "-m", "docs: move retry policy"], rootDir);
-    expect(commit.exitCode).toBe(0);
+    const validate = legacyValidationIssues(rootDir);
+    expect(validate.filter((issue) => issue.severity === "error")).toEqual([]);
+    commitAll(rootDir, "docs: move retry policy");
   });
 
   test("mv rejects invalid targets before git mv runs", async () => {
@@ -136,8 +135,8 @@ describe("llmdoc cli", () => {
     expect(indexBody).toContain("retry-rules.mdx");
     expect(indexBody).not.toContain("retry-policy.mdx");
 
-    const validated = await runCli(["validate"], rootDir);
-    expect(validated.exitCode).toBe(0);
+    const validated = legacyValidationIssues(rootDir);
+    expect(validated.filter((issue) => issue.severity === "error")).toEqual([]);
   });
 
   test("new escapes hostile descriptions into valid front matter", async () => {
@@ -147,8 +146,8 @@ describe("llmdoc cli", () => {
     const created = await runCli(["new", "api-client/hostile.mdx", "--kind", "guide", "--description", hostile], rootDir);
     expect(created.exitCode).toBe(0);
 
-    const validated = await runCli(["validate"], rootDir);
-    expect(validated.exitCode).toBe(0);
+    const validated = legacyValidationIssues(rootDir);
+    expect(validated.filter((issue) => issue.severity === "error")).toEqual([]);
 
     const createdBody = fs.readFileSync(path.join(rootDir, "llmdoc", "api-client", "hostile.mdx"), "utf8");
     expect((matter(createdBody).data as { description: string }).description).toBe(hostile);
@@ -177,10 +176,9 @@ describe("llmdoc cli", () => {
     const body = "---\ndescription: 已由外部流程写好的合法文档。\nkind: reference\n---\n\n# Adopt repro\n\n正文内容。\n";
     fs.writeFileSync(docPath, body);
 
-    const invalid = await runCli(["validate"], rootDir);
-    expect(invalid.exitCode).toBe(1);
-    expect(invalid.stdout).toContain("meta.entry.missing");
-    expect(invalid.stdout).toContain("llmdoc adopt");
+    const invalid = legacyValidationIssues(rootDir);
+    expect(invalid.some((issue) => issue.code === "meta.entry.missing")).toBe(true);
+    expect(invalid.some((issue) => issue.message.includes("llmdoc adopt"))).toBe(true);
 
     const result = await runCli(["--json", "adopt", "api-client/adopt-repro.mdx"], rootDir);
     expect(result.exitCode).toBe(0);
@@ -190,8 +188,8 @@ describe("llmdoc cli", () => {
     const meta = readMeta(rootDir);
     expect(meta.documents["api-client/adopt-repro.mdx"].validatedRevision).toBeNull();
 
-    const valid = await runCli(["validate"], rootDir);
-    expect(valid.exitCode).toBe(0);
+    const valid = legacyValidationIssues(rootDir);
+    expect(valid.filter((issue) => issue.severity === "error")).toEqual([]);
 
     const again = await runCli(["--json", "adopt", "api-client/adopt-repro.mdx"], rootDir);
     expect(again.exitCode).toBe(0);

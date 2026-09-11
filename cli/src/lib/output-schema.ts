@@ -24,6 +24,7 @@ export type OutputSchemaName =
   | "mv"
   | "hook"
   | "initState"
+  | "review"
   | "commit"
   | "bind"
   | "init"

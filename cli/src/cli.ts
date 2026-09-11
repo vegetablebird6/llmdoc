@@ -17,6 +17,7 @@ import { runNew } from "./commands/new.js";
 import { runMove } from "./commands/mv.js";
 import { runStatus } from "./commands/status.js";
 import { runDelta } from "./commands/delta.js";
+import { runReview } from "./commands/review.js";
 import { runFingerprint } from "./commands/fingerprint.js";
 import { runHook } from "./commands/hook.js";
 import { runPrune } from "./commands/prune.js";
@@ -69,17 +70,18 @@ export async function runCli(argv: string[], cwd = process.cwd(), stdin = ""): P
       "",
       "Quick reference by purpose:",
       "  Retrieval (read-only)  tree → index / search / context → show",
-      "  State diagnostics      status · delta · validate",
-      "  Structural mutation    new · adopt · mv · fingerprint · init-state · commit",
+      "  State diagnostics      status · delta",
+      "  Structural checks      validate",
+      "  Semantic commit        review → review --confirm → commit --review",
       "  Maintenance            prune · upgrade",
       "  Integration            hook · serve",
       "",
       "Common examples:",
       "  llmdoc tree                              show the knowledge map (topics and root documents)",
       "  llmdoc search \"retry policy\" --limit 5     search documents lexically",
-      "  llmdoc context --files src/api/retry.ts   map source files to documents to read",
-      "  llmdoc show lifecycle/task-recovery.md    read selected bodies",
-      "  llmdoc commit -m \"docs: ...\"              validate and commit the llmdoc write set",
+      "  llmdoc status                              report review obligations and source blockers",
+      "  llmdoc review                              generate a Review Manifest for the fixed source snapshot",
+      "  llmdoc commit --review <reviewId>          seal a confirmed manifest into one knowledge commit",
       "",
       "All retrieval commands support --json / --budget / --limit; use --cursor to continue truncated output."
     ].join("\n")
@@ -139,29 +141,46 @@ export async function runCli(argv: string[], cwd = process.cwd(), stdin = ""): P
 
   program
     .command("validate")
-    .description("validate llmdoc structure and references")
-    .action((commandOptions) => {
-      const rootDir = findProjectRoot(cwd);
-      const result = runValidate({ ...globalOptions, ...commandOptions, cwd: rootDir });
+    .description("validate knowledge structure and source evidence against the fixed source snapshot")
+    .option("--source <path>", "validate the knowledge bound to this source worktree")
+    .option("--knowledge <path>", "validate this explicit knowledge root")
+    .action(async (commandOptions) => {
+      const result = await runValidate({ ...globalOptions, ...commandOptions, cwd });
       exitCode = result.exitCode;
       output.push(writeOutput("validate", result.output, globalOptions.json));
     });
 
   program
     .command("status")
-    .description("inspect baseline, dirty, and growth state")
-    .action((commandOptions) => {
-      const rootDir = findProjectRoot(cwd);
-      output.push(writeOutput("status", runStatus({ ...globalOptions, ...commandOptions, cwd: rootDir }), globalOptions.json));
+    .description("report source blockers, knowledge state and review obligations")
+    .option("--source <path>", "inspect the knowledge bound to this source worktree")
+    .option("--knowledge <path>", "inspect this explicit knowledge root")
+    .action(async (commandOptions) => {
+      output.push(writeOutput("status", await runStatus({ ...globalOptions, ...commandOptions, cwd }), globalOptions.json));
     });
 
   program
     .command("delta")
-    .description("inspect document impacts from code changes and choose light or deep update mode")
-    .option("--scope <scope...>", "limit comparison to selected topics or documents")
-    .action((commandOptions) => {
-      const rootDir = findProjectRoot(cwd);
-      output.push(writeOutput("delta", runDelta({ ...globalOptions, ...commandOptions, cwd: rootDir }), globalOptions.json));
+    .description("report the documents that need semantic review after source or knowledge changes")
+    .option("--scope <scope...>", "limit comparison to selected document ids")
+    .option("--source <path>", "inspect the knowledge bound to this source worktree")
+    .option("--knowledge <path>", "inspect this explicit knowledge root")
+    .action(async (commandOptions) => {
+      output.push(writeOutput("delta", await runDelta({ ...globalOptions, ...commandOptions, cwd }), globalOptions.json));
+    });
+
+  program
+    .command("review")
+    .description("generate or confirm a Review Manifest for the fixed source and knowledge revisions")
+    .option("--source <path>", "review the knowledge bound to this source worktree")
+    .option("--knowledge <path>", "review this explicit knowledge root")
+    .option("--confirm <reviewId>", "confirm the semantic conclusions of an existing manifest")
+    .option("--set <assignment...>", "override a conclusion when confirming: <id>=changed|unchanged|insufficient")
+    .option("--global", "record this as a global review scan, advancing lastGlobalReviewRevision on seal")
+    .action(async (commandOptions) => {
+      const result = await runReview({ ...globalOptions, ...commandOptions, cwd });
+      exitCode = result.exitCode;
+      output.push(writeOutput("review", result.output, globalOptions.json));
     });
 
   program
@@ -200,28 +219,25 @@ export async function runCli(argv: string[], cwd = process.cwd(), stdin = ""): P
 
   program
     .command("commit")
-    .description("finalize atomically: validate, optionally commit prose, refresh revisions, and commit metadata")
-    .option("-m, --message <message>", "docs commit message")
-    .option("--all", "fingerprint every document and advance the baseline")
-    .option("--verified <paths...>", "refresh validatedRevision for reviewed documents whose bodies did not change")
-    .option("--no-verify", "pass --no-verify through to git commit")
+    .description("seal a confirmed Review Manifest into a single knowledge commit")
+    .requiredOption("--review <reviewId>", "confirmed review manifest to consume")
+    .option("--source <path>", "seal the knowledge bound to this source worktree")
+    .option("--knowledge <path>", "seal this explicit knowledge root")
+    .addHelpText(
+      "after",
+      "\ncommit consumes a confirmed Review Manifest; there is no bare verified flag. Knowledge staging, a dirty or invalid source snapshot, and any content drift invalidate the manifest."
+    )
     .action(async (commandOptions) => {
       const { runCommit } = await import("./commands/commit.js");
-      const rootDir = findProjectRoot(cwd);
-      output.push(
-        writeOutput(
-          "commit",
-          runCommit({
-            ...globalOptions,
-            cwd: rootDir,
-            message: commandOptions.message,
-            all: commandOptions.all,
-            verified: commandOptions.verified,
-            noVerify: commandOptions.verify === false
-          }),
-          globalOptions.json
-        )
-      );
+      const result = await runCommit({
+        ...globalOptions,
+        cwd,
+        source: commandOptions.source,
+        knowledge: commandOptions.knowledge,
+        review: commandOptions.review
+      });
+      exitCode = result.exitCode;
+      output.push(writeOutput("commit", result.output, globalOptions.json));
     });
 
   program

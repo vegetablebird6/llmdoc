@@ -7,12 +7,6 @@ import { createFixture } from "./helpers.js";
 describe("llmdoc cli", () => {
   test("all public json payloads validate through runtime output schemas", async () => {
     const rootDir = createFixture();
-    const validate = await runCli(["--json", "validate"], rootDir);
-    expect(() => JSON.parse(validate.stdout)).not.toThrow();
-    const status = await runCli(["--json", "status"], rootDir);
-    expect(() => JSON.parse(status.stdout)).not.toThrow();
-    const delta = await runCli(["--json", "delta"], rootDir);
-    expect(() => JSON.parse(delta.stdout)).not.toThrow();
     const fingerprint = await runCli(["--json", "fingerprint", "--update", "api-client/overview.mdx"], rootDir);
     expect(() => JSON.parse(fingerprint.stdout)).not.toThrow();
     const prune = await runCli(["--json", "prune", "--report"], rootDir);
@@ -29,7 +23,27 @@ describe("llmdoc cli", () => {
     expect(() => JSON.parse(compact.stdout)).not.toThrow();
   });
 
-  test("output schema validator rejects extra fields and wrong types", () => {
+  test("output schema validator accepts the v3-ng status contract and rejects stale or malformed payloads", () => {
+    expect(() =>
+      assertOutputSchema("status", {
+        schema: "llmdoc.status/v1",
+        repositoryId: "llmdoc-00000000000000000000000000000000",
+        knowledgeRoot: "C:/knowledge",
+        sourceRevision: "a".repeat(40),
+        knowledgeRevision: "b".repeat(40),
+        knowledgeBranch: "main",
+        sourceBlockers: [],
+        historyAvailable: true,
+        lastGlobalReviewRevision: null,
+        index: { clean: true, stagedPaths: [] },
+        drafts: [],
+        documents: { total: 1, current: 1, needsReview: 0, unverified: 0 },
+        reviewObligations: [],
+        issues: []
+      })
+    ).not.toThrow();
+
+    // A legacy V3 status payload must not satisfy the v3-ng contract.
     expect(() =>
       assertOutputSchema("status", {
         baseline: null,

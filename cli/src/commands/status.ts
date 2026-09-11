@@ -1,76 +1,103 @@
-import { readRepositoryRevisionHealth } from "../lib/repository-health.js";
-import { computeGrowthState, analyzeDelta } from "../lib/state.js";
-import { loadWorkspace } from "../lib/workspace.js";
+import { buildReviewItems } from "../lib/knowledge/review.js";
+import { resolveKnowledgeWriteContext, type KnowledgeWriteContext } from "../lib/knowledge/write-context.js";
+import type { DocumentStatus } from "../lib/knowledge/validity.js";
 
-interface StatusOptions {
+export interface StatusOptions {
   cwd: string;
+  source?: string;
+  knowledge?: string;
+  nested?: boolean;
+  registryDir?: string;
   json?: boolean;
 }
 
-export function runStatus(options: StatusOptions): unknown {
-  const workspace = loadWorkspace(options.cwd);
-  const delta = analyzeDelta(workspace);
-  const growth = computeGrowthState(workspace);
-  const relevantCommitsBehindHead = readRepositoryRevisionHealth(
-    workspace.rootDir,
-    workspace.meta?.baseline.revision ?? null,
-    delta.git
-  ).relevantCommitsBehindHead;
+export interface StatusPayload {
+  schema: "llmdoc.status/v1";
+  repositoryId: string;
+  knowledgeRoot: string;
+  sourceRevision: string | null;
+  knowledgeRevision: string | null;
+  knowledgeBranch: string | null;
+  sourceBlockers: ReturnType<typeof copyBlockers>;
+  historyAvailable: boolean;
+  lastGlobalReviewRevision: string | null;
+  index: { clean: boolean; stagedPaths: string[] };
+  drafts: string[];
+  documents: { total: number; current: number; needsReview: number; unverified: number };
+  reviewObligations: Array<{ id: string; status: DocumentStatus; reasons: string[] }>;
+  issues: KnowledgeWriteContext["issues"];
+}
 
+export async function runStatus(options: StatusOptions): Promise<unknown> {
+  const context = await resolveKnowledgeWriteContext({
+    sourceInput: options.source ?? options.cwd,
+    knowledgeInput: options.knowledge,
+    nested: options.nested,
+    registryDir: options.registryDir
+  });
+  const payload = buildStatusPayload(context);
   if (options.json) {
-    return {
-      baseline: workspace.meta?.baseline.revision ?? null,
-      head: delta.git.headRevision,
-      commitsBehindHead: delta.git.baselineBehindHead,
-      relevantCommitsBehindHead,
-      degradedReason: delta.git.degradedReason,
-      documents: {
-        total: workspace.documents.length,
-        impacted: delta.impacts.length,
-        needsReview: delta.needsReview.length,
-        dirty: delta.dirtyDocuments.length
-      },
-      unmapped: {
-        committed: delta.unmappedCommittedPaths,
-        dirty: delta.unmappedDirtyPaths
-      },
-      growth
-    };
+    return payload;
   }
+  return renderStatus(payload);
+}
 
-  const baseline = workspace.meta?.baseline.revision ?? "missing";
-  const behind = formatBehindLabel(delta.git.baselineBehindHead, relevantCommitsBehindHead);
-  const unmapped = [...delta.unmappedCommittedPaths, ...delta.unmappedDirtyPaths];
-  const growthLabel =
-    growth.baselineDocumentCount === null
-      ? `growth: ${growth.currentDocumentCount} docs, ~${growth.currentTotalEstimatedTokens} tokens (no convergence baseline)`
-      : `growth: ${growth.currentDocumentCount} docs, ~${growth.currentTotalEstimatedTokens} tokens (baseline ${growth.baselineDocumentCount} docs, ~${growth.baselineTotalEstimatedTokens} tokens) — ${growth.exceedsGate ? "above gate" : "below gate"}`;
+export function buildStatusPayload(context: KnowledgeWriteContext): StatusPayload {
+  const counts = { total: 0, current: 0, needsReview: 0, unverified: 0 };
+  const reviewObligations: Array<{ id: string; status: DocumentStatus; reasons: string[] }> = [];
+  for (const document of context.k0Model.documents) {
+    counts.total += 1;
+    const validity = context.validity.byId.get(document.id);
+    const status: DocumentStatus = validity?.status ?? "unverified";
+    if (status === "current") {
+      counts.current += 1;
+    } else if (status === "needs_review") {
+      counts.needsReview += 1;
+    } else {
+      counts.unverified += 1;
+    }
+    if (status !== "current") {
+      reviewObligations.push({ id: document.id, status, reasons: validity?.reasons ?? [] });
+    }
+  }
+  const drafts = buildReviewItems(context, {}).map((item) => item.id).sort();
+  return {
+    schema: "llmdoc.status/v1",
+    repositoryId: context.entry.repositoryId,
+    knowledgeRoot: context.knowledge.worktreeRoot,
+    sourceRevision: context.source.headRevision,
+    knowledgeRevision: context.knowledgeHead,
+    knowledgeBranch: context.knowledgeBranch,
+    sourceBlockers: copyBlockers(context),
+    historyAvailable: context.validity.historyAvailable,
+    lastGlobalReviewRevision: context.validity.lastGlobalReviewRevision,
+    index: { clean: context.knowledgeClean.stagedPaths.length === 0, stagedPaths: [...context.knowledgeClean.stagedPaths] },
+    drafts,
+    documents: counts,
+    reviewObligations,
+    issues: context.issues.map((issue) => ({ ...issue }))
+  };
+}
 
+function renderStatus(payload: StatusPayload): string {
   const lines = [
-    `baseline: ${baseline} (${behind})`,
-    `documents: ${workspace.documents.length} total / ${delta.impacts.length} impacted / ${delta.needsReview.length} needs-review / ${delta.dirtyDocuments.length} dirty`
+    `repository: ${payload.repositoryId}`,
+    `source: ${payload.sourceRevision ?? "invalid"} (${payload.sourceBlockers.length === 0 ? "clean" : "blocked"})`,
+    `knowledge: ${payload.knowledgeRevision ?? "unborn"} on ${payload.knowledgeBranch ?? "detached"}`,
+    `lastGlobalReviewRevision: ${payload.lastGlobalReviewRevision ?? "null"}`,
+    `index: ${payload.index.clean ? "clean" : `staged ${payload.index.stagedPaths.length} path(s)`}`,
+    `documents: ${payload.documents.total} total / ${payload.documents.current} current / ${payload.documents.needsReview} needs-review / ${payload.documents.unverified} unverified`,
+    `drafts: ${payload.drafts.length}`
   ];
-  if (unmapped.length > 0) {
-    const shown = unmapped.slice(0, 5);
-    const rest = unmapped.length - shown.length;
-    lines.push(`unmapped changes (${unmapped.length}): ${shown.join(", ")}${rest > 0 ? ` … +${rest} more (use --json for all)` : ""}`);
+  for (const obligation of payload.reviewObligations.slice(0, 10)) {
+    lines.push(`  ${obligation.status}: ${obligation.id}`);
   }
-  lines.push(growthLabel);
-  if (delta.git.degradedReason) {
-    lines.push(`degraded: ${delta.git.degradedReason}`);
+  for (const blocker of payload.sourceBlockers) {
+    lines.push(`source-blocker: ${blocker.code} ${blocker.message}`);
   }
   return lines.join("\n");
 }
 
-function formatBehindLabel(commitsBehindHead: number | null, relevantCommitsBehindHead: number | null): string {
-  if (commitsBehindHead === null) {
-    return "unknown";
-  }
-  if (commitsBehindHead > 0 && relevantCommitsBehindHead === 0) {
-    return `${commitsBehindHead} commits behind HEAD, metadata-only; knowledge clean`;
-  }
-  if (commitsBehindHead > 0 && relevantCommitsBehindHead !== null) {
-    return `${commitsBehindHead} commits behind HEAD, ${relevantCommitsBehindHead} relevant source commits`;
-  }
-  return `${commitsBehindHead} commits behind HEAD`;
+function copyBlockers(context: KnowledgeWriteContext): KnowledgeWriteContext["validity"]["sourceBlockers"] {
+  return context.validity.sourceBlockers.map((blocker) => ({ ...blocker, paths: [...blocker.paths] }));
 }

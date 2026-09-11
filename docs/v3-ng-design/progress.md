@@ -1,6 +1,6 @@
 # v3-ng 实施进度与续接记录
 
-最后更新：2026-09-10（M2 达到三轮返修阈值后由 Codex 直接接管收口；R3 四项遗漏已修复，最终复审与全量门禁通过，M2 完成并提交后进入 M3）。
+最后更新：2026-09-11（M3 经 Codex R3 直接接管完成收口与最终复审；原样全量 `npm test` exit 0，29 files / 205 tests，待提交后进入 M4）。
 
 ## 执行约定
 
@@ -21,7 +21,7 @@
 | D4 协议冻结补齐 | 完成 | validatedRequires/validatedSourcePaths、clean knowledge index、同步收尾及 P1 已落地；协议主线冻结 |
 | M1 仓库边界 | 完成（R8 收口：连续两次原样 `npm test` exit 0，24 files / 142/142，无 unhandled；R9 保持） | 见「M1 第三轮最终返修 — 2026-09-10」 |
 | M2 内容与读取 | 完成（breaking replacement；Codex R3 直接收口，28 files / 179 tests 全过） | 见「M2 Codex R3 直接修复与最终复审通过」 |
-| M3 语义提交 | 未开始 | 见 roadmap.md |
+| M3 语义提交 | 完成并通过 Codex R3（原样全量 `npm test` exit 0，29 files / 205 tests，无 unhandled） | 见「M3 实施记录」「M3 R1/R2 返修实施与验证记录」「M3 Codex R3 直接接管收口」 |
 | M4 最小维护闭环 | 未开始 | 见 roadmap.md |
 | M5 接入与发布 | 未开始 | 见 roadmap.md |
 
@@ -888,3 +888,375 @@ OpenCode 续接入口：新建干净会话，同时完成本节 breaking replace
 
 - 新建 OpenCode 会话实施完整 M3；先读取冻结设计与本检查点，在 progress.md 落地 M3 计划后再写代码。
 - 关联 commit：由本次里程碑提交承载（精确 OID 以 Git log 为准）。
+
+## M3 设计与分步实施计划 — 2026-09-10
+
+状态：设计先行。先落本计划再写代码。M3 只原位切换 `status/delta/validate/commit` 并新增 `review`（Review Manifest 生成/确认），共用语义提交事务；不实现 M4 的 capture/update/prune/migrate/导航生成，也不接入 M5 的 hooks/skills/agents/网站/发布。不改冻结协议，不 stage/commit/reset/push，不把 `.codegraph/` 或临时日志纳入。
+
+### 1. 独立推演（逐条核对 architecture §4–§6、roadmap M3/验收 4–7/D4，不迎合既有代码）
+
+1. **写绑定必须精确**：`status/delta/validate/review/commit` 都是写入边界上的命令，解析用 M1 的 `resolveWriteBinding`；无绑定/歧义/身份不符按既有 `E_BINDING_*`/`E_SOURCE_IDENTITY_MISMATCH` 拒绝，绝不回退 Source Git。`--source/--knowledge` 只选择同一协议 context。
+2. **S 与 K0 是两个固定 revision**：source 必须是有效 HEAD 且全仓 clean；knowledge 必须已有初始 commit、处于分支、无 merge/rebase/cherry-pick、真实 index 等于 K0 且无 staged。两者任一不满足即状态阻断（exit 3），提交前不移动 HEAD。
+3. **Review Manifest 是显式的本地验证声明，不是认证机制**：生成（`review`）与语义确认（`review --confirm`）分离；未确认 manifest 不得被 `commit --review` 消费。manifest 存在可重建缓存 `.llmdoc-cache/reviews/<reviewId>.json`，不提交 Git。
+4. **四项证据成组**：`validatedSourceRevision/validatedContentDigest/validatedSourcePaths/validatedRequires` 在 seal 一起写；未验证为 `null/null/[]/{}`。`validatedRequires` 键集合等于 requires 集合，值绑定目标最终 digest。
+5. **requires 按 DAG 绑定最终 digest**：同批按 requires 拓扑序 seal；A requires B 时 A 记录本批 B 的最终 digest；批外依赖必须 current；B 重新 seal 不会自动刷新 A。supersedes 不参与 validity。
+6. **review 使用旧新 scope 并集**：`validatedSourcePaths(K0) ∪ current source.paths` 的 committed diff `validatedSourceRevision..S` 决定复核义务；缩小 scope 也需语义判断；展示被移除范围。
+7. **临时 index + 单提交 + CAS**：temp `GIT_INDEX_FILE` 从 `read-tree K0` 初始化，仅写入 manifest 写集；`write-tree` + `commit-tree`（父 K0，禁用 hooks/签名/外部辅助）得 K1；发布用 `update-ref <branch> K1 K0` CAS。失败前不移动 HEAD；CAS 失败返回 `E_CAS_CONFLICT`(70)，不假成功。
+8. **发布后收尾**：成功以已构建索引原子替换真实 index（不改工作树整体），范围外草稿保留。llmdoc 生成文件（`.llmdoc/meta.json`，README 导航机制）只在文件仍等于 seal 前观察值时条件更新，否则保留外部修改并报告未同步。发布后收尾失败返回 K1 + `cleanup_required`，不回滚历史、不谎称未提交。
+9. **一次性消费**：manifest 被消费后重复使用被拒；即便消费标记丢失，`update-ref K1 K0` 的 CAS 也会阻止重复发布。
+10. **锁在知识 commonDir，身份包含 pid/host/bootId/processStartTime**：排他创建；恢复只在能证明持有者已死（同 host、同 bootId、PID 已不存在，或 bootId 不同/进程启动时间不符）时进行，不能仅凭 TTL/PID 误删活跃锁；平台无法取得身份时保守报告 `E_KNOWLEDGE_LOCKED`。
+11. **Source 全程只读**：所有 source 调用经 `resolveSourceContext`/只读 `runGit`（可选锁禁用）；不 fetch/checkout/写 index/装 hook。source HEAD/index/文件字节级零修改。
+12. **命令不混入 M4/M5**：不生成导航、不做 capture/prune/migrate/hook serve；`new/adopt/mv/fingerprint/prune/upgrade/init-state/hook/serve` 保持既有实现，仅在 M5 统一。
+
+### 2. 协议不变量（M3 代码必须始终满足）
+
+- 正式读取固定 Knowledge HEAD；seal 固定 Source S 与 Knowledge K0。
+- 语义结论只能由 `review --confirm` 声明；生成 manifest 不等于确认。
+- 写集只含 manifest 已审查路径；seal 重算后任何正文/关系/scope/依赖/写集漂移 → `E_REVIEW_INVALIDATED`。
+- Knowledge 真实 index 无 staged；source 无 staged/unstaged/untracked/conflict 且 HEAD 有效。
+- `lastGlobalReviewRevision` 仅由全局复核扫描推进，不代替单篇 revision。
+- digest = 完整文档 UTF-8 内容 CRLF/CR→LF 后 SHA-256；写入 blob 使用相同规范化字节。
+- capture/文档编辑不自动验证；用户手工 draft 可留在 worktree，但未经 review 不进入提交。
+- Source 只读、无 fallback；损坏或不可判定历史保守 `needs_review`。
+
+### 3. 文件所有权（互斥边界）
+
+| 归属 | 文件 | 责任 |
+|---|---|---|
+| M3 核心（OpenCode 串行） | `cli/src/lib/knowledge/errors.ts` | 新增 M3 错误码与退出码 3/70 契约 |
+| M3 核心 | `cli/src/lib/knowledge/git-write.ts`（新增） | 写侧 Git：显式 `GIT_INDEX_FILE`、`hash-object -w`、`read-tree/update-index/write-tree/commit-tree/update-ref`，禁用 hooks/签名/外部辅助 |
+| M3 核心 | `cli/src/lib/knowledge/lock.ts`（新增） | 知识 commonDir `llmdoc.lock`；身份与保守恢复 |
+| M3 核心 | `cli/src/lib/knowledge/review.ts`（新增） | Review Manifest 生成/确认/加载/消费；候选写集计算 |
+| M3 核心 | `cli/src/lib/knowledge/seal.ts`（新增） | seal 事务：门控、temp index、CAS、index/文件条件同步 |
+| M3 核心 | `cli/src/lib/knowledge/read.ts` | 仅导出复用快照（不改变 M2 只读语义） |
+| M3 命令 | `cli/src/commands/{status,delta,validate,review,commit}.ts` | 原位切换标准命令；新增 review |
+| 共享 CLI/schema | `cli/src/cli.ts`、`cli/src/lib/output-schema.ts`、`cli/schemas/output.schema.json` | 命令接线、参数、帮助、JSON 契约 |
+| 测试 | `cli/tests/knowledge-{status-delta,validate,review-seal,lock}.test.ts`（新增）、`knowledge-helpers.ts` | 真实临时双 Git + 故障注入 |
+| 测试收口 | 删除 V3 `cli-{status,delta,validate,commit,commit-verified}.test.ts`；`cli-output-schema.test.ts` 改新契约 | breaking replacement 后旧断言不再成立 |
+
+### 4. 失败路径矩阵（均需真实双 Git 测试）
+
+| 场景 | 期望 |
+|---|---|
+| source staged/unstaged/untracked/conflict/dirty | 状态阻断（exit 3），seal 前不移动 Knowledge HEAD |
+| source HEAD 在 review 后前进 | `E_SOURCE_HEAD_DRIFT`（3）；不发布 |
+| source HEAD unborn / 非 commit | 阻断（3），不伪称 clean |
+| Knowledge staged（任意 path） | `E_KNOWLEDGE_INDEX_DIRTY`（3） |
+| Knowledge detached/unborn/merge/rebase | `E_KNOWLEDGE_NOT_ON_BRANCH`（3） |
+| Knowledge HEAD ≠ manifest.K0 | `E_KNOWLEDGE_HEAD_MISMATCH`（3） |
+| manifest 未确认 | `E_REVIEW_NOT_CONFIRMED`（3） |
+| manifest 不存在/未知 reviewId | `E_REVIEW_NOT_FOUND`（2） |
+| manifest 后正文/meta/关系/scope/依赖/写集漂移 | `E_REVIEW_INVALIDATED`（3） |
+| 出现未审查新 `.md` | `E_REVIEW_INVALIDATED`（3） |
+| meta 在观察前被外部修改 | `E_KNOWLEDGE_META_DIRTY`（3），不覆盖 |
+| CAS 失败（K0 已前进） | `E_CAS_CONFLICT`（70），仅留未引用对象，不重置 |
+| 发布后 index 同步失败 | 返回 K1 + `cleanup_required`，不回滚 |
+| 发布后 meta 被外部改动 | 保留该修改并报告未同步路径 |
+| 重复消费同一 manifest | 拒绝；K0 CAS 兜底 |
+| Git hooks 存在 | seal 全程不运行 hooks |
+| 两个并发写者 | 后者 `E_KNOWLEDGE_LOCKED`(70)；保守恢复不误删活跃锁 |
+| source HEAD/index/文件 | 字节级零修改 |
+| 范围外 draft | seal 后仍 dirty |
+
+### 5. 测试矩阵（真实临时双 Git + 故障注入，不 mock Git）
+
+- `tests/knowledge-status-delta.test.ts`：绑定后 status/delta 正确报告 S/K0、三态计数、复核义务、committed scope diff、requires 漂移、source blocker 分离；knowledge staged/detached 状态；读取不改 source。
+- `tests/knowledge-validate.test.ts`：结构错误（front matter/kind/source.paths 逃逸/链接/requires 环/supersedes 类型）、meta 成组、固定 S scope evidence（literal 缺失/glob 零匹配）、退出码 2；不推进 revision。
+- `tests/knowledge-review-seal.test.ts`（核心，真实双 Git + 故障注入）：docs+meta 单提交；meta-only；人工 draft 提交；未确认 manifest 拒绝；manifest 后正文/meta/关系/scope/依赖/写集漂移全部 `E_REVIEW_INVALIDATED`；旧+新 scope 并集；A requires B 同批 DAG 与 B 重 seal 不自动刷新 A；范围外 draft 保留；重复 manifest 拒绝；CAS 冲突；发布后 index/文件同步失败返回 K1+cleanup_required；source HEAD/index/文件字节冻结；hooks 不运行。
+- `tests/knowledge-lock.test.ts`：两写者互斥；活跃锁不误删；死 PID/重启（不同 bootId）/无法判定身份的保守恢复。
+- 迁移既有 `knowledge-*` 回归；删除 V3 status/delta/validate/commit 测试；`cli-output-schema.test.ts` 改新契约。
+
+### 6. 分步计划（每步完成即更新本文件，支持断点续接）
+
+1. **M3a 写基础设施**：`errors.ts` 新码；`git-write.ts`；`lock.ts`；lock 测试。定向通过后更新 progress。
+2. **M3b 诊断命令**：status/delta/validate 原位切换 + schema + 测试；确认读取固定 HEAD、不写 meta。
+3. **M3c Review Manifest**：`review.ts` 生成/确认/消费；`review` 命令；测试生成≠确认、写集快照。
+4. **M3d seal 事务**：`seal.ts` + `commit --review`；temp index/CAS/条件同步；故障注入测试。
+5. **M3e 收口**：schema/CLI 帮助、删除旧测试、命名空间扫描、`git diff --check`、定向 + typecheck/lint、最后原样 `npm test` 记录真实 exit code/文件数/用例数；更新 progress 后停止交 Codex。
+
+### 7. 续接入口
+
+- 代码起点：`cli/src/lib/knowledge/git-write.ts`、`lock.ts`。
+- 冻结对象：manifest schema `llmdoc.review/v1`（数据格式，不用于激活运行时）。
+- 完成后停止，交 Codex 集中 review；不进入 M4/M5，不 stage/commit/reset/push。
+
+## M3 实施记录 — 2026-09-10
+
+状态：完成。`status/delta/validate` 原位切换到冻结双仓协议，新增 `review` 生成/确认/消费与 `commit --review` seal 事务；未进入 M4/M5，未改冻结协议，未 stage/commit/reset/push。
+
+### 完成内容与文件
+
+- 新增 `cli/src/lib/knowledge/git-write.ts`：写侧 Git plumbing。显式 `GIT_INDEX_FILE`；`hash-object -w --stdin`（无 filter）、`read-tree/update-index --cacheinfo/--force-remove/write-tree/commit-tree`、`update-ref` CAS；所有写命令注入 `core.hooksPath=<空目录>`、`commit.gpgsign=false`、`core.autocrlf=false`、`core.fsmonitor=false`、`gc.auto=0`，不调用外部辅助；`acquireIndexLock` 排他持有真实 `index.lock`，`publishIndex` 通过 lock 文件暂存后 rename 原子替换。
+- 新增 `cli/src/lib/knowledge/lock.ts`：知识 commonDir `llmdoc.lock`。身份含 ownerToken/pid/host/bootId/processStartTimeMs/acquiredAt；保守恢复只在同 host 且（bootId 不同＝重启，或 PID 已不存在，或可读取的进程启动时间不符）时删除；平台取不到身份或锁不可读时保持并报告 `E_KNOWLEDGE_LOCKED`(70)，不凭 TTL/PID 误删。
+- 新增 `cli/src/lib/knowledge/write-context.ts`：`resolveKnowledgeWriteContext` 精确绑定后同时取 K0（committed HEAD）与 worktree 快照、knowledge head/branch/操作态（merge/rebase/cherry-pick/revert）、clean 快照与 validity；`assertReviewPreconditions` 统一状态阻断（source invalid/dirty、knowledge unborn/detached/操作态/任何 staged）。
+- 新增 `cli/src/lib/knowledge/review.ts`：`llmdoc.review/v1` manifest 生成/确认/消费。候选写集计算含 per-doc action、旧新 digest、旧 `validatedSourcePaths`、旧 `validatedRequires`、候选 requires 最终 digest、removed scope 与 reasons；requires 反向边扩展把「本批将变化的依赖」的依赖方纳入候选；`attachCandidateRequires` 按结论解析同批最终 digest；manifest 存 `.llmdoc-cache/reviews/<id>.json`（不提交）。
+- 新增 `cli/src/lib/knowledge/seal.ts`：`sealKnowledgeReview`。锁内重解析 → 门控 → 校验 manifest 绑定/未消费/已确认/S/K0 → 重算候选与写集比对（正文/关系/scope/依赖/写集/新增未审查路径任一漂移即 `E_REVIEW_INVALIDATED`）→ meta 观察值门控 → 构造新 ledger → temp index（read-tree K0、hash blobs、update-index、删除）→ `write-tree`+`commit-tree`（父 K0，trailer: source revision / verified scope / reviewId）→ 发布前二次检查 source HEAD/clean、knowledge HEAD/branch、真实 index 观察值 → `update-ref <branch> K1 K0` CAS → 成功后原子替换真实 index、仅对观察值未变的自有文件（meta、换行归一化文档）条件同步；范围外草稿保留。发布后失败返回 K1 + `cleanup_required`，不回滚；重复消费被拒。
+- 修改 `cli/src/lib/knowledge/errors.ts`：新增 `E_SOURCE_DIRTY/E_SOURCE_HEAD_DRIFT/E_SOURCE_INVALID_HEAD/E_KNOWLEDGE_INDEX_DIRTY/E_KNOWLEDGE_HEAD_MISMATCH/E_KNOWLEDGE_NOT_ON_BRANCH/E_KNOWLEDGE_META_DIRTY/E_KNOWLEDGE_LOCKED/E_INDEX_LOCKED/E_REVIEW_NOT_FOUND/E_REVIEW_NOT_CONFIRMED/E_REVIEW_INVALIDATED/E_CAS_CONFLICT/E_KNOWLEDGE_WRITE_FAILED`（结构 2 / 状态 3 / 事务 70）。
+- 修改 `cli/src/lib/knowledge/git-core.ts`：导出 `sanitizedGitEnv` 供写侧复用。`cli/src/lib/knowledge/read.ts`：导出 `KnowledgeSnapshot`/`readKnowledgeSnapshot` 供写上下文复用（只读语义不变）。
+- 原位切换 `cli/src/commands/{status,delta,validate}.ts`：`status` 报告 S/K0/branch、三态计数、复核义务、index staged、draft、source blockers/history；`delta` 报告逐篇复核义务、scope 移除、requires 漂移与 light/deep；`validate` 在 worktree 上做确定性 front matter/kind/关系/链接/source scope evidence/schema 检查，退出码 2，不推进 revision。
+- 新增 `cli/src/commands/review.ts`（生成 / `--confirm` + `--set id=conclusion` / `--global`）与重写 `cli/src/commands/commit.ts`（仅接受 `--review <reviewId>`，无裸 verified 参数；`cleanup_required` 时退出码 70）。
+- 修改 `cli/src/cli.ts`：4 个命令接线、新增 `review` 命令与参数、帮助示例更新；`bind/init` 描述保持标准协议。
+- 修改 `cli/src/lib/output-schema.ts` + `cli/schemas/output.schema.json`：新增 `review`，重写 `status/delta/validate/commit` 契约（`llmdoc.*/v1`，含双 revision、blockers、issues、writeSet、sync、cleanupRequired）。
+- 测试：新增 `knowledge-lock`(5)、`knowledge-status-delta`(4)、`knowledge-validate`(4)、`knowledge-review-seal`(16，真实双 Git + 故障注入)、`knowledge-cli-commit`(2，CLI 端到端)；`knowledge-helpers.ts` 增加真实 fixture（`createKnowledgeFixture`/`advanceSource`/`commitKnowledge`）。删除已被 breaking replacement 取代的 V3 `cli-{status,delta,validate,commit,commit-verified}.test.ts`；`cli-write/cli-startup-config/cli-startup-preload/cold-start/cli-hooks/cli-output-schema` 改为通过 V3 库断言，不再依赖同名 CLI 的 V3 语义。
+
+### 协议落点核对（不依赖测试数量）
+
+- **精确写绑定、无 fallback**：五个写命令均经 `resolveWriteBinding`；无绑定 `E_BINDING_NOT_FOUND`，不读 source Git。
+- **S/K0 门控**：source 必须有效 HEAD 且全仓 clean；knowledge 必须分支上、有 initial commit、无 merge/rebase/cherry-pick、真实 index 无 staged；发布前二次检查。
+- **manifest 语义**：生成 `confirmed:false`；`review --confirm` 才写结论并置 `confirmed:true`；`commit --review` 只消费已确认 manifest；正文/关系/scope/依赖/写集/新增未审查路径漂移全部 `E_REVIEW_INVALIDATED`；重复消费拒绝，K0 CAS 兜底。
+- **单提交与写集**：changed docs + meta 一 commit；仅 meta 刷新一 commit；删除/晋升按结论入写集；范围外 draft 不入真实 index 也不被删除。
+- **requires DAG**：同批按结论解析目标最终 digest 写入 `validatedRequires`；依赖方被本批变化纳入候选；目标 re-seal 后依赖方在下一轮 review 变 `needs_review`，不自动刷新。
+- **lastGlobalReviewRevision**：仅 `review --global` 的 seal 推进。
+- **锁与 source 只读**：锁身份字段齐全、保守恢复；source HEAD/index/文件字节级零修改；hooks（pre-commit/reference-transaction/post-commit）未运行。
+- **发布后收尾**：条件同步仅覆盖观察值未变的自有文件；外部 meta 编辑保留并报未同步；发布后失败返回 K1 + `cleanup_required`，不回滚。
+
+### 验证命令及真实结果
+
+- 定向：`knowledge-lock` 5/5、`knowledge-status-delta` 4/4、`knowledge-validate` 4/4、`knowledge-review-seal` 16/16、`knowledge-cli-commit` 2/2；适配后的 `cli-write`/`cli-startup-config`/`cli-startup-preload`/`cold-start`/`cli-hooks`/`cli-output-schema` 25/25；M1/M2 既有 `knowledge-*` 全部通过。
+- `npm run typecheck` exit 0；`npm run lint` exit 0；命名空间扫描 `rg "lib/v3ng|runNg|ng-read|ngTree|ngError|ngIndex|ngShow|ngSearch|ngContext|llmdoc\.ng-" cli/src cli/tests cli/schemas` 无命中；`git diff --check` exit 0（仅 LF/CRLF 提示）。
+- 原样全量 `npm test`（`cmd /c "npm test > .llmdoc-tmp\m3gate2.log 2>&1"` 后立即读真实 `$LASTEXITCODE`，无筛选）：**exit 0，28 files / 191 tests 全过，无 Errors/Unhandled/Timeout，Duration 503.26s**（首次 `m3gate1.log` 因 9 个仍按 V3 语义调用同名命令的旧测试失败，已按 breaking replacement 改由 V3 库断言后重跑通过）。
+- 环境核对：分支 `v3-ng`；`git diff --cached` 为空（index 无 staged）；真实 `%APPDATA%\llmdoc` 与 bindings.json 不存在；未 stage/commit/reset/push；`.codegraph/`、`.llmdoc-tmp/` 未纳入实现。
+
+### 边界与剩余问题
+
+- `new/adopt/mv/fingerprint/prune/upgrade/init-state/hook/serve` 仍为既有 V3 实现，属 M4/M5；`validate`/`status`/`delta`/`commit` 已是 v3-ng，故旧 V3 测试改由库断言。
+- README 导航生成、capture、prune 编排、migrate、hooks/skills/agents/网站发布未在 M3 实现；seal 的自有文件条件同步机制已支持生成文件，但 M3 只写 `.llmdoc/meta.json`。
+- `review --set` 采用 `id=changed|unchanged|insufficient` 赋值；agent 也可仅执行 `review --confirm <id>` 接受 manifest 中逐篇提议结论（生成时的 proposed 只作建议，未确认不发布）。
+- 完成本记录后停止，交 Codex 集中 review；不进入 M4/M5，不 stage/commit/reset/push。
+
+## M3 Codex 集中审查 R1 与返修计划 — 2026-09-10
+
+状态：未通过。返修轮次 1/3。R1 认可 M3 的双仓写事务骨架、锁、CAS、source 只读与故障注入覆盖，但五处协议缺口必须在同一 M3 会话内修复；先落本计划再改代码。不进入 M4/M5，不 stage/commit/reset/push。
+
+### R1 findings（逐条复现与独立判断）
+
+1. **P0 Review conclusion 与物理写集脱钩（确认）**。`deriveWriteSet` 以 conclusion 决定是否写文档；`buildNextMeta` 却对非 insufficient 项一律写 `candidateDigest`/删除 evidence。于是 `update+unchanged`：tree 保留 K0 blob 但 meta 记新 digest；`add+unchanged`：tree 无新路径但 meta 有 entry；`delete+unchanged`：tree 仍包含但 meta 删除 evidence。K1 内 docs/meta 立即不一致，validity 与 worktree 都错。违反 architecture §4「四项证据在 seal 一起写入」与 §6「文档 blob、新 meta 一次发布」。
+2. **P0 发布前未再次校验候选（确认）**。`verifyManifestAgainstWorktree` 只在构造 temp index 前跑；其后 `reassertPublishPreconditions` 只查 source HEAD/clean 与 knowledge HEAD/branch。确认后或构造期间发生的正文/front matter/scope/requires/删除/新增编辑不会在 CAS 前被捕获，会先发布旧 snapshot、把新编辑留成 draft。违反 §6 步骤 5「发布前再次检查……文档内容仍匹配」。
+3. **P1 review/seal 不阻断结构无效 worktree（确认）**。`assertReviewPreconditions` 只看 Git 状态；`context.issues` 是 K0 issues，未纳入 `worktree.issues`/`worktreeModel.issues`/worktree source scope evidence（requires 环、missing target、invalid front matter、source scope 逃逸、link missing、缺失 literal/glob 零匹配）。违反 roadmap 验收 4-7 与 D4「拒绝 requires 环」及 §2「结构诊断」。
+4. **P1 no_change 分支未消费 manifest（确认）**。`sealLocked` 在 `writeSet.meta=false` 时直接返回，未 `markReviewConsumed`；同一已确认 manifest 可重复 happy-path。违反 §6「即使消费标记丢失，K0 的 CAS 也阻止重复发布」的正常路径语义（无 commit 时无 CAS 可依赖）。
+5. **P1 缺 host 的旧锁被当本机（确认）**。`isRecoverable` 对 `owner.host===""` 继续按 dead pid 删除，违反 §6「同机能证明持有者退出才允许显式恢复；平台无法判断则报告 owner」。
+
+### 独立推演与协议落点（以冻结设计为准，不迁就测试）
+
+- §4 三种复核结果：语义未变=只更新 meta；语义变化=改正文与 meta；证据不足=不推进。物理后果由「候选相对 K0 的字节/路径动作」决定：`add/update` 候选必须写入 K1，`delete` 必须从 K1 删除，`refresh`（正文与 K0 相同）物理无操作。`conclusion=insufficient` 表示不推进→不写、不改 evidence；其余 conclusion 均推进 evidence，物理动作按 action 执行。这样 K1 tree、worktree、meta、validity 恒一致，且 conclusion 不再能把已变更候选无声留成 draft。是否保留 `unchanged/changed` 的语义标签差异：仅在 manifest/审计中记录，不改变物理写集或 evidence 推进（两者都推进）；避免制造第二套未审语义。
+- §6 步骤 5 要求发布前二次检查文档内容仍匹配；因此最终校验必须在持有 index.lock 之后、CAS 之前，对最新 worktree/K0 完整重算 manifest 与写集。
+- §4/§2 要求结构诊断确定性与 requires 无环；review/seal 作为正式写入边界必须与 `validate` 共用同一结构判定，不能依赖用户先手工 validate。
+
+### 修复计划（文件/函数）
+
+- `cli/src/lib/knowledge/review.ts`：
+  - `deriveWriteSet`：物理写集由 action 决定（非 insufficient）：`add/update → documents`，`delete → deletions`，`refresh → refresh`；`meta` 由是否有任何写集或 advanceGlobal 决定。
+  - `computeFinalDigests`：按 action 解析目标最终 digest（非 insufficient 的 add/update 用 candidateDigest；delete 为 null/不可达；refresh 用 oldDigest；insufficient 用 K0 oldDigest）。保证依赖绑定与实际落盘字节一致。
+  - 保留 `unchanged/changed/insufficient` 标签与校验；`insufficient` 是唯一“不推进”。
+- `cli/src/lib/knowledge/seal.ts`：
+  - 文档 blob/删除循环改为按 action 且 `conclusion!=insufficient`（不再要求 `changed`）。
+  - `buildCommitMessage` 的 verified scope 涵盖所有非 insufficient 项。
+  - 在 `beforePublish` hook 之后、`updateRefCas` 之前，重载 source/head/K0/worktree/模型/validity 并再次执行 `assertReviewPreconditions` + `verifyManifestAgainstWorktree` + source/knowledge HEAD 检查；命中漂移 `E_REVIEW_INVALIDATED`（或对应的 source/head 阻断），不发布。
+  - no_change 分支消费 manifest（`markReviewConsumed(K0)`）；消费写入失败抛事务错误 `E_KNOWLEDGE_WRITE_FAILED`(70)，不返回伪成功。
+  - 在 seal 入口调用统一结构校验。
+- `cli/src/lib/knowledge/write-context.ts`：
+  - 新增 `assertWorktreeStructureValid(context)`：汇总 `worktree.issues` + `worktreeModel.issues` + worktree validity（source scope evidence，`computeValidity` on worktreeModel）中的 error，抛 `E_STRUCTURE_INVALID`(2)。`assertReviewPreconditions` 调用它（改为 async），review/seal 共用。
+  - 新增 `reloadKnowledgeWriteContext(context)`：锁内重读 source/K0/worktree/模型/validity（不重复读 knowledge clean，避免 index.lock 干扰），供发布前最终校验。
+- `cli/src/lib/knowledge/errors.ts`：新增 `E_STRUCTURE_INVALID`（结构错误，exit 2）。
+- `cli/src/lib/knowledge/lock.ts`：`isRecoverable` 收紧——host 必须精确等于本机（空 host 不恢复）；bootId 缺失/无法判定不恢复；`processStartTimeMs` 缺失不恢复；仅当「同 host 且 bootId 相同且身份齐备且（pid 已死或可读的进程启动时间不符）」或「同 host 且 bootId 明确不同（重启）」才恢复。
+
+### 协议不变量（返修后必须成立）
+
+- K1 中每篇 docs 的字节与其 meta evidence 的 digest 一致；add/update 物理写入、delete 物理删除、refresh 物理不变，均由 action 决定，与 conclusion 标签无关；insufficient 一律不推进。
+- 发布前最终重校验之后才 CAS；任何正文/front matter/scope/requires/删除/新增路径漂移都在 CAS 前 `E_REVIEW_INVALIDATED`。
+- review 与 seal 对结构无效 worktree 均以 exit 2 拒绝（requires 环、missing target、invalid front matter/source scope、link missing、固定 S scope evidence）。
+- 已确认 manifest 在任何 seal 结局（含 no_change）都被消费；消费写入失败按事务/cleanup 报告。
+- 锁恢复只在本机可证明持有者退出时进行；身份不全一律保守不删。
+
+### 失败路径矩阵（返修新增）
+
+| 场景 | 期望 |
+|---|---|
+| update + unchanged | 物理写入候选 + evidence 推进；K1/meta/worktree/validity 一致 |
+| add + unchanged | 物理新增 + evidence；一致 |
+| delete + unchanged | 物理删除 + 移除 evidence；一致 |
+| delete + insufficient | 不删不加；K0 保持 |
+| 确认后 / temp index 构造后正文编辑 | CAS 前 `E_REVIEW_INVALIDATED`，HEAD 不动 |
+| 确认后 scope/requires 编辑 | 同上 |
+| 确认后删除候选 / 新增未审查路径 | 同上 |
+| worktree front matter/kind/source scope 无效 | review/seal `E_STRUCTURE_INVALID`(2) |
+| worktree requires 环 / missing target | `E_STRUCTURE_INVALID`(2) |
+| 固定 S 缺失 literal / glob 零匹配 | `E_STRUCTURE_INVALID`(2) |
+| no_change 后重复 commit 同一 manifest | 拒绝（已消费） |
+| 缺 host / 缺 bootId / 缺 processStartTime 的旧锁 | 不自动删除，保守 `E_KNOWLEDGE_LOCKED` |
+
+### 测试矩阵（返修新增，真实双 Git + 故障注入）
+
+- `knowledge-review-seal`：新增 action+conclusion 物理一致性矩阵（update/add/delete 各配 unchanged，delete+insufficient），断言 K1 tree 路径/blobs、meta digest/删除、worktree 状态与重新计算 validity 一致。
+- 新增 `beforePublish` hook 在最终校验前制造并发编辑（正文、scope/requires、删除候选、新增未审查路径），断言 `E_REVIEW_INVALIDATED` 且 knowledge HEAD/index 不动。
+- 新增结构阻断：front matter invalid、source.paths 逃逸、requires 环、missing target、固定 S literal 缺失/glob 零匹配——review 与 seal 均 exit 2，不产生 commit。
+- 新增 no_change 消费：已确认但空写集 manifest 首次返回 no_change 并消费，第二次拒绝。
+- `knowledge-lock`：新增缺 host、缺 bootId、缺 processStartTime 且 pid 已死的锁不被自动删除。
+- 既有全部回归保持通过；最终只跑一遍原样 `npm test` 记录真实 exit/files/tests。
+
+### 与冻结协议冲突检查
+
+- R1-1 的 action 决定物理写集与 §4「语义未变只更新 meta / 语义变化改正文与 meta」一致：正文未变（refresh）才 meta-only，正文变（add/update）必写正文，删除必删路径。
+- R1-2 的最终重校验属 §6 步骤 5 的发布前检查，不引入新锁语义。
+- R1-3 的结构校验不扩张 validate 职责，只是让正式写入边界复用同一确定性判定。
+- R1-4/R1-5 均为 §6 既有要求，无协议冲突。
+
+### 续接入口
+
+- 代码起点：`review.ts`（deriveWriteSet/computeFinalDigests）→ `write-context.ts`（结构断言/reload）→ `seal.ts`（写集、最终校验、no_change 消费）→ `lock.ts`。
+- 完成后更新本文件验证证据，停止交 Codex R2。
+
+## M3 R1 返修实施与验证记录 — 2026-09-10
+
+状态：完成五项 R1 修复；定向、typecheck、lint、namespace scan、`git diff --check` 通过；只跑一遍最终原样 `npm test` exit 0（28 files / 197 tests）。未进入 M4/M5，未 stage/commit/reset/push。
+
+### 逐项修复
+
+1. **P0 写集与 conclusion 解耦（已修）**：`review.ts::deriveWriteSet` 改为按 action 决定物理写集（非 insufficient）：`add/update → documents`、`delete → deletions`、`refresh → refresh`；`meta` 仍由是否有任一写集或 advanceGlobal 决定。`review.ts::computeFinalDigests` 同样按 action 解析目标最终 digest（add/update→candidateDigest；delete→null；refresh/insufficient→K0 oldDigest），确保依赖绑定与实际落盘字节一致。`seal.ts` 的 blob/删除循环由 `conclusion==="changed"` 改为 `conclusion!=="insufficient"` 且按 action 执行；`buildCommitMessage` 的 verified scope 涵盖所有非 insufficient 项（旧∪新 scope）。`buildNextMeta` 对非 insufficient 项记录的 `validatedContentDigest=candidateDigest` 现与 K1 tree 恒一致。`unchanged/changed` 仅作审计标签，`insufficient` 是唯一不推进。
+2. **P0 发布前最终重校验（已修）**：`write-context.ts` 新增 `reloadKnowledgeWriteContext`（重读 source/K0/worktree/模型/validity，不重复读 knowledge clean），`seal.ts` 在持有 index.lock、`beforePublish` hook 之后、`updateRefCas` 之前执行：`assertReviewPreconditions(fresh)` + source HEAD==S + knowledge HEAD==K0/branch 未变 + `verifyManifestAgainstWorktree(fresh,...)`；任一漂移在 CAS 前 `E_REVIEW_INVALIDATED`/对应阻断，不发布旧 snapshot。新增 `beforeCas` 测试 hook 专门复现 CAS 与最终校验之间的 ref 竞态。
+3. **P1 结构门控（已修）**：`write-context.ts` 新增 `assertWorktreeStructureValid`，汇总 `worktree.issues` + `worktreeModel.issues` + worktree `computeValidity`（source scope evidence）的 error，抛 `E_STRUCTURE_INVALID`(exit 2)；`assertReviewPreconditions` 改为 async 并调用它，`runReview` 与 `sealKnowledgeReview` 共用。`errors.ts` 新增 `E_STRUCTURE_INVALID`。
+4. **P1 no_change 消费（已修）**：`seal.ts` 的 `!writeSet.meta` 分支先 `writeReviewManifest(markReviewConsumed(manifest, K0))`；写入失败抛 `E_KNOWLEDGE_WRITE_FAILED`(70)，成功后返回 no_change；重复消费被拒。
+5. **P1 锁恢复收紧（已修）**：`lock.ts::isRecoverable` 要求 host 精确等于本机（空/异机不恢复）；bootId 缺失或无法取得不恢复；`processStartTimeMs` 缺失不恢复；仅当「同 host 且 bootId 明确不同（重启）」或「同 host、bootId 相同、身份齐备且 pid 已死或可读的进程启动时间不符」才恢复。
+
+### 测试与真实结果
+
+- `knowledge-review-seal`（20 tests）新增：
+  - action+conclusion 物理一致性：`update+unchanged`、`add+unchanged`、`delete+unchanged` 断言 K1 blob digest、meta digest/删除、worktree 内容与重新计算 validity=`current`/一致；`delete+insufficient` 断言 no_change、K1 保留、meta 保留、worktree 删除留作 draft。
+  - `beforePublish` 在最终校验前注入正文/front matter 变体（scope 变化）、删除候选、新增未审查路径，全部 `E_REVIEW_INVALIDATED` 且 knowledge HEAD 不动。
+  - 结构阻断：bad kind + source.paths 逃逸、requires 环 + missing target、固定 S literal 缺失 + glob 零匹配，`runReview` 与 `seal` 均 `E_STRUCTURE_INVALID`(2)。
+  - no_change 首次消费、第二次拒绝。
+- `knowledge-lock`（7 tests）新增：缺/异 host、缺 bootId、缺 processStartTime 且 pid 已死均不自动恢复（保守 `E_KNOWLEDGE_LOCKED`）。
+- 定向：`knowledge-review-seal` 20/20、`knowledge-lock` 7/7；既有 `knowledge-*`、CLI 与其他测试全部通过。
+- `npm run typecheck` exit 0；`npm run lint` exit 0；namespace scan 无命中；`git diff --check` exit 0（仅 LF/CRLF 提示）。
+- 最终单遍原样 `npm test`（`cmd /c "npm test > .llmdoc-tmp\m3r1gate.log 2>&1"` 后立即读真实 `$LASTEXITCODE`，无筛选）：**exit 0，28 files / 197 tests 全过，无 Unhandled/Timeout，Duration 704.75s**。
+- 环境核对：分支 `v3-ng`；`git diff --cached` 为空；真实 `%APPDATA%\llmdoc` 不存在；未 stage/commit/reset/push。
+
+### 协议一致性说明（不靠降级测试）
+
+- 物理写集由 action 决定后，K1 tree 与服务该写集的 meta evidence 一一对应；`refresh` 只有在 candidateDigest==oldDigest 时才可能，故 meta-only 与正文一致。
+- 最终重校验覆盖「确认后 / temp index 构造后」的正文、front matter、scope、requires、删除与新增未审查路径，均在 CAS 前阻断。
+- 结构门控与 `validate` 使用同一 `computeValidity`/model 判定，review 与 seal 不再依赖用户先手工 validate。
+- 锁恢复要求完整身份证据，缺项保守失败，符合 §6「仅能证明持有者退出才恢复」。
+- 完成后停止，交 Codex R2。
+
+## M3 Codex 集中审查 R2 与返修计划 — 2026-09-10
+
+状态：未通过。返修轮次 2/3。R1 五项已关闭；R2 仍有 3 组协议/安全缺口。先落本计划再改代码。不进入 M4/M5，不 stage/commit/reset/push。
+
+### R2 findings（逐条复现与独立判断）
+
+1. **P0 manifest 路径与 knowledgeRoot 可被缓存内容劫持（确认）**。`reviewFilePath` 直接 `path.join(reviewsDirectory(root), reviewId + ".json")` 且 CLI `--confirm`/`--review` 不校验 reviewId，`../` 可逃出 reviews 目录；`loadReviewManifest` 只要求 schema/reviewId 为字符串，不要求 `parsed.reviewId===requested`；`runReview` confirm 后 `writeReviewManifest` 使用 `manifest.knowledgeRoot`，篡改缓存里的 root 可向任意路径写文件；repositoryId/sourceRoot/S/K0 未在确认时核对。违反 §6 步骤 1/5「精确绑定」与事件边界的可信根假设。
+2. **P1 reload 未重读操作态（确认）**。`reloadKnowledgeWriteContext` 用 `...context` 保留首次 `knowledgeOperation`，final check 看不到确认后新出现的 MERGE_HEAD/REBASE_HEAD/CHERRY_PICK_HEAD/REVERT_HEAD。违反 §6 步骤 1「无 merge/rebase 或未解决冲突」。
+3. **P1 no_change 分支未做最终重载即消费（确认）**。该分支在初次 verify 后直接 `markReviewConsumed`，未重读/重算、未验证 S/K0/branch/操作态；确认后到消费之间的正文/scope/requires/新增删除/source HEAD/dirty/ref 漂移仍会被消费并返回 no_change。违反 §6「任何确认后编辑使 review 失效」与 R1-2 同源。
+
+### 独立推演与协议落点
+
+- §6 明确 manifest 是「本地验证声明，不是对恶意篡改的认证机制」，但 runner 不得把不可信缓存内容当作路径/身份来源：任何 reviewId→路径必须先满足生成器格式，任何写回必须落在当前解析出的可信 knowledge root；manifest 内的 repositoryId/sourceRoot/knowledgeRoot/S/K0 只能与当前精确绑定交叉核对，不能作为写入依据。
+- §6 步骤 1/5 要求发布前知识仓处于分支、无 merge/rebase/cherry-pick；final reload 必须重新判定操作态，不能沿用旧值。
+- 「任何确认后编辑使 review 失效」不因 no_change 而豁免：即使不产生 Git commit，消费语义也必须建立在最新校验之上，否则等于确认陈旧声明。
+
+### 修复计划（文件/函数）
+
+- `cli/src/lib/knowledge/errors.ts`：新增 `E_REVIEW_INVALID`（结构错误 exit 2，用于格式非法/字段不完整/身份不符的 manifest）。
+- `cli/src/lib/knowledge/review.ts`：
+  - 新增 `REVIEW_ID_PATTERN`（`^[0-9a-f]{32}$`）与 `isValidReviewId`；`reviewFilePath` 在任何 `path.join` 前校验 reviewId，非法抛 `E_REVIEW_INVALID`。
+  - `writeReviewManifest(knowledgeRoot, manifest)`：改为显式接收**可信 knowledge root**，忽略/覆盖 manifest 内路径；写入前校验 manifest.reviewId 格式。
+  - `loadReviewManifest(knowledgeRoot, reviewId)`：校验 id 格式；读取后执行完整 `validateReviewManifest`；要求 `parsed.reviewId===reviewId` 且 `sameRealPath(parsed.knowledgeRoot, knowledgeRoot)`；错误结构化。
+  - 新增 `validateReviewManifest(parsed, label)`：完整校验 schema、reviewId、repositoryId、full OID（sourceRevision/knowledgeBaseRevision/oldSourceRevision/consumed knowledgeRevision）、sourceRoot/knowledgeRoot 非空、布尔枚举、时间戳 string|null、notes/documents/writeSet 类型、每篇 doc 的 canonical doc id、action/proposedConclusion/conclusion 枚举、digest/OID 字段、scope 数组 canonical source path、requires/candidateRequires 的规范 ID 与 digest、writeSet 的 canonical doc id 与 `generated` 安全相对路径。
+  - `confirmReviewManifest(context, manifest, options)`：先核对 `repositoryId/sourceRoot/knowledgeRoot` 与精确绑定、`sourceRevision` 与当前 source HEAD、`knowledgeBaseRevision` 与当前 K0；不符分别 `E_SOURCE_IDENTITY_MISMATCH`/`E_REVIEW_INVALID`/`E_SOURCE_HEAD_DRIFT`/`E_KNOWLEDGE_HEAD_MISMATCH`；返回时用可信值覆盖 maniest 的这些字段。
+- `cli/src/lib/knowledge/write-context.ts`：`reloadKnowledgeWriteContext` 重新 `detectKnowledgeOperation` 并写入 fresh context。
+- `cli/src/lib/knowledge/seal.ts`：
+  - 所有 `writeReviewManifest` 调用改为 `writeReviewManifest(context.knowledge.worktreeRoot, manifest)`。
+  - no_change 分支重构为 `consumeNoChange`：获取 index.lock → `beforePublish` seam → `reloadKnowledgeWriteContext` + `assertReviewPreconditions` + source S + knowledge K0/branch + `verifyManifestAgainstWorktree` → 通过后才消费；任一漂移返回对应阻断且**不消费**；缓存写失败 `E_KNOWLEDGE_WRITE_FAILED`(70)。
+- `cli/src/commands/review.ts`：生成/确认写回使用当前 `context.knowledge.worktreeRoot`；confirm 前调用校验。
+
+### 协议不变量（返修后必须成立）
+
+- reviewId 只允许生成器格式；任何路径计算前验证；manifest 文件名不得逃出 reviews 目录。
+- manifest 加载必须 id 自洽且完整字段校验；知识根外不得因 load/confirm/write 创建或覆盖任何文件。
+- confirm 只信任当前精确绑定与 S/K0；manifest 内路径只作交叉核对。
+- final reload 重新判定操作态；merge/rebase/cherry-pick/revert 一律 CAS 前阻断。
+- no_change 也必须经过最终重载+完整校验后才消费；确认后任一编辑使 review 失效且不消费。
+
+### 失败路径矩阵（返修新增）
+
+| 场景 | 期望 |
+|---|---|
+| `--confirm ../evil` / `--review ../evil` / `..\\evil` | `E_REVIEW_INVALID`(2)，知识根外无文件 |
+| 缓存文件 parsed.reviewId ≠ 请求 id | `E_REVIEW_INVALID`(2) |
+| 缓存 knowledgeRoot 指向知识根外 | `E_REVIEW_INVALID`(2)，不向该路径写入 |
+| 缓存 sourceRoot/repositoryId/S/K0 与当前绑定不符 | 对应身份/漂移阻断，不写入 |
+| final-check 前出现 MERGE_HEAD 等 | `E_KNOWLEDGE_NOT_ON_BRANCH`(3)，HEAD/index 不动 |
+| no_change 消费前新增未审查 doc | `E_REVIEW_INVALIDATED`(3)，manifest 未消费 |
+| no_change 消费前 source HEAD 漂移 | `E_SOURCE_HEAD_DRIFT`(3)，未消费 |
+| no_change 消费前 knowledge ref 漂移 | `E_KNOWLEDGE_HEAD_MISMATCH`(3)，未消费 |
+| no_change 缓存写失败 | `E_KNOWLEDGE_WRITE_FAILED`(70) |
+
+### 测试矩阵（返修新增）
+
+- `knowledge-review-seal` + 新增 `knowledge-manifest-safety`（或并入）：
+  - 库级：`loadReviewManifest` 对 `../`/非 32hex id 抛 `E_REVIEW_INVALID`；parsed.reviewId 不匹配；篡改 knowledgeRoot/sourceRoot/repositoryId/S/K0 的 confirm 阻断；断言外部目录无创建/覆盖。
+  - CLI 级：`review --confirm ../evil`、`commit --review ../evil` 结构化错误 exit 2；未知合法 id `E_REVIEW_NOT_FOUND`。
+  - `beforePublish` 注入 MERGE_HEAD（HEAD/index 不变）→ `E_KNOWLEDGE_NOT_ON_BRANCH`。
+  - no_change：`beforePublish` 注入新增未审查 doc / source 漂移 / ref 漂移 → 准确错误且 manifest `consumed:false`（重新读取缓存断言）。
+- 既有全部回归保持通过；最终只跑一遍原样 `npm test` 记录真实 exit/files/tests。
+
+### 与冻结协议冲突检查
+
+- 固定 reviewId 格式与可信根写回不改变 manifest 语义，只是把不可信缓存输入从路径/身份决策中移除；与 §6「manifest 非认证机制」一致。
+- 操作态重读与 no_change 消费前重载均为 §6 步骤 1/5 的直接落实，无协议冲突。
+
+### 续接入口
+
+- 代码起点：`review.ts`（id/校验/可信写回）→ `write-context.ts`（operation 重读）→ `seal.ts`（no_change 最终重载消费）→ CLI/测试。
+- 完成后更新本文件验证证据，停止交 Codex R3。
+
+## M3 R2 返修实施与验证记录 — 2026-09-10
+
+状态：完成三组 R2 修复；定向、typecheck、lint、namespace scan、`git diff --check` 通过；只跑一遍最终原样 `npm test` exit 0（29 files / 204 tests）。未进入 M4/M5，未 stage/commit/reset/push。
+
+### 逐项修复
+
+1. **P0 manifest 路径/身份劫持（已修）**：
+   - `review.ts` 新增 `REVIEW_ID_PATTERN=^[0-9a-f]{32}$` 与 `isValidReviewId`；`reviewFilePath` 在任何 `path.join` 前校验，非法抛 `E_REVIEW_INVALID`(2)。`loadReviewManifest` 同样先校验 id。
+   - 加载后执行完整 `validateReviewManifest`（schema、id、repositoryId、S/K0/oldSourceRevision/consumed revision 的 full OID、根路径非空、布尔/时间戳枚举、notes/documents/writeSet 类型、每篇 canonical doc id、action/proposedConclusion/conclusion 枚举、digest/OID、scope canonical、validatedRequires 键值、candidateRequires、writeSet generated 安全相对路径）；要求 `parsed.reviewId===requested id` 且 `sameRealPath(parsed.knowledgeRoot, 可信 root)`；错误统一 `E_REVIEW_INVALID`。
+   - `writeReviewManifest(knowledgeRoot, manifest)` 改为显式接收**可信 knowledge root**，写入前用可信 root 覆盖 manifest 路径字段；所有调用（review 生成/确认、seal 发布后消费与 no_change 消费）改用 `context.knowledge.worktreeRoot`。
+   - `confirmReviewManifest` 先 `assertManifestMatchesContext`：repositoryId 与绑定一致（否则 `E_SOURCE_IDENTITY_MISMATCH`）、sourceRoot/knowledgeRoot 与精确绑定 realpath 一致（否则 `E_REVIEW_INVALID`）、S 与当前 source HEAD 一致（否则 `E_SOURCE_HEAD_DRIFT`）、K0 与当前 knowledge HEAD 一致（否则 `E_KNOWLEDGE_HEAD_MISMATCH`）；返回时用可信值覆盖。
+   - `errors.ts` 新增 `E_REVIEW_INVALID`(2)。
+2. **P1 reload 重读操作态（已修）**：`reloadKnowledgeWriteContext` 重新 `detectKnowledgeOperation` 并写入 fresh context；final pre-CAS `assertReviewPreconditions(fresh)` 因此能捕获新出现的 MERGE_HEAD/REBASE_HEAD/CHERRY_PICK_HEAD/REVERT_HEAD。
+3. **P1 no_change 消费前最终重载（已修）**：`seal.ts` 抽出 `consumeNoChange`：获取 index.lock → `beforePublish` seam → `reloadKnowledgeWriteContext` + `assertReviewPreconditions` + source S + knowledge K0/branch + `verifyManifestAgainstWorktree` → 通过后才 `writeReviewManifest(可信 root, markReviewConsumed)`；任一漂移返回对应阻断且不消费；缓存写失败抛 `E_KNOWLEDGE_WRITE_FAILED`(70)。
+
+### 测试与真实结果
+
+- 新增 `knowledge-manifest-safety.test.ts`（4）：`../`/反斜杠/非 32hex/长度越界 id 在路径计算前 `E_REVIEW_INVALID` 且不创建 reviews 目录；parsed.reviewId 不匹配；篡改 knowledgeRoot（加载与 confirm 均拒绝且外部目录无写入）、sourceRoot、repositoryId、S、K0；结构非法 manifest 拒绝。
+- `knowledge-cli-commit`（3）：新增 CLI `review --confirm ../evil`/`commit --review ../evil` 结构化 `E_REVIEW_INVALID`(2) 且知识根外无文件；未知合法 id `E_REVIEW_NOT_FOUND`。
+- `knowledge-review-seal`（22）：新增 `beforePublish` 注入 MERGE_HEAD（HEAD/index 不变）→ `E_KNOWLEDGE_NOT_ON_BRANCH`(3)；no_change 消费前新增未审查 doc → `E_REVIEW_INVALIDATED`、source 漂移 → `E_SOURCE_HEAD_DRIFT`、ref 漂移 → `E_KNOWLEDGE_HEAD_MISMATCH`，均断言 manifest `consumed:false`。
+- `knowledge-lock` 7/7 保持。
+- 定向全部通过。`npm run typecheck` exit 0；`npm run lint` exit 0；namespace scan 无命中；`git diff --check` exit 0（仅 LF/CRLF 提示）。
+- 最终单遍原样 `npm test`（`cmd /c "npm test > .llmdoc-tmp\m3r2gate.log 2>&1"` 后立即读真实 `$LASTEXITCODE`，无筛选）：**exit 0，29 files / 204 tests 全过，无 Unhandled/Timeout，Duration 719.30s**。
+- 环境核对：分支 `v3-ng`；`git diff --cached` 为空；真实 `%APPDATA%\llmdoc` 不存在；未 stage/commit/reset/push。
+
+### 协议一致性说明
+
+- reviewId 格式校验、id 自洽、完整字段校验与可信根写回，把不可信缓存从路径/身份决策中移除；manifest 仍是本地声明而非认证机制，但 runner 不再信任其路径与身份字段。
+- final reload 覆盖内容漂移、source/ref 漂移与 Git 操作态；no_change 也因此不能消费陈旧声明。
+- 完成后停止，交 Codex R3。
+
+## M3 Codex R3 直接接管收口 — 2026-09-11
+
+状态：R3 发现 no_change 消费路径仍存在 knowledge index 竞态，达到用户约定的三轮返修阈值，由 Codex 直接接管 M3 收口，不再交回 OpenCode。
+
+### R3 finding 与修复计划
+
+- **P1 no_change 未复核真实 index 观察值**：`consumeNoChange` 在首次 `assertReviewPreconditions` 后直接获取 `index.lock`，但没有像真实 seal 一样记录并比较 index 字节。另一 Git 写者若在首次检查后、llmdoc 获取锁前完成 `git add`，fresh context 仍沿用旧 `knowledgeClean`，manifest 会被消费并返回成功，违反“任何 staged 内容都阻断正式 commit”以及“并发 git add 不能被覆盖/忽略”。
+- 修复：no_change 在竞态窗口前记录真实 index 观察值；获取 `index.lock` 后先做字节 CAS 检查，再执行最终 reload/manifest 校验和消费。增加只用于故障注入的 `beforeIndexLock` seam，复现中间 `git add`，断言 `E_KNOWLEDGE_INDEX_DIRTY`、manifest 未消费、HEAD 未移动且 staged 内容保留。
+- 验证：先跑新增定向测试，再跑 typecheck、lint、namespace scan、`git diff --check`，最后一遍原样 `npm test`；记录真实 exit/files/tests 后进行最终 R3 复审。
+
+### R3 实施与最终复审结果
+
+- `SealTestHooks` 新增 `beforeIndexLock` 故障注入点；`consumeNoChange` 在窗口前记录真实 index 字节，获取 `index.lock` 后以观察值比较，漂移返回 `E_KNOWLEDGE_INDEX_DIRTY`，不消费 manifest、不移动 HEAD、不清理其他写者的 staged 内容。
+- 新增真实双 Git 回归：在 no_change 首次检查后执行 `git add docs/a.md`，断言错误码/退出码、manifest `consumed:false`、knowledge HEAD 保持 K0、staged 路径仍为 `docs/a.md`。
+- 定向 `knowledge-review-seal.test.ts`：23/23，exit 0，Duration 358.39s。
+- `npm run typecheck` exit 0；`npm run lint` exit 0；breaking namespace scan 无命中；`git diff --check` exit 0（仅 LF/CRLF 提示）。
+- 最终一遍原样 `npm test`：**exit 0，29 files / 205 tests 全过，Duration 818.03s**。
+- 最终复审结论：R1/R2/R3 的所有问题均已关闭；M3 冻结不变量、双仓边界、manifest/seal、临时 index/CAS、锁、结构门控、同步与失败语义已满足，可提交。

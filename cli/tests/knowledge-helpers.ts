@@ -7,6 +7,8 @@ import { expect } from "vitest";
 
 import { KnowledgeError } from "../src/lib/knowledge/errors.js";
 import { realPath } from "../src/lib/knowledge/paths.js";
+import { initKnowledgeRepository } from "../src/lib/knowledge/init.js";
+import { contentDigest } from "../src/lib/knowledge/document.js";
 
 export function makeTempDir(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -47,6 +49,35 @@ export function commitFile(dir: string, rel: string, content: string, message: s
 
 export function head(dir: string): string {
   return git(dir, ["rev-parse", "HEAD"]).trim();
+}
+
+export async function commitKnowledge(knowledgeRoot: string, message: string): Promise<string> {
+  git(knowledgeRoot, ["add", "-A"]);
+  const result = spawnSync(
+    "git",
+    ["-c", "user.email=test@example.com", "-c", "user.name=Test User", "-c", "commit.gpgsign=false", "commit", "-m", message],
+    { cwd: knowledgeRoot, encoding: "utf8", env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" } }
+  );
+  if (result.status !== 0) {
+    throw new Error(`git commit failed in ${knowledgeRoot}: ${(result.stderr || result.stdout || "").trim()}`);
+  }
+  return head(knowledgeRoot);
+}
+
+export function advanceSource(source: string, files: Record<string, string>, message: string): string {
+  for (const [rel, content] of Object.entries(files)) {
+    writeFile(source, rel, content);
+  }
+  git(source, ["add", "--", ...Object.keys(files)]);
+  const result = spawnSync(
+    "git",
+    ["-c", "user.email=test@example.com", "-c", "user.name=Test User", "-c", "commit.gpgsign=false", "commit", "-m", message],
+    { cwd: source, encoding: "utf8", env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" } }
+  );
+  if (result.status !== 0) {
+    throw new Error(`git commit failed in ${source}: ${(result.stderr || result.stdout || "").trim()}`);
+  }
+  return head(source);
 }
 
 export async function expectKnowledgeError(run: () => unknown | Promise<unknown>, code: string, exitCode = 2): Promise<KnowledgeError> {
@@ -127,6 +158,78 @@ export function knowledgeMetaJson(
     null,
     2
   )}\n`;
+}
+
+export interface FixtureDoc {
+  id: string;
+  content: string;
+  scope: string[];
+  requires?: string[];
+}
+
+export interface KnowledgeFixture {
+  base: string;
+  registryDir: string;
+  source: string;
+  sourceHead: string;
+  knowledgeRoot: string;
+  repositoryId: string;
+  knowledgeHead: string;
+}
+
+/** Builds a real external source/knowledge pair with a committed K0 ledger. */
+export async function createKnowledgeFixture(
+  prefix: string,
+  sourceFiles: Record<string, string>,
+  docs: FixtureDoc[],
+  options: { registryDir?: string } = {}
+): Promise<KnowledgeFixture> {
+  const base = makeTempDir(prefix);
+  const source = initRepo(path.join(base, "source"));
+  for (const [rel, content] of Object.entries(sourceFiles)) {
+    writeFile(source, rel, content);
+  }
+  git(source, ["add", "--", ...Object.keys(sourceFiles)]);
+  const sourceCommit = spawnSync(
+    "git",
+    ["-c", "user.email=test@example.com", "-c", "user.name=Test User", "-c", "commit.gpgsign=false", "commit", "-m", "source"],
+    { cwd: source, encoding: "utf8", env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" } }
+  );
+  if (sourceCommit.status !== 0) {
+    throw new Error(`source commit failed: ${(sourceCommit.stderr || sourceCommit.stdout || "").trim()}`);
+  }
+  const sourceHead = head(source);
+  const registryDir = options.registryDir ?? path.join(base, "registry");
+  const init = await initKnowledgeRepository({
+    sourceInput: source,
+    knowledgeInput: path.join(base, "knowledge"),
+    registryDir
+  });
+  const knowledgeRoot = init.knowledgeRoot;
+  const digests = new Map(docs.map((doc) => [doc.id, contentDigest(doc.content)]));
+  for (const doc of docs) {
+    writeFile(knowledgeRoot, `docs/${doc.id}`, doc.content);
+  }
+  const documents: Record<string, unknown> = {};
+  for (const doc of docs) {
+    const requires: Record<string, string> = {};
+    for (const target of doc.requires ?? []) {
+      const digest = digests.get(target);
+      if (digest !== undefined) {
+        requires[target] = digest;
+      }
+    }
+    documents[doc.id] = {
+      validatedSourceRevision: sourceHead,
+      validatedContentDigest: digests.get(doc.id),
+      validatedSourcePaths: [...doc.scope].sort(),
+      validatedRequires: requires
+    };
+  }
+  fs.mkdirSync(path.join(knowledgeRoot, ".llmdoc"), { recursive: true });
+  fs.writeFileSync(path.join(knowledgeRoot, ".llmdoc", "meta.json"), knowledgeMetaJson(init.repositoryId, null, documents));
+  const knowledgeHead = await commitKnowledge(knowledgeRoot, "K0");
+  return { base, registryDir, source, sourceHead, knowledgeRoot, repositoryId: init.repositoryId, knowledgeHead };
 }
 
 export { realPath };

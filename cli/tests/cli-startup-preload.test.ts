@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, test } from "vitest";
 
 import { runCli } from "../src/cli.js";
-import { createFixture, writeRepoFile } from "./helpers.js";
+import { createFixture, legacyValidationIssues, writeRepoFile } from "./helpers.js";
 
 describe("llmdoc cli", () => {
   test("startup config deduplicates normalized preload aliases with a warning", async () => {
@@ -21,9 +21,8 @@ describe("llmdoc cli", () => {
       )}\n`
     );
 
-    const validate = await runCli(["validate"], rootDir);
-    expect(validate.exitCode).toBe(0);
-    expect(validate.stdout).toContain("config.startup.preload.duplicate");
+    const validate = legacyValidationIssues(rootDir);
+    expect(validate.some((issue) => issue.code === "config.startup.preload.duplicate")).toBe(true);
 
     const sessionStart = await runCli(["hook", "session-start"], rootDir);
     expect(sessionStart.stdout).not.toContain("Operating guidance:");
@@ -48,8 +47,8 @@ describe("llmdoc cli", () => {
       )}\n`
     );
 
-    const validate = await runCli(["validate"], rootDir);
-    expect(validate.exitCode).toBe(0);
+    const validate = legacyValidationIssues(rootDir);
+    expect(validate.filter((issue) => issue.severity === "error")).toEqual([]);
 
     const sessionStart = await runCli(["hook", "session-start"], rootDir);
     expect(sessionStart.exitCode).toBe(0);
