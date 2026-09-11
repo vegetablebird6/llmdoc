@@ -204,3 +204,40 @@ export function canonicalizeSourcePath(input: string): string | null {
 function dedupe(values: string[]): string[] {
   return [...new Set(values)];
 }
+
+/** Serializes a canonical v3-ng document with the four allowed relation keys. */
+export function renderKnowledgeDocumentContent(input: {
+  kind: KnowledgeKind;
+  description: string;
+  sourcePaths: string[];
+  requires?: readonly string[];
+  related?: readonly string[];
+  supersedes?: readonly string[];
+  body: string;
+}): string {
+  const lines = ["---", `description: ${JSON.stringify(input.description)}`, `kind: ${input.kind}`, "source:", "  paths:"];
+  for (const sourcePath of input.sourcePaths) {
+    lines.push(`    - ${JSON.stringify(sourcePath)}`);
+  }
+  const relations: Array<[string, readonly string[]]> = [];
+  if (input.requires && input.requires.length > 0) {
+    relations.push(["requires", input.requires]);
+  }
+  if (input.related && input.related.length > 0) {
+    relations.push(["related", input.related]);
+  }
+  if (input.supersedes && input.supersedes.length > 0) {
+    relations.push(["supersedes", input.supersedes]);
+  }
+  if (relations.length > 0) {
+    lines.push("relations:");
+    for (const [key, targets] of relations) {
+      lines.push(`  ${key}:`);
+      for (const target of targets) {
+        lines.push(`    - ${JSON.stringify(target)}`);
+      }
+    }
+  }
+  lines.push("---", "", input.body.trimEnd(), "");
+  return lines.join("\n");
+}

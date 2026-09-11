@@ -2,7 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { Command } from "commander";
 
-import { findProjectRoot, findProjectRootOrNull } from "./lib/fs.js";
 import { CliError } from "./lib/errors.js";
 import { KnowledgeError } from "./lib/knowledge/errors.js";
 import { runBind } from "./commands/bind.js";
@@ -13,15 +12,11 @@ import { runShow } from "./commands/show.js";
 import { runSearch } from "./commands/search.js";
 import { runContext } from "./commands/context.js";
 import { runValidate } from "./commands/validate.js";
-import { runNew } from "./commands/new.js";
-import { runMove } from "./commands/mv.js";
 import { runStatus } from "./commands/status.js";
 import { runDelta } from "./commands/delta.js";
 import { runReview } from "./commands/review.js";
-import { runFingerprint } from "./commands/fingerprint.js";
-import { runHook } from "./commands/hook.js";
 import { runPrune } from "./commands/prune.js";
-import { parseAndValidateJsonString, stringifyValidatedOutput, type OutputSchemaName } from "./lib/output-schema.js";
+import { stringifyValidatedOutput, type OutputSchemaName } from "./lib/output-schema.js";
 import { packageRootFromImport } from "./lib/package-root.js";
 
 export interface RunCliResult {
@@ -29,7 +24,7 @@ export interface RunCliResult {
   stdout: string;
 }
 
-export async function runCli(argv: string[], cwd = process.cwd(), stdin = ""): Promise<RunCliResult> {
+export async function runCli(argv: string[], cwd = process.cwd()): Promise<RunCliResult> {
   if (argv.includes("--version") || argv.includes("-V")) {
     return {
       exitCode: 0,
@@ -73,15 +68,17 @@ export async function runCli(argv: string[], cwd = process.cwd(), stdin = ""): P
       "  State diagnostics      status · delta",
       "  Structural checks      validate",
       "  Semantic commit        review → review --confirm → commit --review",
-      "  Maintenance            prune · upgrade",
-      "  Integration            hook · serve",
+      "  Candidate capture      capture → update",
+      "  Maintenance            prune · migrate",
       "",
       "Common examples:",
       "  llmdoc tree                              show the knowledge map (topics and root documents)",
       "  llmdoc search \"retry policy\" --limit 5     search documents lexically",
       "  llmdoc status                              report review obligations and source blockers",
+      "  llmdoc capture --title \"idea\" --from note.md   save an unverified inbox candidate",
       "  llmdoc review                              generate a Review Manifest for the fixed source snapshot",
       "  llmdoc commit --review <reviewId>          seal a confirmed manifest into one knowledge commit",
+      "  llmdoc migrate --dry-run --knowledge <dir> report a legacy V3 migration without writing",
       "",
       "All retrieval commands support --json / --budget / --limit; use --cursor to continue truncated output."
     ].join("\n")
@@ -184,40 +181,6 @@ export async function runCli(argv: string[], cwd = process.cwd(), stdin = ""): P
     });
 
   program
-    .command("fingerprint")
-    .description("refresh document validatedRevision values to the current HEAD")
-    .option("--update <path...>", "refresh only selected documents")
-    .option("--all", "refresh every document and advance the baseline")
-    .action((commandOptions) => {
-      const rootDir = findProjectRoot(cwd);
-      output.push(
-        writeOutput(
-          "fingerprint",
-          runFingerprint({
-            ...globalOptions,
-            cwd: rootDir,
-            update: commandOptions.update,
-            all: commandOptions.all
-          }),
-          globalOptions.json
-        )
-      );
-    });
-
-  program
-    .command("init-state")
-    .description("create the initial llmdoc/meta.json ledger with null validatedRevision values")
-    .addHelpText(
-      "after",
-      "\nPrerequisite: Git HEAD must reference a real commit. Then run validate and finish bootstrap with commit --all."
-    )
-    .action(async () => {
-      const { runInitState } = await import("./commands/init-state.js");
-      const rootDir = findProjectRoot(cwd);
-      output.push(writeOutput("initState", runInitState({ ...globalOptions, cwd: rootDir }), globalOptions.json));
-    });
-
-  program
     .command("commit")
     .description("seal a confirmed Review Manifest into a single knowledge commit")
     .requiredOption("--review <reviewId>", "confirmed review manifest to consume")
@@ -241,67 +204,130 @@ export async function runCli(argv: string[], cwd = process.cwd(), stdin = ""): P
     });
 
   program
-    .command("new")
-    .description("scaffold a document under llmdoc/")
-    .argument("<path>", "target path, such as api-client/retry-policy.mdx")
-    .requiredOption("--kind <kind>", "document kind: architecture | guide | reference")
-    .option("--description <description>", "one-line front matter description")
+    .command("capture")
+    .description("persist an unverified candidate under inbox/ without touching formal knowledge")
+    .option("--source <path>", "capture into the knowledge bound to this source worktree")
+    .option("--knowledge <path>", "capture into this explicit knowledge root")
+    .option("--title <title>", "candidate title")
+    .option("--note <note>", "provenance note stored with the candidate")
+    .option("--from <file>", "read the candidate body from this file")
+    .option("--body <markdown>", "candidate body text")
+    .option("--source-revision <oid>", "observed source revision to record (does not imply validation)")
     .addHelpText(
       "after",
-      "\nThe first document creates llmdoc/ automatically. Finish bootstrap with init-state → validate → commit --all."
+      "\ncapture writes only inbox/; it never writes docs, meta, README or the source repository, carries no verification trailer, and does not need a clean source worktree. Formal retrieval never returns candidates."
     )
-    .action((targetPath, commandOptions) => {
-      output.push(
-        writeOutput(
-          "new",
-          runNew({
-            ...globalOptions,
-            cwd,
-            path: targetPath,
-            kind: commandOptions.kind,
-            description: commandOptions.description
-          }),
-          globalOptions.json
-        )
-      );
+    .action(async (commandOptions) => {
+      const { runCapture } = await import("./commands/capture.js");
+      const result = await runCapture({
+        ...globalOptions,
+        cwd,
+        source: commandOptions.source,
+        knowledge: commandOptions.knowledge,
+        title: commandOptions.title,
+        note: commandOptions.note,
+        from: commandOptions.from,
+        body: commandOptions.body,
+        sourceRevision: commandOptions.sourceRevision
+      });
+      exitCode = result.exitCode;
+      output.push(writeOutput("capture", result.output, globalOptions.json));
     });
 
   program
-    .command("adopt")
-    .description("register existing .mdx documents in meta.json without rewriting them")
-    .argument("<path...>", "one or more existing paths under llmdoc/")
-    .action(async (paths) => {
-      const { runAdopt } = await import("./commands/adopt.js");
-      const rootDir = findProjectRoot(cwd);
-      output.push(writeOutput("adopt", runAdopt({ ...globalOptions, cwd: rootDir, paths }), globalOptions.json));
-    });
-
-  program
-    .command("mv")
-    .description("move or rename a document or topic and rewrite internal references")
-    .argument("<from>", "source path")
-    .argument("<to>", "target path")
-    .action((from, to) => {
-      const rootDir = findProjectRoot(cwd);
-      output.push(writeOutput("mv", runMove({ ...globalOptions, cwd: rootDir, from, to }), globalOptions.json));
+    .command("update")
+    .description("review inbox candidates and prepare promotions/rejections as an unconfirmed Review Manifest")
+    .option("--source <path>", "update the knowledge bound to this source worktree")
+    .option("--knowledge <path>", "update this explicit knowledge root")
+    .option("--promote <candidate>", "promote an inbox candidate into a canonical document")
+    .option("--to <docId>", "target docs-relative .md id for --promote")
+    .option("--kind <kind>", "document kind for --promote: architecture | decision | guide | reference")
+    .option("--description <description>", "front matter description for --promote")
+    .option("--source-path <path...>", "source evidence scope for --promote")
+    .option("--requires <id...>", "requires relations for --promote")
+    .option("--related <id...>", "related relations for --promote")
+    .option("--supersedes <id...>", "supersedes relations for --promote")
+    .option("--reject <candidate...>", "remove inbox candidates without promoting them")
+    .option("--prepare", "form an unconfirmed Review Manifest from the current worktree without applying decisions")
+    .option("--global", "record this as a global review scan when the manifest is sealed")
+    .addHelpText(
+      "after",
+      "\nupdate never marks anything current: it applies explicit promote/reject decisions to the worktree and forms an unconfirmed Review Manifest. Publication still requires `review --confirm` and `commit --review`."
+    )
+    .action(async (commandOptions) => {
+      const { runUpdate } = await import("./commands/update.js");
+      const result = await runUpdate({
+        ...globalOptions,
+        cwd,
+        source: commandOptions.source,
+        knowledge: commandOptions.knowledge,
+        promote: commandOptions.promote,
+        to: commandOptions.to,
+        kind: commandOptions.kind,
+        description: commandOptions.description,
+        sourcePath: commandOptions.sourcePath,
+        requires: commandOptions.requires,
+        related: commandOptions.related,
+        supersedes: commandOptions.supersedes,
+        reject: commandOptions.reject,
+        prepare: commandOptions.prepare,
+        global: commandOptions.global
+      });
+      exitCode = result.exitCode;
+      output.push(writeOutput("update", result.output, globalOptions.json));
     });
 
   program
     .command("prune")
-    .description("output a read-only convergence report")
-    .option("--report", "output the read-only report")
-    .action((commandOptions) => {
-      const rootDir = findProjectRoot(cwd);
-      output.push(writeOutput("prune", runPrune({ ...globalOptions, cwd: rootDir, report: commandOptions.report }), globalOptions.json));
+    .description("report conservative convergence candidates or prepare eligible removals")
+    .option("--source <path>", "prune the knowledge bound to this source worktree")
+    .option("--knowledge <path>", "prune this explicit knowledge root")
+    .option("--report", "output the read-only convergence report")
+    .option("--remove <id...>", "remove eligible documents and repair every inbound relation")
+    .option("--global", "record this as a global review scan when the manifest is sealed")
+    .addHelpText(
+      "after",
+      "\nprune only removes documents with concrete evidence (exact duplicates or superseded decisions); fragment-only candidates stay insufficient and are conservatively retained. Removal rewrites inbound relations and links, then forms an unconfirmed Review Manifest; publish with `commit --review`."
+    )
+    .action(async (commandOptions) => {
+      const result = await runPrune({
+        ...globalOptions,
+        cwd,
+        source: commandOptions.source,
+        knowledge: commandOptions.knowledge,
+        report: commandOptions.report,
+        remove: commandOptions.remove,
+        global: commandOptions.global
+      });
+      exitCode = result.exitCode;
+      output.push(writeOutput("prune", result.output, globalOptions.json));
     });
 
   program
-    .command("upgrade")
-    .description("inventory legacy/V2 to V3 migration needs")
+    .command("migrate")
+    .description("explicitly migrate a legacy V3 knowledge layout into a new independent knowledge repository")
+    .requiredOption("--knowledge <path>", "new external knowledge root to create")
+    .option("--source <path>", "source worktree root (defaults to the current directory)")
+    .option("--legacy <path>", "legacy llmdoc directory (defaults to <source>/llmdoc)")
+    .option("--dry-run", "show the complete mapping, conflicts and conservative downgrades without modifying anything")
+    .option("--nested", "explicitly select nested mode (the knowledge repository lives inside the source worktree)")
+    .addHelpText(
+      "after",
+      "\nmigrate is the only command that reads V3 .mdx, CodeRef, code.paths, llmdoc/meta.json or llmdoc.config.json. It never modifies the legacy repository or the source worktree, creates a new migration baseline (no history extraction), copies only losslessly convertible documents, and writes the user binding only after the target fully validates."
+    )
     .action(async (commandOptions) => {
-      const { runUpgrade } = await import("./commands/upgrade.js");
-      const rootDir = findProjectRootOrNull(cwd) ?? cwd;
-      output.push(writeOutput("upgrade", await runUpgrade({ ...globalOptions, ...commandOptions, cwd: rootDir }), globalOptions.json));
+      const { runMigrate } = await import("./commands/migrate.js");
+      const result = await runMigrate({
+        ...globalOptions,
+        cwd,
+        source: commandOptions.source,
+        legacy: commandOptions.legacy,
+        knowledge: commandOptions.knowledge,
+        nested: commandOptions.nested,
+        dryRun: commandOptions.dryRun
+      });
+      exitCode = result.exitCode;
+      output.push(writeOutput("migrate", result.output, globalOptions.json));
     });
 
   program
@@ -342,39 +368,6 @@ export async function runCli(argv: string[], cwd = process.cwd(), stdin = ""): P
           globalOptions.json
         )
       );
-    });
-
-  const hookCommand = program.command("hook").description("read-only, fail-open signals for editor and Agent hooks");
-  hookCommand
-    .command("session-start")
-    .description("output SessionStart state and apply optional llmdoc.config.json startup config")
-    .action(() => {
-      const rootDir = findProjectRootOrNull(cwd) ?? cwd;
-      output.push(runHook({ cwd: rootDir, mode: "session-start", stdin }));
-    });
-  hookCommand
-    .command("stop")
-    .description("output the Stop hook JSON reminder")
-    .action(() => {
-      const rootDir = findProjectRootOrNull(cwd) ?? cwd;
-      output.push(parseAndValidateJsonString("hook", runHook({ cwd: rootDir, mode: "stop", stdin })));
-    });
-  hookCommand
-    .command("compact")
-    .description("output the PreCompact hook JSON instruction")
-    .action(() => {
-      const rootDir = findProjectRootOrNull(cwd) ?? cwd;
-      output.push(parseAndValidateJsonString("hook", runHook({ cwd: rootDir, mode: "compact", stdin })));
-    });
-
-  program
-    .command("serve")
-    .description("start the local Web Viewer; press Ctrl-C to stop")
-    .option("--port <port>", "listening port", parseInteger)
-    .action(async (commandOptions) => {
-      const { runServe } = await import("./commands/serve.js");
-      const rootDir = findProjectRoot(cwd);
-      output.push(await runServe({ cwd: rootDir, port: commandOptions.port }));
     });
 
   try {

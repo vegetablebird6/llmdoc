@@ -445,33 +445,41 @@
         }
       }
     },
-    "fingerprint": {
+    "pruneCandidate": {
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "id",
+        "kind",
+        "topic",
         "status",
-        "updateAll",
-        "updated",
-        "baselineRevision"
+        "eligible",
+        "reasons"
       ],
       "properties": {
-        "status": {
-          "type": "string",
-          "const": "success"
+        "id": {
+          "type": "string"
         },
-        "updateAll": {
+        "kind": {
+          "type": "string"
+        },
+        "topic": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": "string"
+        },
+        "eligible": {
           "type": "boolean"
         },
-        "updated": {
+        "reasons": {
           "type": "array",
           "items": {
-            "type": "string",
-            "minLength": 1
+            "type": "string"
           }
-        },
-        "baselineRevision": {
-          "type": "string",
-          "minLength": 1
         }
       }
     },
@@ -479,277 +487,274 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "schema",
         "status",
-        "writable",
-        "growth",
-        "startupPreloads",
-        "duplicateCandidates",
-        "mergeCandidates"
+        "repositoryId",
+        "sourceRevision",
+        "knowledgeRevision",
+        "candidates",
+        "removed",
+        "repairedDocuments",
+        "reviewId",
+        "writeSet",
+        "cleanupRequired"
       ],
       "properties": {
-        "status": {
-          "type": "string",
-          "const": "dry_run"
+        "schema": {
+          "const": "llmdoc.prune/v1"
         },
-        "writable": {
-          "type": "boolean",
-          "const": false
-        },
-        "growth": {
-          "$ref": "#/$defs/growth"
-        },
-        "startupPreloads": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "duplicateCandidates": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "paths",
-              "score",
-              "reasons"
-            ],
-            "properties": {
-              "paths": {
-                "type": "array",
-                "minItems": 2,
-                "maxItems": 2,
-                "items": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              },
-              "score": {
-                "type": "number"
-              },
-              "reasons": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
-            }
-          }
-        },
-        "mergeCandidates": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "topic",
-              "paths",
-              "totalEstimatedTokens",
-              "reasons"
-            ],
-            "properties": {
-              "topic": {
-                "type": "string",
-                "minLength": 1
-              },
-              "paths": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              },
-              "totalEstimatedTokens": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "reasons": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "upgrade": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "status",
-        "summary",
-        "legacyPaths",
-        "targetStructure",
-        "requiresRecorderSemanticMigration",
-        "notes"
-      ],
-      "properties": {
         "status": {
           "type": "string",
           "enum": [
-            "no_change",
-            "dry_run"
+            "reported",
+            "prepared"
           ]
         },
-        "summary": {
-          "type": "string",
-          "minLength": 1
+        "repositoryId": {
+          "type": "string"
         },
-        "legacyPaths": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "targetStructure": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "requiresRecorderSemanticMigration": {
-          "type": "boolean"
-        },
-        "notes": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        }
-      }
-    },
-    "new": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "created",
-        "next"
-      ],
-      "properties": {
-        "created": {
-          "type": "string",
-          "minLength": 1
-        },
-        "next": {
+        "sourceRevision": {
           "type": [
             "string",
             "null"
           ]
-        }
-      }
-    },
-    "adopt": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "adopted",
-        "alreadyRegistered"
-      ],
-      "properties": {
-        "adopted": {
+        },
+        "knowledgeRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "candidates": {
           "type": "array",
           "items": {
-            "type": "string",
-            "minLength": 1
+            "$ref": "#/$defs/pruneCandidate"
           }
         },
-        "alreadyRegistered": {
+        "removed": {
           "type": "array",
           "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        }
-      }
-    },
-    "mv": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "moved",
-        "rewrittenConfig",
-        "rewrittenDocuments"
-      ],
-      "properties": {
-        "moved": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "from",
-            "to"
-          ],
-          "properties": {
-            "from": {
-              "type": "string",
-              "minLength": 1
-            },
-            "to": {
-              "type": "string",
-              "minLength": 1
-            }
+            "type": "string"
           }
         },
-        "rewrittenDocuments": {
+        "repairedDocuments": {
           "type": "array",
           "items": {
-            "type": "string",
-            "minLength": 1
+            "type": "string"
           }
         },
-        "rewrittenConfig": {
+        "reviewId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "writeSet": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "cleanupRequired": {
           "type": "boolean"
         }
       }
     },
-    "hook": {
+    "legacyIssue": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "continue"
+        "severity",
+        "code",
+        "path",
+        "message"
       ],
       "properties": {
-        "continue": {
-          "type": "boolean",
-          "const": true
-        },
-        "systemMessage": {
+        "severity": {
           "type": "string",
-          "minLength": 1
+          "const": "warning"
+        },
+        "code": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
         }
       }
     },
-    "initState": {
+    "migrateDocument": {
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "legacyId",
+        "targetId",
         "status",
-        "documents",
-        "baselineRevision",
-        "next"
+        "kind",
+        "description",
+        "sourcePaths",
+        "codeRefs",
+        "linksRewritten",
+        "requires",
+        "related",
+        "issues"
       ],
       "properties": {
+        "legacyId": {
+          "type": "string"
+        },
+        "targetId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "status": {
           "type": "string",
-          "const": "success"
+          "enum": [
+            "converted",
+            "skipped",
+            "collision"
+          ]
         },
-        "documents": {
+        "kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sourcePaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "codeRefs": {
           "type": "integer",
           "minimum": 0
         },
-        "baselineRevision": {
-          "type": "string",
-          "minLength": 1
+        "linksRewritten": {
+          "type": "integer",
+          "minimum": 0
         },
-        "next": {
+        "requires": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "related": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/legacyIssue"
+          }
+        }
+      }
+    },
+    "migrate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "status",
+        "dryRun",
+        "sourceRoot",
+        "legacyRoot",
+        "targetRoot",
+        "repositoryId",
+        "knowledgeCommit",
+        "bound",
+        "documents",
+        "conflicts",
+        "issues",
+        "legacyMeta",
+        "config"
+      ],
+      "properties": {
+        "schema": {
+          "const": "llmdoc.migrate/v1"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "dry_run",
+            "migrated",
+            "already_migrated"
+          ]
+        },
+        "dryRun": {
+          "type": "boolean"
+        },
+        "sourceRoot": {
           "type": "string"
+        },
+        "legacyRoot": {
+          "type": "string"
+        },
+        "targetRoot": {
+          "type": "string"
+        },
+        "repositoryId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "knowledgeCommit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "bound": {
+          "type": "boolean"
+        },
+        "documents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/migrateDocument"
+          }
+        },
+        "conflicts": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/legacyIssue"
+          }
+        },
+        "legacyMeta": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "config": {
+          "type": [
+            "object",
+            "null"
+          ]
         }
       }
     },
@@ -769,6 +774,7 @@
         "changedDocuments",
         "refreshedDocuments",
         "deletedDocuments",
+        "removedCandidates",
         "lastGlobalReviewRevision",
         "cleanupRequired",
         "sync"
@@ -827,6 +833,12 @@
           }
         },
         "deletedDocuments": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "removedCandidates": {
           "type": "array",
           "items": {
             "type": "string"
@@ -942,6 +954,7 @@
             "documents",
             "refresh",
             "deletions",
+            "candidates",
             "meta",
             "generated"
           ],
@@ -959,6 +972,12 @@
               }
             },
             "deletions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "candidates": {
               "type": "array",
               "items": {
                 "type": "string"
@@ -1077,6 +1096,241 @@
               }
             }
           }
+        }
+      }
+    },
+    "syncResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "files",
+        "errors"
+      ],
+      "properties": {
+        "index": {
+          "type": "string",
+          "enum": [
+            "synced",
+            "failed",
+            "skipped"
+          ]
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "synced"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "synced": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "capture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "status",
+        "candidateId",
+        "repositoryId",
+        "sourceRevision",
+        "knowledgeBaseRevision",
+        "knowledgeRevision",
+        "branch",
+        "cleanupRequired",
+        "sync"
+      ],
+      "properties": {
+        "schema": {
+          "const": "llmdoc.capture/v1"
+        },
+        "status": {
+          "type": "string",
+          "const": "captured"
+        },
+        "candidateId": {
+          "type": "string"
+        },
+        "repositoryId": {
+          "type": "string"
+        },
+        "sourceRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "knowledgeBaseRevision": {
+          "type": "string"
+        },
+        "knowledgeRevision": {
+          "type": "string"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "cleanupRequired": {
+          "type": "boolean"
+        },
+        "sync": {
+          "$ref": "#/$defs/syncResult"
+        }
+      }
+    },
+    "update": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "status",
+        "repositoryId",
+        "sourceRevision",
+        "knowledgeRevision",
+        "candidates",
+        "promotions",
+        "rejections",
+        "navigationChanged",
+        "reviewId",
+        "writeSet",
+        "cleanupRequired",
+        "sync"
+      ],
+      "properties": {
+        "schema": {
+          "const": "llmdoc.update/v1"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "reported",
+            "prepared"
+          ]
+        },
+        "repositoryId": {
+          "type": "string"
+        },
+        "sourceRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "knowledgeRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "title",
+              "capturedAt",
+              "sourceRevision",
+              "note",
+              "committed"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "capturedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sourceRevision": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "note": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "committed": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "promotions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "candidate",
+              "document"
+            ],
+            "properties": {
+              "candidate": {
+                "type": "string"
+              },
+              "document": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "rejections": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "navigationChanged": {
+          "type": "boolean"
+        },
+        "reviewId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "writeSet": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "cleanupRequired": {
+          "type": "boolean"
+        },
+        "sync": {
+          "$ref": "#/$defs/syncResult"
         }
       }
     },

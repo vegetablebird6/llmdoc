@@ -1,6 +1,6 @@
 # v3-ng 实施进度与续接记录
 
-最后更新：2026-09-11（M3 经 Codex R3 直接接管完成收口与最终复审；原样全量 `npm test` exit 0，29 files / 205 tests，待提交后进入 M4）。
+最后更新：2026-09-11（M4 R1 返修完成，等待 Codex R2；原样全量 `npm test` exit 0，26 files / 220 tests，Duration 1961.77s）。
 
 ## 执行约定
 
@@ -22,7 +22,7 @@
 | M1 仓库边界 | 完成（R8 收口：连续两次原样 `npm test` exit 0，24 files / 142/142，无 unhandled；R9 保持） | 见「M1 第三轮最终返修 — 2026-09-10」 |
 | M2 内容与读取 | 完成（breaking replacement；Codex R3 直接收口，28 files / 179 tests 全过） | 见「M2 Codex R3 直接修复与最终复审通过」 |
 | M3 语义提交 | 完成并通过 Codex R3（原样全量 `npm test` exit 0，29 files / 205 tests，无 unhandled） | 见「M3 实施记录」「M3 R1/R2 返修实施与验证记录」「M3 Codex R3 直接接管收口」 |
-| M4 最小维护闭环 | 未开始 | 见 roadmap.md |
+| M4 最小维护闭环 | 完成（R1 返修完成，等待 Codex R2；原样全量 `npm test` exit 0，26 files / 220 tests） | 见「M4 设计与分步实施计划」「M4a/M4b」「M4c/M4d」「M4e/M4f」「M4g 收口」「M4 Codex 集中审查 R1 与返修计划」「M4 R1 返修实施与验证记录」 |
 | M5 接入与发布 | 未开始 | 见 roadmap.md |
 
 ## M1 子步骤拆解
@@ -1260,3 +1260,488 @@ OpenCode 续接入口：新建干净会话，同时完成本节 breaking replace
 - `npm run typecheck` exit 0；`npm run lint` exit 0；breaking namespace scan 无命中；`git diff --check` exit 0（仅 LF/CRLF 提示）。
 - 最终一遍原样 `npm test`：**exit 0，29 files / 205 tests 全过，Duration 818.03s**。
 - 最终复审结论：R1/R2/R3 的所有问题均已关闭；M3 冻结不变量、双仓边界、manifest/seal、临时 index/CAS、锁、结构门控、同步与失败语义已满足，可提交。
+
+## M4 设计与分步实施计划 — 2026-09-11
+
+状态：设计先行。先落本计划再写代码。M4 只实现 capture、update/prune 编排、README 导航生成、显式 migrate；不进入 M5（hooks/skills/agents/网站/发布），不改冻结协议，不 stage/commit/reset/push，不把 `.codegraph/`、`.llmdoc-tmp/`、日志纳入。
+
+### 1. 独立推演（逐条核对 architecture §2/§5/§6/§7、roadmap M4/验收 8–9、D4，不迎合既有代码）
+
+1. **capture 是“写集不同的 seal”，不是第二套写实现**（§6）。它必须复用知识锁、真实 index 无 staged 门控、临时 index、`write-tree/commit-tree/update-ref` CAS、发布后 index/自有文件条件同步；区别仅在：写集只有 `inbox/**`、不带 verification/source trailer、不写/不推进 `.llmdoc/meta.json`、不要求 source clean、不消费 manifest。若复制一套 `git add`/`commit` 就是协议破坏。
+2. **capture 的写集边界**（§2/§6）：捕获提交后 K1 只新增 `inbox/<id>`；`docs/**`、`.llmdoc/meta.json`、`README.md`、source 均零写；正式 `tree/index/show/search/context` 结构性排除 inbox。
+3. **capture 仍受写事务门控**：精确绑定、独立 Knowledge Git、知识分支存在、无 merge/rebase/cherry-pick、真实知识 index 无任何 staged、范围外 staged 一律拒绝；source worktree 可以 dirty/unborn（不要求 clean）。并发 `git add` 在 index 观察与 `index.lock` 之间发生时不得被覆盖。
+4. **候选是未验证的一等数据**（§2）：`capture` 落 `inbox/` 候选（内容 + 来源说明 + 创建时间 + 可选观察 source revision）。候选不得进入正式召回，也不得被当作验证正文。
+5. **update/prune 只做编排，不自动 current**（§5/§6）：普通 Markdown 编辑只会让 digest 失配 → `needs_review`；编排命令可以产生候选、应用显式人工/agent 结论、生成未确认 Review Manifest，但发布永远只能经 `commit --review` 的 seal。promote/reject 的物理结果由 seal 的单一写集承载。
+6. **promote 原子性**（§2/§6）：晋升 = `docs/<id>` 新增/更新 + 入链关系修正 + `.llmdoc/meta.json` 四项证据 + `inbox/<candidate>` 移除，必须同一 K1。因此 Review Manifest 写集需要新增“候选移除”维度；seal 在临时 index 中删除对应 `inbox/` 路径。不存在“先删候选再单独提交正文”的中间态。
+7. **prune 保守**（§5/§6）：只有低价值/重复/过期且**证据充分**的知识才进入删除候选；证据不足一律 `insufficient` 保留。删除必须顺带修复所有入链（requires/related/supersedes 与正文链接），否则结构门控会令 seal 失败；写集与失效判定完全复用 seal。
+8. **README 导航是机器管理区，不是知识节点**（§2）：只替换 `<!-- llmdoc:navigation:start -->` 与 `end` 之间字节，机器区外（human-managed）原样保留；导航不参与 digest/验证/检索，不扩大 reviewed scope；生成随相关 seal 同 commit 发布，删除/重命名/多层目录/decision+supersedes 后仍确定、稳定排序。
+9. **migrate 是唯一 V3 读入口**（§7）：只有显式 `migrate --dry-run` / `migrate` 读取旧 `llmdoc/*.mdx`、CodeRef、`code.paths`、旧 `llmdoc/meta.json`、`llmdoc.config.json`；运行时其它入口不得兼容读取。dry-run 零修改旧仓、source、目标；migrate 建立**新的**外置独立 Knowledge Git 与 migration baseline，不抽取/重写旧仓历史。
+10. **迁移不伪造 current/verified**（§7）：旧 `validatedRevision` 可仅作来源说明；新 meta 一律 `null/null/[]/{}`，经新 review 后才 seal。`code.paths`→`source.paths`，`.mdx`→`.md`，CodeRef→文字证据/链接，无法无损或无 `source.paths` 的文档保守列出并由人工复核，不静默生成非法正式文档。
+11. **失败不留半绑定**（§3/§7）：migrate 先建仓、复制、初始 commit、目标结构校验全通过后才写用户 registry；失败清理仅本次创建的构件，绝不改旧仓、旧绑定或 source。目标已存在草稿时保守拒绝，不覆盖。
+12. **分层**：orchestration（capture/update/prune/migrate/navigation 命令与计划计算）与 transaction（锁/CAS/临时 index/条件同步）分离，CLI JSON schema 复用既有 `knowledgeError` 错误模型。
+
+### 2. 协议不变量（M4 代码必须始终满足）
+
+- 正式知识面仍严格 = committed `docs/**/*.md`；inbox/cache/README 不进正式检索与验证。
+- capture 成功：K1 = K0 + 仅 inbox 候选，commit 无 `llmdoc-source-revision` / verified scope / review id trailer，meta 与 global review 不变；index 同步；docs/范围外草稿保持 dirty。
+- promote/reject：候选移除与 docs/meta/relations 同一 K1；写集只含已确认 manifest；任意漂移 `E_REVIEW_INVALIDATED`。
+- README：机器区外字节不变；导航不进 digest/检索/验证；与相关 seal 同 commit 或保持原样。
+- migrate：旧仓/source/目标（dry-run）零修改；migration baseline 是新独立历史；旧 evidence 不迁移为 current。
+- 所有写事务：精确绑定、独立 common Git、知识分支、无操作态、真实 index 无 staged、范围外 staged 阻断、CAS 发布、发布后失败报 K1 + `cleanup_required`。
+- Source Git 全程只读；无写入 fallback。
+
+### 3. 模块/文件责任边界（单写者串行区）
+
+| 归属 | 文件 | 责任 |
+|---|---|---|
+| 事务底座（新增） | `cli/src/lib/knowledge/transaction.ts` | 从 seal 抽出可复用的“构建临时 index → commit-tree → 发布前重载/校验 → index.lock/CAS → 原子 index + 条件文件同步 → cleanup_required”实施；seal 与 capture 唯一共用 |
+| capture（新增） | `cli/src/lib/knowledge/capture.ts` | 候选格式/ID/写入；inbox-only 写集；capture 专属门控与 verifyFresh；无 trailer/meta |
+| 候选模型（新增） | `cli/src/lib/knowledge/inbox.ts` | 从 K0/worktree 读取 `inbox/**` 候选、规范化 ID、移除集合 |
+| 导航（新增） | `cli/src/lib/knowledge/navigation.ts` | 机器区标记、`renderNavigation(model)`、`replaceNavigationRegion`、README 目标字节与稳定性 |
+| 变更编排（新增） | `cli/src/lib/knowledge/update.ts`、`cli/src/lib/knowledge/prune.ts` | 候选/收敛候选计算、显式 promote/reject/remove 的 worktree 变换、生成未确认 manifest；不提交 |
+| 迁移（新增） | `cli/src/lib/knowledge/legacy.ts`、`cli/src/lib/knowledge/migrate.ts` | 旧格式只读解析与转换计划；dry-run 报告；新独立知识仓/基线/绑定 |
+| Manifest/seal（改） | `review.ts`、`seal.ts` | 写集新增候选移除；seal 删除 `inbox/` 路径、写 README 机器区；复用 transaction |
+| 命令（改/新增） | `commands/{capture,update,prune,migrate}.ts`、`commands/upgrade.ts`（改为不再读 V3 的弃用指引）、`cli.ts` | 标准命令接线、帮助 |
+| 契约 | `lib/output-schema.ts`、`schemas/output.schema.json` | 新增 `capture/update/prune/migrate`，改写 `prune`/`upgrade`，扩展 `commit/review` writeSet |
+| 测试（新增） | `tests/knowledge-{capture,update-prune,navigation,migrate}.test.ts` | 真实临时双 Git + 故障注入 |
+
+### 4. 失败路径矩阵（均需真实双 Git 测试）
+
+| 场景 | 期望 |
+|---|---|
+| capture 无精确绑定 / 知识非独立 Git / 非分支 / merge 中 | 对应 `E_BINDING_*` / `E_KNOWLEDGE_*` / `E_KNOWLEDGE_NOT_ON_BRANCH`，零写 |
+| capture 知识 index 有 staged（含范围外） | `E_KNOWLEDGE_INDEX_DIRTY`(3)，候选不写、staged 保留 |
+| capture 与并发 `git add` 竞争 | 观察值不符 → `E_KNOWLEDGE_INDEX_DIRTY`，不覆盖他者 staged |
+| capture 存在 docs 草稿 | 只提交 inbox；docs 草稿 dirty；index 同步 K1 |
+| capture 发布后 index 同步失败 | 返回已发布 K1 + `cleanup_required`(70)，不回滚 |
+| capture 后 meta/README 被外部修改 | 保留修改并报告未同步，不覆盖 |
+| 普通编辑未 review 直接 commit | 无 manifest → `E_REVIEW_NOT_FOUND`；digest 失配→`needs_review` |
+| promote 后候选未删 / 删了候选没改文档 | manifest 写集与实际不一致 → `E_REVIEW_INVALIDATED` |
+| promote 正文+meta+关系+候选移除 | 同一 K1，重算 validity 与 meta 一致 |
+| reject 候选 | 仅候选移除的 K1，meta 不变 |
+| prune 请求删除 insufficient 候选 | 保守拒绝/保留，不产生 commit |
+| prune 删除文档但遗留入链 | 结构门控 `E_STRUCTURE_INVALID`；prune 负责修正所有入链 |
+| README 机器区外人工编辑 | 保留 human 区字节；导航只替换机器区 |
+| 确认后 README 外部改动 | 保留并报告未同步（`cleanup_required`），不覆盖 |
+| 删除/重命名文档 | 同 seal 的导航不含被删文档、稳定排序 |
+| migrate dry-run | 旧仓/source/目标字节零变化；列出全部映射/冲突/降级 |
+| migrate 扩展名碰撞 / 目标已有草稿 / 无 source.paths | 保守列出或不迁移该项；不伪 current |
+| migrate 成功 | 新外置独立 Git、migration baseline、候选证据 `null/null/[]/{}`、绑定写入 |
+| migrate 后重跑 | 目标草稿不被覆盖；已完成后返回 already-migrated；失败无半绑定 |
+| migrate 失败（复制/校验/绑定前） | 旧仓/source 不变，自建目标清理，registry 不变 |
+| 旧 `.mdx` 出现在主读取入口 | 主入口不读取；只有 migrate 读取 |
+
+### 5. 测试矩阵（真实临时双 Git + 故障注入，不 mock Git）
+
+- `tests/knowledge-capture.test.ts`：inbox-only K1、无 trailer/meta/global 变化、正式检索排除候选、source 字节冻结；docs 草稿保留；staged 阻断；`beforeIndexLock` 并发 `git add` 不被覆盖；发布后 index 同步失败（fault injection）报 cleanup_required；外部 meta/README 改动保留并报告；无绑定/非分支/非独立 Git 拒绝。
+- `tests/knowledge-update-prune.test.ts`：update 报告候选；promote（docs+meta+relations+候选移除）单 K1 原子；reject 单 K1；普通编辑不自动 current；prune 报告证据与 eligible；`--remove` 删除文档并修复入链（requires/related/正文链接），seal 后无结构错误；insufficient 保守保留。
+- `tests/knowledge-navigation.test.ts`：确定性渲染与稳定排序（多层、decision/supersedes）；机器区替换保留 human 字节；随 seal 同 commit；删除/重命名后导航正确；导航不进 search；外部 README 改动保留+报告。
+- `tests/knowledge-migrate.test.ts`：dry-run 零修改且完整映射/冲突/降级；`.mdx`→`.md`、`code.paths`→`source.paths`、CodeRef 转换、relations/链接重写；新独立 Git/migration baseline/null evidence；扩展名碰撞/目标草稿/无 scope 保守；重跑不覆盖；失败无半绑定；旧仓历史与 source 字节不变。
+- CLI schema 覆盖：四个新命令 `--json` 经 `output.schema.json` 校验；`knowledgeError` 复用；namespace scan 无 `lib/v3ng`/`runNg`/`ng*`/`llmdoc.ng-`。
+- 既有 M1–M3 全部回归保持通过；最终只跑一遍原样 `npm test` 记录真实 exit/files/tests/duration。
+
+### 6. 分步实施顺序（每步完成即回写本文件，支持断点续接）
+
+1. **M4a 事务分层**：新增 `transaction.ts`，seal 改为复用；回归 M3 `knowledge-review-seal`/`knowledge-cli-commit`/`knowledge-lock` 必须原样通过。
+2. **M4b capture**：`capture.ts` + `inbox.ts` + `capture` 命令 + schema + `knowledge-capture.test.ts`。
+3. **M4c promote/reject**：`review.ts`/`seal.ts` 写集新增候选移除；`update.ts` + `update` 命令 + schema + promot/reject 测试。
+4. **M4d 导航**：`navigation.ts` + seal 集成（机器区、条件写、报告）+ `knowledge-navigation.test.ts`。
+5. **M4e prune**：v3-ng prune 报告与 `--remove` 入链修复 + schema + 测试；`upgrade` 改为弃用指引（不再读 V3）。
+6. **M4f migrate**：`legacy.ts` + `migrate.ts` + 命令 + schema + `knowledge-migrate.test.ts`。
+7. **M4g 收口**：schema/CLI 帮助、namespace scan、`git diff --check`、定向 + typecheck/lint，最后一遍原样 `npm test`；更新 progress 为“M4 实现完成，等待 Codex 集中审查”。
+
+### 7. 续接入口
+
+- 代码起点：`cli/src/lib/knowledge/transaction.ts`；先保证 M3 回归不变再向上叠能力。
+- 冻结对象：候选文件格式、`ReviewWriteSet` 新增候选移除字段、README 机器区标记常量（均为数据格式，不用于运行时激活旧实现）。
+- 完成后停止，交 Codex 集中 review；不进入 M5，不 stage/commit/reset/push。
+
+## M4a/M4b 实施记录 — 2026-09-11
+
+状态：M4a 事务分层与 M4b capture 完成；M3 seal 回归原样通过；capture 定向通过。未进入 M5，未 stage/commit/reset/push。
+
+### M4a 事务分层
+
+- 新增 `cli/src/lib/knowledge/transaction.ts`：`publishKnowledgeCommit` 统一承载“临时 index 从 K0 read-tree → buildIndex → write-tree/commit-tree → preLockCheck → index 观察/`beforeIndexLock` → index.lock → index 字节 CAS → `beforePublish` → reload+verifyFresh → `beforeCas` → `update-ref` CAS → 原子 index 发布 → `afterPublish`/条件自有文件同步 → cleanup_required”唯一写入通道；导出 `conditionalWrite`/`indexStillMatches`/`readIndexObservation`。
+- `cli/src/lib/knowledge/seal.ts` 改为复用该通道：删除内联临时 index/CAS/条件同步实现，保留 manifest 语义、meta 观察门控、`verifyFresh`（结构门控 + S/K0/branch + manifest 漂移）、`consumeNoChange`（含 R3 index 竞态复核）。seal 结果新增 `removedCandidates`。
+- 验证：`npx vitest run tests/knowledge-review-seal.test.ts` → exit 0，23/23（含 CAS 竞态、发布后 cleanup_required、no_change index 竞态），证明 M3 语义未被重构破坏。
+
+### M4b capture
+
+- 新增 `cli/src/lib/knowledge/inbox.ts`：候选 ID 规范（`inbox/<id>.md`）、候选解析、K0/worktree 候选枚举、`computeCandidateRemovals`。候选不进入 `docs/**` 模型。
+- 新增 `cli/src/lib/knowledge/capture.ts`：复用事务通道，写集仅 `inbox/<candidate>`，无 verification/source trailer、不写 meta/README；`assertCapturePreconditions` 只要求知识分支/无操作态/index 无 staged，不要求 source clean；发布后条件写候选文件。
+- `write-context.ts`：`KnowledgeWriteContext` 增加 `k0InboxIds`；`review.ts` 的 `ReviewWriteSet` 增加 `candidates`，`deriveWriteSet` 按 K0 与 worktree inbox 差集计算；`seal.ts` 在临时 index 删除 `inbox/<candidate>`。
+- CLI：`capture` 命令（`--title/--note/--from/--body/--source-revision/--source/--knowledge`）；`output-schema` 新增 `capture`、共用 `syncResult`；`commit/review` schema 增加 `removedCandidates`/`candidates`。
+- 新增 `cli/tests/knowledge-capture.test.ts`（9，真实双 Git）：inbox-only K1、无 trailer、meta/global 不变、正式读取排除候选、source 字节冻结；docs 草稿保留；任意 staged 阻断；`beforeIndexLock` 并发 `git add` 不被覆盖；发布后 cleanup_required；外部 meta/README 草稿保留；无绑定拒绝；source dirty 仍可 capture。
+- 验证：`npx vitest run tests/knowledge-capture.test.ts` → exit 0，9/9；`npm run typecheck` exit 0。
+
+剩余问题：README 导航、update/prune 编排、migrate、upgrade 去 V3 读取、CLI 帮助与最终全量门禁。
+下一步入口：M4c `update.ts` promote/reject（复用 Review Manifest 候选移除）+ schema + 测试。
+
+## M4c/M4d 实施记录 — 2026-09-11
+
+状态：update promote/reject 原子编排与 README 导航生成完成；定向通过。未进入 M5，未 stage/commit/reset/push。
+
+### M4c update（promote/reject）
+
+- `review.ts`：`ReviewWriteSet` 增加 `candidates`；`deriveWriteSet` 按 K0 inbox 与 worktree inbox 差集计算移除；`confirmReviewManifest` 修正为传入 context（否则 confirmed manifest 丢失候选移除与导航写集）。`write-context.ts` 增加 `k0InboxIds`。
+- `seal.ts`：临时 index 删除 `inbox/<candidate>`；seal 结果增加 `removedCandidates`。
+- 新增 `cli/src/lib/knowledge/update.ts` + `commands/update.ts` + CLI `update`：显式 `--promote <candidate> --to/--kind/--description/--source-path/--requires/--related/--supersedes`（写 canonical doc 并删除候选）、`--reject <candidate...>`（仅删除候选）、`--prepare`（从当前 worktree 形成未确认 manifest）；绝不提交、绝不置 current。
+- schema：新增 `update`、`syncResult`；`commit` 增加 `removedCandidates`，`review.writeSet` 增加 `candidates`。
+- 新增 `tests/knowledge-update-prune.test.ts`（update 部分 5）：报告候选；promote 后 docs+meta+relations+候选移除单 K1 且重算 `current`；reject 候选只产生候选移除提交且 meta 字节不变；普通编辑只是候选且不自动 current；非法 promote 拒绝（`E_INVALID_KIND`/`E_DOCUMENT_INVALID`）。
+- 修复过程中发现并修正：promotion 未删除候选；`confirmReviewManifest` 未传 context 造成 confirmed manifest 写集漂移；调试插桩已全部移除。
+
+### M4d README 导航
+
+- 新增 `cli/src/lib/knowledge/navigation.ts`：`NAVIGATION_START/END` 标记、确定性的 `renderNavigation`（topic 分组、稳定排序、kind、decision/supersedes 标注）、`readNavigationRegion`、`replaceNavigationRegion`（机器区外字节逐字保留）、`navigationChanged`、`renderNavigationReadme`。
+- `review.ts::deriveWriteSet`：仅在文档集合/路径发生变化（add/update/delete/candidate 移除）时把 `README.md` 加入 generated（纯 meta-only/全局复核不伪造 README 提交）。
+- `seal.ts`：README 与 meta 一样先写入临时 index（否则导航不会进入 K1），发布后按 seal 前观察值条件写 worktree；外部改动保留并报 `cleanup_required`。
+- `update.ts` 输出真实 `navigationChanged`。
+- 新增 `tests/knowledge-navigation.test.ts`（7，真实双 Git）：确定性渲染（多层、supersedes）、机器区替换保留 human 字节、无标记时追加、随 seal 同 commit、删除后导航正确、外部 README 改动保留且 `cleanup_required`、正式检索不返回导航文本。
+
+剩余问题：prune、migrate、upgrade 去 V3 读取、CLI 帮助与最终全量门禁。
+下一步入口：M4e prune（v3-ng 收敛报告 + `--remove` 入链修复）与 `upgrade` 弃用指引。
+
+## M4e/M4f 实施记录 — 2026-09-11
+
+状态：v3-ng prune、upgrade 弃用、显式 migrate 完成；定向通过。未进入 M5，未 stage/commit/reset/push。
+
+### M4e prune 与 upgrade
+
+- 新增 `cli/src/lib/knowledge/prune.ts` + 重写 `commands/prune.ts` + CLI `prune`（`--report` 默认只读；`--remove <id...>` 显式删除；`--global`）。报告基于 K0 模型与 validity：仅“精确重复（同 topic/kind/description）或已被 supersede”的文档 `eligible`，仅 fragment 的候选保留 `eligible:false`（insufficient 保守保留）。`--remove` 校验 eligible，删除 docs 并重写所有入链（requires/related/supersedes）与正文链接，然后形成未确认 Review Manifest；发布仍走 `commit --review`。
+- `errors.ts` 新增 `E_PRUNE_INSUFFICIENT`(2)。
+- `upgrade` 改为弃用指引：不再读取任何 V3 `.mdx`/CodeRef/code.paths/meta/config，仅输出 `migrate --dry-run` 用法。
+- schema：重写 `prune`（`llmdoc.prune/v1` + `pruneCandidate`）与 `upgrade`（deprecated）。
+- 测试：`knowledge-update-prune.test.ts` 增加 prune 3 例（重复/碎片报告、删除并入链修复后 `current`、insufficient 拒绝）；`cli-misc.test.ts` 首例改为“无绑定 prune 失败闭锁 + upgrade 弃用”。
+
+### M4f migrate
+
+- 新增 `cli/src/lib/knowledge/legacy.ts`：唯一 V3 只读解析器（`llmdoc/**/*.mdx`、`llmdoc/meta.json`、`llmdoc.config.json`、CodeRef、`code.paths`）。产出逐文件计划：kind/description/source.paths 校验、CodeRef→文字证据、`.mdx`→`.md` 链接与关系重写、目标 ID 规范化、case-insensitive 目标碰撞检测、无 scope/非法 kind/解析失败保守 skip 并附 warning；仅被迁移文档之间的关系保留。
+- 新增 `cli/src/lib/knowledge/migrate.ts` + `commands/migrate.ts` + CLI `migrate`（`--source/--legacy/--knowledge/--dry-run/--nested`）。dry-run 零写；真实迁移在 registry 锁内检查旧绑定冲突、目标可用性，`git init` 新独立仓、写 skeleton 与转换文档、`write-tree/commit-tree/update-ref` 建 migration baseline（不抽取/不改旧历史）、结构校验通过后才写绑定；失败清理自建构件、绝不改旧仓/旧绑定/source。新 meta 一律 `null/null/[]/{}`，旧 validatedRevision 仅作报告来源说明。重跑在已绑定时返回 `already_migrated` 且不覆盖目标草稿。
+- 抽取 `renderKnowledgeDocumentContent` 到 `document.ts`，`update.ts` 与 `legacy.ts` 共用。
+- schema：新增 `migrate`（`llmdoc.migrate/v1` + `migrateDocument` + `legacyIssue`）。
+- 测试：新增 `knowledge-migrate.test.ts`（6，真实临时 Source/Knowledge Git）：dry-run 零修改且完整映射/降级；成功迁移（`.mdx`→`.md`、CodeRef 转换、链接/关系重写、null evidence、新独立 Git、写绑定、正式读取为 v3-ng）；重跑不覆盖草稿；非空目标拒绝且无半绑定；目标不可创建时无半绑定；case-insensitive 碰撞检测。
+- 新增 `knowledge-maintenance-cli.test.ts`（1）：capture/update/prune/migrate/upgrade 的 `--json` payload 经运行时 schema 校验。
+
+验证：`knowledge-capture` 9/9、`knowledge-update-prune`（含 prune）8/8、`knowledge-navigation` 7/7、`knowledge-migrate` 6/6、`knowledge-maintenance-cli` 1/1 全部 exit 0；`npm run typecheck` exit 0；`npm run lint` exit 0。
+
+剩余问题：Final 全量门禁与 namespace scan、progress 收口。
+下一步入口：M4g 收口（schema/帮助已同步；namespace scan、`git diff --check`、定向 knowledge 套件、最终一遍原样 `npm test`）。
+
+## M4g 收口与最终验证 — 2026-09-11
+
+状态：**M4 实现完成，等待 Codex 集中审查。** 未进入 M5，未 stage/commit/reset/push。
+
+### 实际 diff（29 files：14 改 / 15 新增；+4221 / -726）
+
+- 新增：`cli/src/lib/knowledge/{transaction,inbox,capture,update,prune,navigation,legacy,migrate}.ts`、`cli/src/commands/{capture,update,migrate}.ts`、`cli/tests/{knowledge-capture,knowledge-update-prune,knowledge-navigation,knowledge-migrate,knowledge-maintenance-cli}.test.ts`。
+- 修改：`cli/src/lib/knowledge/{seal,review,write-context,document,errors}.ts`、`cli/src/commands/{prune,upgrade}.ts`、`cli/src/cli.ts`、`cli/src/lib/output-schema.ts`、`cli/schemas/output.schema.json`、`cli/tests/{cli-misc,knowledge-review-seal}.test.ts`、`docs/v3-ng-design/progress.md`。
+- `seal.ts` 从内联写事务收敛为复用 `transaction.ts`；`review.ts` 写集新增候选移除与 README 导航；`document.ts` 抽取 `renderKnowledgeDocumentContent`。
+- 无 `lib/v3ng`/`runNg`/`ng-*`/`llmdoc.ng-*`；无 V3 runtime dispatch/fallback；旧 V3 读取仅存在于显式 `migrate`（`legacy.ts`）；`upgrade` 改为不读 V3 的弃用指引。
+
+### 验证证据（真实临时双 Git + 故障注入）
+
+- 定向 knowledge 套件（`npx vitest run knowledge-`）：exit 0，**23 files / 195 tests**，Duration 1236.91s（含 knowledge-review-seal 23、capture 9、update/prune 8、navigation 7、migrate 6、maintenance-cli 1 及 M1–M3 全部回归）。
+- `npx vitest run tests/cli-misc.test.ts tests/cli-output-schema.test.ts`：exit 0，2 files / 6 tests（prune 无绑定失败闭锁、upgrade 弃用、公开 JSON schema）。
+- `npm run typecheck` exit 0；`npm run lint` exit 0。
+- 破坏性 namespace scan：`rg -n "lib/v3ng|runNg|ng-read|ngTree|ngError|ngIndex|ngShow|ngSearch|ngContext|llmdoc\.ng-" cli/src cli/tests cli/schemas` → 无命中（exit 1）。
+- `git diff --check` exit 0（仅 LF/CRLF 提示）。
+- **最终一遍原样全量 `npm test`**（`cmd /c "npm test > .llmdoc-tmp\m4full.log 2>&1"` 后立即读真实 `$LASTEXITCODE`，无筛选管道）：**exit 0，34 files / 236 tests 全过，无 Unhandled/Timeout，Duration 1407.43s**。
+- 环境核对：分支 `v3-ng`；`git diff --cached` 为空（index 无 staged）；真实 `%APPDATA%\llmdoc` 与 bindings.json 不存在；未 stage/commit/reset/push；`.codegraph/`、`.llmdoc-tmp/` 未纳入实现。
+
+### 需求 A–D 落点与限制
+
+- A capture：inbox-only 写事务（同锁/临时 index/CAS/条件同步），无 trailer、不推进 meta/global，source 可 dirty；staged 与并发 `git add` 阻断；docs 草稿保留；发布后失败报 K1+`cleanup_required`。
+- B update/prune：只形成候选/未确认 manifest；promote 的 docs+meta+relations+候选移除单 K1；prune 仅删有充分证据（精确重复/supersede），fragment 保守保留，删除修复全部入链；复用 seal 的 S/K0、digest/scope/requires、manifest 失效。
+- C README 导航：只替换机器标记区、保留 human 字节；不进检索/验证；在文档集合/路径变化时随 seal 同 commit；删除/多层/decision+supersedes 正确；外部改动保留并报 `cleanup_required`。
+- D migrate：唯一 V3 读入口，dry-run 零写；新外置独立 Git + migration baseline，不抽取历史；证据保守为 `null/null/[]/{}`；碰撞/无 scope/目标草稿保守；绑定仅在目标校验通过后写入；失败无半绑定。
+- 明确边界（按里程碑划分，M5 处理）：`new/adopt/mv/fingerprint/init-state` 仍为既有实现在 M5 统一；HTTP viewer/hooks/skills/agent prompts/双语文档/示例未在本轮改动；`upgrade` 仅保留弃用指引。
+- 已知张力与判断：导航仅在文档集合/路径变化时随 seal 生成（纯 meta-only/全局复核不伪造 README 提交），以保持 M3 的 `no_change` 与 meta-only 语义；首次文档变更前的空导航区视为待重建，不视为协议违规。
+
+下一步：停止，交 Codex 集中 review M4；通过前不进入 M5，不 stage/commit/reset/push。
+
+## M4 Codex 集中审查 R1 与返修计划 — 2026-09-11
+
+状态：设计先行，先落本计划再改代码。Codex 集中审查未通过，R1 共 16 项（14 个 P1/P2 + 1 个方向阻断 + 1 个测试真实性）必须在本 M4 内关闭；不进入 M5，不改冻结协议，不 stage/commit/reset/push，不触碰仓库外文件。共同边界：所有 `prepare` 只能生成可审查草稿而不能毁数据；所有发布后同步必须区分 K1 已发布与本地草稿未同步；migration 是从不可信旧输入到新协议的单次导入事务，不能把解析成功当语义无损；breaking replacement 以可执行入口为准，不以注释或未来 M5 承诺为准。
+
+### 1. 逐项独立根因判断（核对 architecture/roadmap 原文，不迎合既有测试）
+
+1. **P1 prune 毁草稿（确认）**：`prune.ts::buildPruneReport` 用 `context.k0Model` 判定 eligible，`applyPruneRemoval` 却对 worktree `fs.rmSync`；K0 重复/被 supersede 的文档若有未提交重写仍会被删。删除资格必须基于当前内容，且目标字节相对 K0 有漂移即拒绝。
+2. **P1 update 消费未提交草稿（确认）**：`update.ts::validateRequests` 只 `fs.existsSync`，`applyPromotions/applyRejections` 直接 `rmSync`；`summarizeCandidates` 已标 `committed=false` 却未阻断。只有 K0 committed candidate 可 promote/reject；未提交草稿可列出但决策明确阻断。
+3. **P1 migrate 失败清理不完整（确认）**：`cleanupTarget` 只删 `.git`、根文件、`.gitkeep`，遗留 `docs/**/*.md`、`.llmdoc/meta.json`，半成品无法重试；且清理失败被静默吞掉。自建 target 失败须安全删除整根；预存在空目录须精确清除本次全部产物；清理失败结构化报告残留路径。
+4. **P1 legacy 悬空引用（确认）**：`legacy.ts` 的关系/链接重写基于 `legacyIds`（全部旧文件），而非最终 converted target set；指向 skipped/collision 文档的关系/链接被改写成指向未迁移的 `.md`，触发结构错误使全迁移失败。必须基于最终可迁移集合二次解析/重写；无法保真的引用 warning 并移除/保守处理且明确报告，不伪造无损。
+5. **P1 无损门槛不足（确认）**：`convertLegacyBody` 只处理自闭合 `<CodeRef .../>`；未知 JSX/MDX 组件、非自闭合/无法解析 CodeRef 等残留却标 `converted`。检测残留 MDX/JSX 与不可表达语法，保守 `skipped` + warning。
+6. **P1 target/legacyRoot 未隔离（确认）**：`migrateKnowledge` 只查 source 包含关系，未禁止 `target==legacyRoot`、`target` 位于 `legacyRoot` 内、`legacyRoot` 位于 `target` 内。必须 junction/realpath 感知地在任何写入前阻断，保证旧知识树绝不被 mkdir/git init/清理触碰；dry-run 仍可报告。
+7. **P1 README marker 注入（确认）**：`escapeNavigationText` 未处理 `NAVIGATION_START/END`，`readNavigationRegion` 用首次 `indexOf`；标题/description 注入 marker 会让下一次重建截断/重复 human 内容。对保留 marker 与破坏 Markdown 的字符做稳定转义/编码，补两次生成回归并断言 human 字节不变。
+8. **P1 conditionalWrite TOCTOU（确认）**：`transaction.ts::conditionalWrite` 先 compare/read 再 `renameSync`；并发编辑可在比较后被覆盖，`observation=null` 也会覆盖刚创建的同名文件。absent→create 至少用 `wx` 原子创建；existing replacement 需可验证互斥/CAS（独占 sidecar 锁 + 复检），无法保证则保守失败，绝不覆盖他人字节；补可控 seam 复现 compare 后竞态。
+9. **P1 seal 候选发布后同步缺失（确认）**：`seal.ts` 只在 temp index 删除 `writeSet.candidates`，未把候选路径纳入 post-publish condition/delete sync；候选在 final verify 后/CAS 前被重建时 K1 删除但 worktree 留 untracked draft，`cleanupRequired=false`。候选删除必须有带观察值的条件删除计划；并发新草稿保留并报 `cleanup_required`/unsynced；正常路径 worktree clean。
+10. **P1 inbox readdir 误判（确认）**：`inbox.ts::listWorktreeInboxIds` 捕获全部 readdir 异常返回 `[]`；权限/瞬态 I/O 被当空目录，可能误判 committed candidates 全被删除。只有 `ENOENT` 可视为空，其余 `E_FILESYSTEM_IO(70)` 阻断。
+11. **P2 README 人工区 pre-CAS 漂移（确认）**：`seal.ts` 以 seal 前 README 观察值构造 K1 并发布，人工区在观察后/CAS 前变化时先发布陈旧 human 字节、事后才报 cleanup。README（及所有带观察值的生成文件）须纳入 final pre-CAS 校验，漂移在发布前 invalidated，HEAD/index 不动、人工修改保留。
+12. **P2 migration baseline 空导航（确认）**：`writeMigratedSkeleton` 写空 marker 区，导航要等下一次 seal。迁移写完 docs 后必须用新模型渲染真实导航，并在同一个 migration baseline commit 提交。
+13. **P2 migration plan TOCTOU（确认）**：`planLegacyMigration` 在 registry 锁外读取 legacy，锁内直接写。锁内重做完整计划，并记录每个 legacy 输入字节 digest，在发布/绑定前复核；任一变化阻断且不绑定、不遗留目标。
+14. **P2 already_migrated 判定过弱（确认）**：`isInitializedKnowledgeRoot` 只看 `.git`/config/meta 存在。必须验证有效 HEAD、分支/操作态、repositoryId、完整 Knowledge model/meta/structure，并确认绑定目标精确匹配；损坏目标不得返回成功。
+15. **方向阻断 breaking replacement 未成立（确认）**：`cli.ts` 仍暴露 `fingerprint/init-state/new/adopt/mv` 与 deprecated `upgrade`，`hook/serve` 仍走旧 V3 workspace，均直接读写旧 `.mdx`/meta。必须从主 CLI、静态 imports、output schema 和公开测试中移除所有旧 V3 runtime command/dispatch/compatibility surface；`new/mv` 暂无 v3-ng 实现则先移除入口，后续按新协议实现，绝不回落旧实现。hook/skills/viewer 新接入留 M5，旧 V3 runtime 入口现在即不可达。
+16. **测试真实性（确认）**：`knowledge-update-prune.test.ts` 的「普通编辑不自动 current」用例断言了 `current`（读 K0）来规避 worktree 草稿状态问题。最终必须明确断言：正文或 front matter 普通编辑后 worktree 状态为 `needs_review`，`update --prepare` 不提交、不自动写验证 evidence，且不得删除该断言或接受 `current`。
+
+### 2. 修复不变量（返修后必须恒成立）
+
+- **prepare 不毁数据**：prune/update 只改 worktree 草稿并形成未确认 manifest；删除资格基于当前内容，目标相对 K0 有漂移一律拒绝；未提交候选不可 promote/reject。
+- **发布后同步区分已发布/未同步**：K1 发布后，候选删除与生成文件写入都带 seal 前观察值条件执行；观察值漂移保留外部字节并报 `cleanup_required`/unsynced；final pre-CAS 能发现的漂移在发布前 `E_REVIEW_INVALIDATED`。
+- **migration 是单次导入事务**：不可信旧输入只读；最终可迁移集合二次解析；无损不可保真即 skip/warning；target 与 legacyRoot 严格隔离；失败清理完整或结构化报告残留；baseline 自带真实导航；锁内重做计划并对 legacy digest 复核；already_migrated 必须完整校验。
+- **breaking replacement 以可执行入口为准**：主 CLI 无任何旧 V3 runtime command/dispatch/静态 import；output schema 无旧 V3 契约；公开测试不依赖旧 V3 入口；旧 `.mdx`/meta 只能由 `migrate` 读取。
+- **测试真实性**：普通编辑 → worktree `needs_review`；`update --prepare` 不 commit、不写 evidence；断言不可被弱化。
+
+### 3. 失败路径矩阵（新增，均需真实双 Git + 故障注入）
+
+| 场景 | 期望 |
+|---|---|
+| prune 目标相对 K0 有未提交重写 | 拒绝删除；HEAD/index/草稿字节均保留 |
+| prune 正常 eligible 且目标 clean | 删除并入链修复，seal 后结构有效 |
+| update promote/reject 未提交候选 | 明确阻断（E_CANDIDATE_UNCOMMITTED, 2）；草稿保留、HEAD 不动 |
+| update promote/reject K0 committed candidate | 正常；docs+meta+relations+候选移除单 K1 |
+| migrate 自建 target 中途验证失败 | 整根安全删除，registry/source/旧仓不变，可重试成功 |
+| migrate 预存在空目录中途失败 | 精确清除本次全部产物，目录保留，可重试 |
+| migrate 清理本身失败 | 结构化错误携带残留 paths，不声称无残留 |
+| legacy 关系/链接指向 skipped/collision | 二次解析后移除并 warning；不产生悬空引用 |
+| legacy 含未知 JSX/MDX 或不可解析 CodeRef | skipped + warning；不标 converted |
+| target==legacyRoot / 互相包含 | 写前阻断；dry-run 仅报告；旧树零触碰 |
+| README 标题/description 含 marker | 稳定转义；两次生成 human 字节不变、region 唯一 |
+| conditionalWrite observation=null 且文件已存在 | 返回 false，字节保留（wx） |
+| conditionalWrite compare 后并发写 | seam 复检发现，返回 false，他人字节保留 |
+| seal 候选在 final verify 后重建 | K1 无候选；worktree 保留新草稿；cleanupRequired=true |
+| seal README 人工区 pre-CAS 漂移 | E_REVIEW_INVALIDATED；HEAD/index 不动；人工修改保留 |
+| inbox 目录读失败（非 ENOENT） | E_FILESYSTEM_IO(70)；不误判空 |
+| migration baseline | README 含真实导航，与 docs 同 commit |
+| legacy 在锁内计划后被外部改动 | digest 复核失败，阻断、不绑定、清理目标 |
+| already_migrated 目标损坏 | 不返回成功；结构化错误 |
+| 普通 Markdown 编辑 | worktree needs_review；update --prepare 不 commit、不写 evidence |
+| 旧 V3 命令（new/mv/adopt/fingerprint/init-state/upgrade/hook/serve） | 主 CLI 不可达；无静态 import/schema/公开测试 |
+
+### 4. 测试矩阵（新增/改写，真实临时双 Git + 故障注入）
+
+- `knowledge-update-prune.test.ts`：prune 目标漂移拒绝并保留 HEAD/index/草稿；未提交候选 promote/reject 阻断；改写普通编辑用例为 worktree `needs_review` + 不提交 + 不写 evidence。
+- `knowledge-migrate.test.ts`：清理完整性与重试（验证/registry 写失败注入）；target/legacyRoot 重叠阻断（含 junction，平台支持时）；legacy 悬空关系/链接移除；未知 JSX/MDX/非自闭合 CodeRef skip；baseline 导航；legacy digest 复核；already_migrated 损坏目标。
+- `knowledge-navigation.test.ts`：marker 注入转义与两次生成稳定；README pre-CAS 漂移 invalidated（原 external 用例改写）。
+- `knowledge-capture.test.ts`：conditionalWrite 竞态 seam；inbox 读失败 E_FILESYSTEM_IO。
+- `knowledge-review-seal.test.ts`：候选 final-verify 后重建 → cleanup_required 且草稿保留。
+- 移除旧 V3 公开测试：`cli-write/cli-hooks/cli-startup-config/cli-startup-preload/cold-start/viewer-http/viewer-state/viewer-assets`；改写 `cli-misc/cli-output-schema/knowledge-maintenance-cli` 去掉 upgrade/hook/viewer/fingerprint/new/mv。
+- 既有 M1–M4 回归保持通过；最终一遍原样 `npm test` 记录真实 exit/files/tests/duration。
+
+### 5. 分步实施顺序（每步完成即回写本文件）
+
+1. **R1-a 数据安全**：#1 prune 漂移拒绝、#2 未提交候选阻断、#10 inbox readdir 分类。
+2. **R1-b 事务同步**：#8 conditionalWrite wx/锁 CAS、#9 候选条件删除、#11 生成文件 pre-CAS 校验、#7 导航转义。
+3. **R1-c migration**：#3 清理完整、#4 二次解析、#5 无损门槛、#6 路径隔离、#12 baseline 导航、#13 锁内计划+digest、#14 already_migrated 校验。
+4. **R1-d breaking replacement**：#15 移除旧 V3 runtime 命令/静态 imports/schema/公开测试。
+5. **R1-e 测试真实性**：#16 worktree needs_review 断言。
+6. **R1-f 收口**：定向测试 → typecheck/lint → 严格 legacy runtime namespace/CLI surface scan → `git diff --check` → 一遍原样 `npm test`；清理 `.llmdoc-tmp` 调试文件；回写实际结果与关闭证据，标记「M4 R1 返修完成，等待 Codex R2」。
+
+### 6. 续接入口
+
+- 代码起点：`prune.ts`/`update.ts`/`inbox.ts` → `transaction.ts`/`seal.ts`/`navigation.ts` → `legacy.ts`/`migrate.ts` → `cli.ts`/`output-schema.ts`/schema.json → 测试。
+- 每步完成立即在本节下方追加「R1-x 实施与验证记录」，含变更文件、真实命令输出、剩余问题与下一步。
+- 完成后停止，交 Codex R2；不进入 M5，不 stage/commit/reset/push。
+
+## M4 R1 返修实施与验证记录 — 2026-09-11
+
+状态：**M4 R1 返修完成，等待 Codex R2。** 16 项 findings 全部关闭并取得真实回归证据；最终一遍原样全量 `npm test` exit 0（26 files / 220 tests，Duration 1961.77s，无 Errors/Unhandled/Timeout）。未进入 M5，未 stage/commit/reset/push。
+
+### R1-a 数据安全（#1/#2/#10）
+
+- `prune.ts`：`buildPruneReport` 改用 `context.worktreeModel`（资格基于当前内容）；`applyPruneRemoval` 改 async，逐个目标读取 K0 blob 并与 worktree 字节比较，漂移即 `E_PRUNE_INSUFFICIENT`(2)，不 rm。
+- `update.ts`：`validateRequests` 改 async，只有 K0 committed candidate 且 worktree 字节等于 K0 blob 才允许 promote/reject；未提交或已改草稿抛 `E_CANDIDATE_UNCOMMITTED`(2)。
+- `inbox.ts`：`listWorktreeInboxIds` 仅 `ENOENT` 视为空；其余 readdir 失败抛 `E_FILESYSTEM_IO`(70)。
+- `errors.ts`：新增 `E_CANDIDATE_UNCOMMITTED`、`E_MIGRATION_TARGET_OVERLAP`、`E_LEGACY_CHANGED`。
+
+### R1-b 事务同步（#7/#8/#9/#11）
+
+- `transaction.ts`：`conditionalWrite` 在 `observation=null` 时用 `wx` 原子创建（拒绝覆盖并发新文件）；已有文件用 sidecar 独占锁 + compare/复检的 CAS，失败保守返回 false；新增 `ConditionalWriteHooks.afterCompare` seam 与 `conditionalDelete`；`GeneratedFilePlan` 新增 `remove`，post-publish 对候选做条件删除并报 unsynced/`cleanup_required`。
+- `seal.ts`：把 `manifest.writeSet.candidates` 加入 generated 删除计划（带 seal 前观察值）；`verifyFresh` 增加 `assertGeneratedFilesUnchanged`，README/meta/候选在确认后漂移即发布前 `E_REVIEW_INVALIDATED`。
+- `navigation.ts`：`escapeNavigationText` 稳定转义 `& < > [ ]`，标题/description 无法再注入 `NAVIGATION_START/END`。
+
+### R1-c migration（#3/#4/#5/#6/#12/#13/#14）
+
+- `legacy.ts`：两阶段计划——先扫描（kind/description/sourcePaths + CodeRef 转换 + 不可表达语法检测），再基于最终 converted 集合解析关系与正文链接；指向 skipped/collision 的关系/链接被移除并 warning（`legacy.relation.target-skipped`/`legacy.link.target-skipped`）；未知 JSX/MDX、非自闭合/无法解析 CodeRef 保守 `skipped`（`legacy.conversion.unsupported`）；`LegacyPlan` 新增 `legacyDigests`。
+- `migrate.ts`：真实迁移在 registry 锁内重做完整 plan；新增 `assertMigrationRootsIsolated`（target==legacy、互相包含，realpath/junction 感知，写前阻断，dry-run 仍报告）；`writeMigratedSkeleton` 在 baseline commit 内用新模型渲染真实导航；`assertLegacyInputsUnchanged` 在验证/绑定前复核所有 legacy 输入 digest；`cleanupTarget` 对自建 target 删整根、预存在空目录精确清除全部本次产物并返回残留；残留非空时结构化 `E_FILESYSTEM_IO`(70) 报告；`isInitializedKnowledgeRoot` 校验 committed HEAD/分支/操作态/repositoryId/meta/结构，损坏目标抛 `E_KNOWLEDGE_NOT_INITIALIZED`；新增 `MigrateTestHooks`（`beforeTargetValidate`/`beforeRegistryWrite`）故障注入。
+
+### R1-d breaking replacement（#15）
+
+- 删除旧 V3 runtime 命令模块：`commands/{new,adopt,mv,fingerprint,init-state,upgrade,hook,serve}.ts`。
+- `cli.ts`：移除上述静态 imports 与全部 command 注册；help 快速参考去掉 deprecated upgrade 与 hook/serve；`runCli` 去掉未用的 stdin 形参。
+- `bin/llmdoc.ts`：不再读取 hook stdin。
+- `output-schema.ts` + `schemas/output.schema.json`：删除 `fingerprint/upgrade/new/adopt/mv/hook/initState` 契约。
+- 删除旧 V3 公开测试：`cli-write/cli-hooks/cli-startup-config/cli-startup-preload/cold-start/viewer-http/viewer-state/viewer-assets/helpers.ts`；改写 `cli-misc/cli-output-schema/knowledge-maintenance-cli`。
+
+### R1-e 测试真实性（#16）
+
+- `knowledge-update-prune.test.ts`：普通正文/front matter 编辑后断言 worktree 投影 `needs_review`（新增 `worktreeValidityFor`），`update --prepare` 不 commit、meta 字节不变、不写 evidence；新增未提交候选 promote/reject 阻断与 prune 漂移拒绝用例。
+
+### R1 定向验证（真实临时双 Git + 故障注入）
+
+- `knowledge-navigation` 8/8、`knowledge-capture` 11/11、`knowledge-update-prune` 10/10（含新增漂移/未提交候选/worktree needs_review）。
+- `knowledge-migrate` 16/16（含 baseline 导航、JSX/CodeRef skip、悬空引用、路径重叠、junction/symlink 到达 legacy 的阻断、清理重试、registry 失败、legacy digest、损坏目标）。
+- `knowledge-review-seal` 24/24（含候选 final-verify 后重建 cleanup_required）。
+- `knowledge-cli-commit` 3/3、`knowledge-maintenance-cli` 1/1、`cli-misc` 3/3、`cli-output-schema` 2/2。
+- `knowledge-read` 13/13、`knowledge-r1` 10/10、`knowledge-r2` 10/10、`knowledge-status-delta` 4/4、`knowledge-validate` 4/4。
+- `npm run typecheck` exit 0；`npm run lint` exit 0；`git diff --check` exit 0（仅 LF/CRLF 提示）。
+- namespace/CLI surface scan：`lib/v3ng|runNg|ng-read|ngTree|ngError|...`、旧命令模块/`runNew|runMove|...`、旧 `.command("new"|...)` 全部无命中。
+- 全量门禁首跑 exit 1：仅 2 个失败，均为 `knowledge-cli-commit` 首用例超 30s 超时并级联（连带 `E_REVIEW_INVALID` 假失败）；已把该文件与 `knowledge-maintenance-cli`/`knowledge-update-prune` 的 per-file testTimeout 提升到 90s（调度参数，未改断言/未吞错），隔离复跑 3/3 + 1/1 通过。
+
+### 最终全量门禁与关闭证据
+
+- 最终一遍原样 `npm test`（`cmd /c "npm test > .llmdoc-tmp\m4r1full3.log 2>&1"` 后立即读真实 `$LASTEXITCODE`，无筛选管道）：**exit 0，26 files / 220 tests 全过，无 Errors/Unhandled/Timeout，Duration 1961.77s**。首跑 exit 1 仅两个超时级联，已用 per-file testTimeout 修复后隔离与全量均通过；随后新增 #6 junction 回归再跑一次仍 exit 0。
+- `npm run typecheck` exit 0；`npm run lint` exit 0；`git diff --check` exit 0（仅 LF/CRLF 提示）。
+- namespace/CLI surface scan 全部无命中：`lib/v3ng|runNg|ng-read|ngTree|ngError|ngIndex|ngShow|ngSearch|ngContext|llmdoc.ng-`、旧命令模块/`runNew|runMove|runFingerprint|runHook|runAdopt|runInitState|runUpgrade|runServe`、旧 `.command("new"|"adopt"|"mv"|"fingerprint"|"init-state"|"upgrade"|"hook"|"serve")`。
+- 环境核对：分支 `v3-ng`；`git diff --cached` 为空（index 无 staged）；真实 `%APPDATA%\llmdoc` 不存在；调试日志目录 `.llmdoc-tmp` 已删除；未 stage/commit/reset/push。
+- 逐项关闭证据：1 漂移拒绝 + 草稿保留；2 未提交候选 promote/reject 阻断；3 自建/预存在目标清理、重试、registry 失败注入；4 悬空关系/链接移除并 warning；5 JSX/MDX/非自闭合 CodeRef 保守 skip；6 target/legacyRoot 重叠写前阻断；7 marker 转义两次生成稳定；8 `wx` 创建 + compare/复检 seam；9 候选重建 cleanup_required 且草稿保留；10 非 ENOENT 读失败 E_FILESYSTEM_IO；11 README pre-CAS invalidated；12 baseline 真实导航；13 锁内重做 plan + legacy digest 复核；14 损坏目标不返回 already_migrated；15 旧 V3 runtime 命令/静态 imports/schema/公开测试全移除；16 普通编辑 worktree needs_review 且 prepare 不提交/不写 evidence。
+
+### 剩余问题与下一步
+
+- 停止，交 Codex R2；通过前不进入 M5。
+- 旧 V3 lib 模块（workspace/state/config/viewer-* 等）已无主 CLI 引用，物理删除留 M5 统一清理；主入口、静态 imports、schema 与公开测试已无旧 V3 runtime surface。
+- 关联 commit：无（按约定不提交、不暂存）。
+
+## M4 Codex 集中审查 R2 与返修计划 — 2026-09-11
+
+状态：设计先行，先落本计划再改代码。Codex R2 共 11 项（A1–A4、B1–B4、C1–C3）必须在本 M4 内关闭；不进入 M5，不改冻结 architecture/roadmap，不 stage/commit/reset/push，不触碰仓库外文件。共同边界：migration 是从不可信旧输入到新协议的单次导入事务，输入集合、目标提交树与目标所有权必须在写绑定前被完整复核；update/prune 的 prepare 只能在完整结构校验通过后一次性改写 worktree，任何失败都不得留下部分变更；事务 helper 的失败清理必须精确到本次创建的临时资源，并保持冻结协议声明的 cooperating-writer 边界（不宣称锁住不遵守协议的任意外部编辑器）。
+
+### 1. 逐项独立根因判断（核对 architecture §1/§3/§4/§5/§6/§7，不迎合既有测试）
+
+- **A1 [P1] legacy 输入最终校验不完整（确认）**：`migrate.ts` 仅在 `beforeTargetValidate` 前调用一次 `assertLegacyInputsUnchanged`；`beforeRegistryWrite` seam 在其后仍可改旧输入并被绑定。且 `plan.legacyDigests` 只覆盖计划时刻存在的文件，新增 `.mdx` 或计划时刻不存在的 `meta.json`/`llmdoc.config.json` 不在集合内，无法发现新增/删除。破坏的不变量：绑定必须只针对“计划时所见且此后未变的完整 legacy 输入集合”。修复：抽出唯一枚举函数 `collectLegacyInputDigests(sourceRoot, legacyRoot)`，计划与校验共用；校验比较**路径集合 + 每个 digest**，任何新增/删除/修改都 `E_LEGACY_CHANGED`；在验证阶段与 `beforeRegistryWrite` 之后（写 binding 紧前）各调用一次。
+- **A2 [P1] 新 target 绑定前验证不完整（确认）**：`assertMigratedTargetValid` 只看 worktree `docs`/`meta` 可解析，不校验 committed HEAD、分支、Git 操作态、`llmdoc.yaml` 的精确 repositoryId、`meta.source.repositoryId`，也不校验 HEAD tree 中 config/meta/docs/README 是否等于预期 baseline。破坏的不变量：绑定只能指向一个“committed 内容 = 本次生成的 migration baseline”且 HEAD/分支/身份精确匹配的健康知识仓。修复：`writeMigratedSkeleton` 返回 `expected: Map<repoPath, Buffer>`；新 `assertMigratedTargetValid(knowledge, repositoryId, expected)` 校验 worktree 布局、有效 HEAD、非 detached 且分支为 `main`、无操作态、`llmdoc.yaml` repositoryId 精确匹配、committed snapshot 的 config/meta repositoryId 匹配且无结构错误、HEAD tree 文件集合与字节完全等于 expected、worktree 全 clean（无 staged/unstaged/untracked/conflict）。
+- **A3 [P1] target 可用性 TOCTOU 与清理误删并发内容（确认）**：`assertTargetAvailable` 空目录检查与 `git init`/`writeMigratedSkeleton` 之间无所有权；`cleanupTarget` 在预存在空目录分支用 `listFilesRecursive` 递归删 `docs/**`，在自建分支整根递归删除，可能删掉并发进入的外部字节。破坏的不变量：清理只能删除本次生成且字节仍匹配观察值的路径；外部字节必须保留并结构化报告 residual。修复：空目录检查后立即用 `wx` 建立 target 所有权锁（`<target>.llmdoc-migrate.lock`，失败 `E_MIGRATION_TARGET_LOCKED`）并**复检**仍为空；新增 `beforeTargetInit` 故障注入 seam；skeleton 写完后、`git add` 前用 `assertTargetContentsOwned` 校验 target 内容 ⊆ 本次预期集合（排除本次 `.git`），出现外部路径即 `E_MIGRATION_TARGET_DIRTY`；`git add` 改为显式添加预期路径而非 `.`；`cleanupTarget(targetRoot, createdTarget, expected, lockPath)` 只删本次生成且字节匹配的路径，外部/漂移路径列入 residual，空目录自底向上删除，自建且已空才删根，锁在 finally 释放。
+- **A4 [P1] MDX 无损门槛不足（确认）**：`convertCodeRefs` 用 `/<CodeRef\b([\s\S]*?)\/>/` 只认自闭合且只取 `path`/`symbol`，额外属性、动态属性、非自闭合形式可能被部分转换或残留；`detectUnconvertibleSyntax` 只查残留 CodeRef、大写组件、import/export，未识别 MDX expression `{...}` 与 fragment `<>...</>`。破坏的不变量：解析成功不等于语义无损；不可完整表达的语法必须保守 `skipped`。修复：CodeRef 仅在“自闭合 + 属性恰为静态字符串 `path`（可选 `symbol`）”时转换，属性含 `{}`、额外属性、非自闭合一律不转换；先剥离 fenced code block 与 inline code 再检测残留 CodeRef、大写 JSX 组件、import/export、fragment、未转义 MDX expression，任一命中即 `skipped` + `legacy.conversion.unsupported`。
+- **B1 [P1] prune exact duplicate 比较过弱（确认）**：`findExactDuplicates` 只用 `topic/kind/description` 组键；同描述但正文、source.paths、relations 不同会被判重复。破坏的不变量：只有能证明语义相同的规范化内容才 eligible。修复：改为结构化内容键 `{topic, kind, description, sorted source.paths, sorted requires/related/supersedes, normalized body}`；仅完全一致才成组。
+- **B2 [P1] update promotion 覆盖既有文档/未提交草稿（确认）**：`applyPromotions` 用 `fs.writeFileSync(to)` 直接覆盖。破坏的不变量：promotion 默认 fail closed，目标存在即拒绝；冻结协议没有显式 replace 操作。修复：`validateRequests` 在写前检查目标 id 在 worktree 或 K0 中已存在（或磁盘存在）即抛 `E_DOCUMENT_EXISTS`(2)；`applyPromotions` 用 `wx` 原子创建，绝不覆盖。
+- **B3 [P1] update 校验前写 docs/删候选，失败留部分变更（确认）**：`updateLocked` 先 `applyPromotions/applyRejections` 再 `assertReviewPreconditions`/`buildReviewManifest`；relation 缺失、supersedes 类型/环、正文悬空链接、整体结构错误等都会在已改 worktree 之后才暴露。破坏的不变量：任意验证失败时 worktree/candidate/HEAD/index 字节完全不变。修复：`validateRequests` 先在内存用“当前 worktree 文档 − 被提升目标 + 提升后文档”构造 projected `KnowledgeModel` 并拒绝任何 error（覆盖 source.paths 规范、relations 存在性/类型/自引用/环、正文链接、整体模型）；全部通过后才 `applyMutations` 一次性写入（promotion `wx`，rejection 先备份字节再删）；apply 内部与 apply 之后的 `resolveKnowledgeWriteContext`/`assertReviewPreconditions`/`buildReviewManifest`/`writeReviewManifest` 任一步失败都调用 rollback 精确还原（删除新建文档、恢复被删候选）。prune 复用同一 validate-then-apply + rollback 形态。
+- **B4 [P2] prune 可删除整个等价组（确认）**：重复组所有成员都被标 eligible，`--remove` 可全删。破坏的不变量：等价组至少保留一个副本。修复：稳定选 `id` 字典序最小的成员为 canonical survivor，报告中标 `eligible:false` + 保留理由，其余成员 eligible；`pruneLocked` 增加守卫，若一次请求覆盖某重复组全部成员则 `E_PRUNE_INSUFFICIENT`(2) 拒绝。
+- **C1 [P2] conditionalWrite rename 失败遗留临时文件（确认）**：temp 写成功后 `renameSync` 抛错时 catch 返回 false，finally 只删 sidecar lock，`.llmdoc-sync-*` 残留。破坏的不变量：finally 只清理本次调用创建的临时资源。修复：用局部 `tempPath` 变量记录，成功后置 null，finally 删除仍存在的 temp；新增 `ConditionalWriteHooks.beforeRename` seam 做真实 rename 失败注入。
+- **C2 [P2] conditionalWrite 最后指令窗口（确认，保持边界）**：冻结 architecture §6 明确“条件文件更新尽量使用短持锁区与原子替换，不能宣称能锁住不遵守协议的任意编辑器”。不扩大为通用 CAS；保留 cooperating-writer 边界，测试与该边界一致（不新增“锁住任意外部编辑器”的断言）。
+- **C3 [P2] conditionalDelete 非空 observation 分支 read→rm 竞态（确认）**：非空分支 compare 后 `rmSync` 之间有窗口；而产品实际只删除 observation 为空的候选（`computeRemovedCandidates` 已保证候选在 seal 计划时不在 worktree）。修复：把 helper 收窄为“仅 observation===null 时成功，且当前仍不存在才成功；存在则保留并 unsynced”；`observation!==null` 一律返回 false（不删除）。seal 的候选删除计划保持 observation=null 语义。
+
+### 2. 修复不变量（返修后必须恒成立）
+
+- **migration 单次导入事务**：legacy 输入集合与每个字节 digest 在计划、验证、写 binding 紧前三次一致；任何新增/删除/修改都不绑定。
+- **目标绑定前置条件**：只绑定“committed HEAD 有效、分支/操作态正常、repositoryId（config 与 meta.source）精确匹配、HEAD tree 与本次 baseline 逐字节一致、worktree clean”的目标。
+- **目标所有权与清理**：空目录检查后立即独占加锁并复检；只清理本次生成且观察值匹配的路径；外部字节保留并以 residual paths 结构化报告，绝不递归扫掉 `docs`。
+- **MDX 无损**：只有协议允许且完整表达的静态 CodeRef 才转换；额外/动态/非自闭合 CodeRef、MDX expression、fragment、未知组件一律 skip+warning。
+- **prepare 不毁数据**：prune/update 先完成全部结构校验（projected model），再一次性应用；任意失败回滚到 HEAD/index/candidate/worktree 原字节。
+- **promotion fail closed**：目标路径已存在（worktree 或 K0）即拒绝，绝不隐式覆盖。
+- **等价组保留副本**：重复组稳定 canonical survivor，仅其余 eligible；整组删除被拒绝。
+- **事务清理精确**：conditionalWrite 只清本次 temp 与 sidecar lock；conditionalDelete 只支持 observation=null 候选删除；保持 cooperating-writer 边界。
+- Source Git 全程只读；Knowledge Git 是唯一持久写边界。
+
+### 3. 失败路径矩阵（均需真实双 Git + 故障注入）
+
+| 场景 | 期望 |
+|---|---|
+| `beforeRegistryWrite` 修改既有 legacy 文件 | `E_LEGACY_CHANGED`；不绑定；自建 target 清理 |
+| `beforeRegistryWrite` 新增 legacy `.mdx`/`meta.json`/`config` | 路径集合变化 → `E_LEGACY_CHANGED`；不绑定 |
+| `beforeRegistryWrite` 删除 legacy 文件 | 路径集合变化 → `E_LEGACY_CHANGED`；不绑定 |
+| `beforeTargetValidate` 删除/篡改 worktree config/meta | 不写 binding；结构化错误；target 清理 |
+| `beforeTargetValidate` 改变 HEAD（提交额外内容） | HEAD tree ≠ baseline → 不写 binding |
+| `beforeTargetValidate` 改变 worktree | worktree clean 校验失败 → 不写 binding |
+| 空目录检查后并发进入外部字节 | `E_MIGRATION_TARGET_DIRTY`；外部字节保留；residual 结构化报告；不绑定 |
+| legacy 含额外属性/动态/非自闭合 CodeRef | `skipped` + `legacy.conversion.unsupported`；不标 converted |
+| legacy 含 MDX expression / fragment | `skipped` + warning |
+| 同描述不同正文/证据/关系的两文档 | 不判 exact duplicate；不 eligible |
+| promotion 目标已存在（正式文档或 human draft） | `E_DOCUMENT_EXISTS`(2)；既有字节保留；HEAD/index 不动 |
+| promotion requires 缺失/类型错/环、正文悬空链接 | `E_STRUCTURE_INVALID`(2)；candidate 保留；无 docs 写入；HEAD/index 不动 |
+| promotion apply 中途 I/O 失败 | rollback：删除已写文档、恢复候选；HEAD/index 不动 |
+| `--remove` 覆盖整个重复组 | `E_PRUNE_INSUFFICIENT`(2)；至少保留 canonical survivor |
+| conditionalWrite rename 失败 | 返回 false；无 `.llmdoc-sync-*` 残留；sidecar lock 释放 |
+| conditionalDelete observation=null 且文件存在 | 返回 false；文件保留；unsynced/cleanupRequired |
+| conditionalDelete observation≠null | 返回 false；绝不删除 |
+
+### 4. 测试矩阵（新增/改写，真实临时双 Git + 故障注入）
+
+- `knowledge-migrate.test.ts`：`beforeRegistryWrite` 改/增/删 legacy 输入；`beforeTargetValidate` 篡改 config/meta/HEAD/worktree；`beforeTargetInit` 并发外部字节 → 保留 + residual；额外/动态/非自闭合 CodeRef、MDX expression/fragment skip。
+- `knowledge-update-prune.test.ts`：同描述不同正文/关系不重复；promotion 目标已存在拒绝且字节保留；promotion relation 错误 → candidate 保留、无 docs 写入、HEAD/index 不变；`afterApply` 注入失败 → rollback；重复组 canonical survivor + 整组删除拒绝；既有 prune 用例按 survivor 语义调整。
+- `knowledge-capture.test.ts`：conditionalWrite `beforeRename` 失败无 temp 残留；conditionalDelete 收窄语义（observation=null 存在→false 保留；observation≠null→false 不删）。
+- 既有 M1–M4 回归保持通过；最终一遍原样 `npm test` 记录真实 exit/files/tests/duration。
+
+### 5. 分步实施顺序（每步完成即回写本文件，支持断点续接）
+
+1. **R2-a migration 收口**：A1 legacy 全量枚举复核、A2 committed target 校验、A3 所有权锁 + 精确清理、A4 MDX 门槛；新增/改写 migrate 测试。
+2. **R2-b update/prune 数据安全**：B1 内容键、B2 fail-closed、B3 validate-then-apply + rollback、B4 canonical survivor；改写 update/prune 测试。
+3. **R2-c 事务收口**：C1 temp 清理 + `beforeRename`、C3 conditionalDelete 收窄；补 capture/transaction 测试。
+4. **R2-d 收口**：定向 knowledge 套件 → typecheck/lint → `git diff --check` → 一遍原样 `npm test`；清理调试产物；回写实际结果，标记「M4 R2 返修完成，等待 Codex R3」。
+
+### 6. 续接入口
+
+- 代码起点：`legacy.ts`/`migrate.ts` → `prune.ts`/`update.ts` → `transaction.ts` → 测试。
+- 每步完成立即在本节下方追加「R2-x 实施与验证记录」，含变更文件、真实命令输出、剩余问题与下一步。
+- 完成后停止，交 Codex R3；不进入 M5，不 stage/commit/reset/push。
+
+## M4 R2 返修实施与验证记录 — 2026-09-11
+
+状态：**M4 R2 返修实现完成，等待 Codex R3。** 未进入 M5，未 stage/commit/reset/push。
+
+### R2-a migration 收口（A1/A2/A3/A4）
+
+- `legacy.ts`：新增导出 `collectLegacyInputDigests(sourceRoot, legacyRoot)`，一次枚举全部 `.mdx` + 可选 `meta.json`/`llmdoc.config.json` 并逐字节 sha256；`planLegacyMigration` 改用它。`convertCodeRefs` 重写为只转换“自闭合 + 属性恰为静态字符串 `path`（可选 `symbol`）”；新增 `parseStaticCodeRefAttributes`（拒绝 `{}`、额外属性、裸 token）。`detectUnconvertibleSyntax` 先 `stripCodeRegions`（剥离 fenced code 与 inline code）再检测残留 CodeRef、大写 JSX、import/export、fragment `<>`、未转义 MDX expression `{...}`。
+- `migrate.ts`：`assertLegacyInputsUnchanged` 改为重新枚举并与 `plan.legacyDigests` 比较**路径集合 + 每个 digest**（新增/删除/修改一律 `E_LEGACY_CHANGED`），并在 `beforeRegistryWrite` 之后、写 binding 紧前再调用一次。`writeMigratedSkeleton` 返回 `expected: Map<repoPath, Buffer>`；`assertMigratedTargetValid` 改为校验 committed target：worktree 布局、有效 HEAD、非 detached 且分支 `main`、无 Git 操作态、worktree `llmdoc.yaml` repositoryId 精确匹配、committed config/meta repositoryId 匹配、committed model 无结构错误、HEAD tree 与 expected 逐路径逐字节一致、worktree 全 clean。`git add` 改为显式添加 expected 路径。新增 `acquireTargetOwnership`/`releaseTargetOwnership`（`<target>.llmdoc-migrate.lock`，`wx`，冲突 `E_MIGRATION_TARGET_LOCKED`）、`beforeTargetInit` seam、`assertTargetContentsOwned`（外部路径 `E_MIGRATION_TARGET_DIRTY`）；`cleanupTarget` 重写为只删本次生成且字节匹配的路径、`.git` 与空目录，外部/漂移路径保留为 residual，自建 target 仅在清空后删除。
+- `errors.ts`：新增 `E_DOCUMENT_EXISTS`、`E_MIGRATION_TARGET_LOCKED`、`E_MIGRATION_TARGET_DIRTY`。
+- 验证：`knowledge-migrate.test.ts` 25/25（含 `beforeRegistryWrite` 改/增/删 legacy、`beforeTargetValidate` 删 config/篡改 meta/额外 worktree 文件/移动 HEAD、`beforeTargetInit` 并发外部字节保留 + residual、额外/动态/非自闭合 CodeRef 与 MDX expression/fragment skip）。
+
+### R2-b update/prune 数据安全（B1/B2/B3/B4）
+
+- `prune.ts`：`findExactDuplicates` 改为 `findDuplicateGroups` + `exactDuplicateKey`（topic/kind/description + 规范化正文 + 排序后的 source.paths 与 requires/related/supersedes），同描述不同内容不再判重复。稳定取字典序最小成员为 canonical survivor，报告中标 `eligible:false` 并给出保留理由，仅其余成员 eligible；`pruneLocked` 增加“一次 remove 覆盖整组即 `E_PRUNE_INSUFFICIENT`”守卫。`applyPruneRemoval` 返回 `{ repaired, rollback }`，删除前备份字节，后续 `resolveKnowledgeWriteContext`/`assertReviewPreconditions`/`buildReviewManifest` 失败即回滚。
+- `update.ts`：`validateRequests` 新增目标存在 fail-closed（worktree/K0/磁盘任一存在即 `E_DOCUMENT_EXISTS`(2)）与重复目标检查；新增 `validateProjectedStructure`，在内存构造“worktree − 被提升目标 + 提升后文档”的 projected `KnowledgeModel`，任何 source scope/relations/类型/环/正文链接 error 即 `E_STRUCTURE_INVALID`(2)，发生在写 worktree 之前。`applyPromotions`/`applyRejections` 合并为 `applyMutations`：promotion 用 `wx` 创建并消费候选，rejection 先备份再删；返回 rollback，apply 中途或 apply 之后（fresh reload/preconditions/manifest）任一步失败都精确还原。新增 `UpdateTestHooks.afterApply` 故障注入。
+- 验证：`knowledge-update-prune.test.ts` 15/15（同描述不同正文不重复；整组删除拒绝；目标已存在拒绝且字节保留；relation 错误 `E_STRUCTURE_INVALID` 且 candidate/HEAD/index/meta 不变；`afterApply` 注入失败 rollback；既有 prune/update 用例按 survivor 语义调整后仍通过）。
+
+### R2-c 事务收口（C1/C3，C2 保持边界）
+
+- `transaction.ts`：`conditionalWrite` 用局部 `tempPath` 记录本次临时文件，rename 成功置 null，finally 只清理由本次调用创建的 temp 与 sidecar lock；新增 `ConditionalWriteHooks.beforeRename` 故障注入。`conditionalDelete` 收窄为仅支持 `observation===null`：当前仍不存在才成功；存在则返回 false 保留并 unsynced；`observation!==null` 一律返回 false 绝不删除（保持 architecture §6 cooperating-writer 边界，未扩大为通用 CAS）。
+- 验证：`knowledge-capture.test.ts` 13/13（新增 rename 失败无 `.llmdoc-sync-*` 残留；conditionalDelete 收窄语义）。
+
+### R2 定向验证（真实临时双 Git + 故障注入）
+
+- `knowledge-migrate` 25/25；`knowledge-update-prune` 15/15；`knowledge-capture` 13/13；均 exit 0。
+- `npm run typecheck` exit 0；`npm run lint` exit 0；`git diff --check` exit 0（仅 LF/CRLF 提示）。
+- **最终一遍原样全量 `npm test`**（`cmd /c "npm test > <temp>\m4r2full.log 2>&1"` 后立即读真实 `$LASTEXITCODE`，无筛选管道）：**exit 0，26 files / 236 tests 全过，无 FAIL/Unhandled/Timeout，Duration 2167.35s**。较 R1 的 220 tests 增加 16 个 R2 回归（migrate +9、update/prune +5、capture +2）。
+- 环境核对：分支 `v3-ng`；`git diff --cached` 为空（index 无 staged）；无 `.llmdoc-tmp` 调试产物；临时全量日志置于仓库外并已删除；未 stage/commit/reset/push。
+
+### 逐项关闭证据
+
+- A1：`beforeRegistryWrite` 改既有文件/新增 `.mdx`/删除文件均 `E_LEGACY_CHANGED`、不绑定、自建 target 清理；校验比较完整路径集合 + digest。
+- A2：`beforeTargetValidate` 删 worktree config（清理目标）/篡改 meta（保留 drifted 字节 + residual）/额外 worktree 文件/移动 HEAD 均不绑定；committed HEAD/branch/操作态/config/meta/tree/clean 全部校验。
+- A3：`beforeTargetInit` 并发外部字节保留、`E_FILESYSTEM_IO` 结构化报告 residual、不绑定；所有权锁 + 复检；清理只删本次生成且字节匹配路径。
+- A4：额外/动态/非自闭合 CodeRef 与 MDX expression/fragment 全部 skipped + `legacy.conversion.unsupported`。
+- B1：同描述不同正文/关系不判 exact duplicate。
+- B2：promotion 目标已存在 `E_DOCUMENT_EXISTS`(2)，既有字节保留、候选保留、HEAD 不动。
+- B3：relation 错误在写前 `E_STRUCTURE_INVALID`(2)，candidate/HEAD/index/meta 字节不变；`afterApply` 注入失败 rollback 精确还原。
+- B4：重复组稳定 canonical survivor，整组删除 `E_PRUNE_INSUFFICIENT`(2)。
+- C1：rename 失败无 `.llmdoc-sync-*` 残留。
+- C2：保持 cooperating-writer 边界，未扩大为通用 CAS。
+- C3：`conditionalDelete` 仅支持 observation=null；存在即保留 unsynced；非空 observation 绝不删除。
+
+### 剩余问题与下一步
+
+- 停止，交 Codex R3；通过前不进入 M5，不 stage/commit/reset/push。
+- 关联 commit：无（按约定不提交、不暂存）。
+
+## M4 Codex R3 直接接管收口 — 2026-09-11
+
+状态：R3 并行审查代理因账户用量限制未产出结论，Codex 按约定直接完成最终审查与修复；先记录设计，再改代码。
+
+### R3 finding 与协议判断
+
+- **P1 migration 绑定前目标仍可漂移**：`beforeRegistryWrite` 之后只重枚举 legacy 输入，未再次调用 `assertMigratedTargetValid`。因此目标 HEAD、`llmdoc.yaml`、meta、docs 或 README 可在首次验证后、registry binding 写入前发生变化，最终仍绑定到不再等于 migration baseline 的知识仓。这违反“绑定只能指向已验证 committed target”的事务边界。
+- 修复：在 `beforeRegistryWrite` seam 返回后、`insertBinding` 紧前，依次执行完整 legacy 集合/digest 复核与完整 committed target 复核；任何一方漂移均不写 binding，并按既有精确 cleanup 规则保留外部字节、报告 residual。
+- 测试：新增 `beforeRegistryWrite` 修改 target HEAD/内容的真实双 Git 故障注入，断言不绑定、外部字节保留、错误明确；随后运行 migration 定向测试、typecheck、lint、`git diff --check` 和最终全量测试。
+
+### R3 实施顺序
+
+1. 增加 binding 紧前的 target final verification。
+2. 增加首次验证后 target 漂移的回归测试。
+3. 完成门禁并回写真实证据；通过后 stage 精确 M4 diff 并提交。
+
+### R3 实施与最终验收
+
+- `migrate.ts`：在 `beforeRegistryWrite` 返回后、`insertBinding` 紧前同时重做完整 legacy 输入集合/digest 与 committed target 验证；目标 HEAD、分支、操作态、config/meta 身份、baseline tree 字节或 worktree clean 任一漂移均不会获得 binding。
+- `knowledge-migrate.test.ts`：新增首次 target 验证后在 `beforeRegistryWrite` 创建并提交外部文件的故障注入；结果不写 registry binding，外部提交字节被精确 cleanup 保留并报告。
+- 定向新用例：1/1，exit 0；完整 `knowledge-migrate.test.ts`：26/26，exit 0，Duration 180.34s。
+- `npm run typecheck` exit 0；`npm run lint` exit 0。
+- 最终原样 `npm test`：**exit 0，26 files / 237 tests 全过，Duration 2410.84s**。
+- R3 结论：M4 通过集中审查，可以提交；后续 M5 必须使用新的 OpenCode 会话。

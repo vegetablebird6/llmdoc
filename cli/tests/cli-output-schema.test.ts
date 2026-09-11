@@ -1,29 +1,11 @@
 import { describe, expect, test } from "vitest";
 
-import { runCli } from "../src/cli.js";
-import { assertOutputSchema } from "../src/lib/output-schema.js";
-import { createFixture } from "./helpers.js";
+import { assertOutputSchema, type OutputSchemaName } from "../src/lib/output-schema.js";
 
-describe("llmdoc cli", () => {
-  test("all public json payloads validate through runtime output schemas", async () => {
-    const rootDir = createFixture();
-    const fingerprint = await runCli(["--json", "fingerprint", "--update", "api-client/overview.mdx"], rootDir);
-    expect(() => JSON.parse(fingerprint.stdout)).not.toThrow();
-    const prune = await runCli(["--json", "prune", "--report"], rootDir);
-    expect(() => JSON.parse(prune.stdout)).not.toThrow();
-    const upgrade = await runCli(["--json", "upgrade"], rootDir);
-    expect(() => JSON.parse(upgrade.stdout)).not.toThrow();
-    const created = await runCli(["--json", "new", "fresh-topic/getting-started.mdx", "--kind", "guide"], rootDir);
-    expect(() => JSON.parse(created.stdout)).not.toThrow();
-    const moved = await runCli(["--json", "mv", "api-client/retry-policy.mdx", "api-client/retry-strategy.mdx"], rootDir);
-    expect(() => JSON.parse(moved.stdout)).not.toThrow();
-    const stop = await runCli(["hook", "stop"], rootDir);
-    expect(() => JSON.parse(stop.stdout)).not.toThrow();
-    const compact = await runCli(["hook", "compact"], rootDir);
-    expect(() => JSON.parse(compact.stdout)).not.toThrow();
-  });
+const assertByName = assertOutputSchema as (name: OutputSchemaName, payload: unknown) => void;
 
-  test("output schema validator accepts the v3-ng status contract and rejects stale or malformed payloads", () => {
+describe("output schemas", () => {
+  test("accepts the status contract and rejects stale or malformed payloads", () => {
     expect(() =>
       assertOutputSchema("status", {
         schema: "llmdoc.status/v1",
@@ -63,12 +45,11 @@ describe("llmdoc cli", () => {
         }
       })
     ).toThrow("Internal output contract error");
+  });
 
-    expect(() =>
-      assertOutputSchema("hook", {
-        continue: true,
-        systemMessage: 42
-      })
-    ).toThrow("Internal output contract error");
+  test("the removed V3 runtime output contracts are no longer registered", () => {
+    for (const name of ["fingerprint", "upgrade", "new", "adopt", "mv", "hook", "initState"]) {
+      expect(() => assertByName(name as OutputSchemaName, {})).toThrow();
+    }
   });
 });

@@ -4,6 +4,8 @@ import path from "node:path";
 
 import { KnowledgeError, runFileSystemIo } from "./errors.js";
 import { relationsFor, type KnowledgeModel } from "./knowledge-model.js";
+import { isInboxCandidateId, listWorktreeInboxIds } from "./inbox.js";
+import { navigationChanged } from "./navigation.js";
 import type { KnowledgeSnapshot } from "./read.js";
 import type { KnowledgeMeta, ValidatedEvidence } from "./meta.js";
 import { canonicalizeSourcePath, type KnowledgeDocument } from "./document.js";
@@ -59,6 +61,8 @@ export interface ReviewWriteSet {
   documents: string[];
   refresh: string[];
   deletions: string[];
+  /** inbox candidate ids removed by this seal (promotion or rejection). */
+  candidates: string[];
   meta: boolean;
   generated: string[];
 }
@@ -120,7 +124,7 @@ export function buildReviewManifest(context: KnowledgeWriteContext, options: Bui
   const items = buildReviewItems(context, {});
   const conclusions = new Map(items.map((item) => [item.id, item.proposedConclusion]));
   const withRequires = attachCandidateRequires(context, items, conclusions);
-  const writeSet = deriveWriteSet(withRequires, conclusions, options.global === true);
+  const writeSet = deriveWriteSet(withRequires, conclusions, options.global === true, context);
   return {
     schema: REVIEW_SCHEMA,
     reviewId: generateReviewId(),
@@ -352,7 +356,8 @@ export function computeFinalDigests(
 export function deriveWriteSet(
   items: ReviewDocumentItem[],
   conclusions: Map<string, ReviewConclusion>,
-  advanceGlobalReview: boolean
+  advanceGlobalReview: boolean,
+  context?: KnowledgeWriteContext
 ): ReviewWriteSet {
   const documents: string[] = [];
   const refresh: string[] = [];
@@ -373,14 +378,38 @@ export function deriveWriteSet(
       refresh.push(item.id);
     }
   }
-  const meta = documents.length + refresh.length + deletions.length > 0 || advanceGlobalReview;
+  const candidates = context ? computeRemovedCandidates(context) : [];
+  // Navigation is only regenerated when the document set or bytes actually change; a
+  // pure meta-only refresh or a global-review advance must not fabricate a README commit.
+  const contentChange = documents.length + deletions.length + candidates.length > 0;
+  const navigation = contentChange && context ? navigationChanged(context) : false;
+  const meta = documents.length + refresh.length + deletions.length + candidates.length > 0 || advanceGlobalReview;
+  const generated: string[] = [];
+  if (meta) {
+    generated.push(".llmdoc/meta.json");
+  }
+  if (navigation) {
+    generated.push("README.md");
+  }
   return {
     documents: documents.sort(),
     refresh: refresh.sort(),
     deletions: deletions.sort(),
+    candidates: candidates.sort(),
     meta,
-    generated: meta ? [".llmdoc/meta.json"] : []
+    generated
   };
+}
+
+function computeRemovedCandidates(context: KnowledgeWriteContext): string[] {
+  const committed = new Set<string>();
+  const worktree = new Set(listWorktreeInboxIds(context.knowledge.worktreeRoot));
+  for (const id of context.k0InboxIds ?? []) {
+    if (!worktree.has(id)) {
+      committed.add(id);
+    }
+  }
+  return [...committed].sort();
 }
 
 /**
@@ -558,13 +587,21 @@ function validateWriteSet(input: unknown, label: string): ReviewWriteSet {
   const documents = validateDocIdArray(record.documents, `${label}.writeSet.documents`);
   const refresh = validateDocIdArray(record.refresh, `${label}.writeSet.refresh`);
   const deletions = validateDocIdArray(record.deletions, `${label}.writeSet.deletions`);
+  const candidates = validateCandidateIdArray(record.candidates, `${label}.writeSet.candidates`);
   if (typeof record.meta !== "boolean") {
     throw invalidManifest("writeSet.meta must be a boolean", label);
   }
   if (!Array.isArray(record.generated) || record.generated.some((entry) => !isSafeRelativePath(entry))) {
     throw invalidManifest("writeSet.generated must be an array of safe repository-relative paths", label);
   }
-  return { documents, refresh, deletions, meta: record.meta, generated: [...(record.generated as string[])] };
+  return { documents, refresh, deletions, candidates, meta: record.meta, generated: [...(record.generated as string[])] };
+}
+
+function validateCandidateIdArray(input: unknown, label: string): string[] {
+  if (!Array.isArray(input) || input.some((entry) => !isInboxCandidateId(entry))) {
+    throw invalidManifest("write set candidate entries must be inbox-relative .md candidate ids", label);
+  }
+  return [...(input as string[])];
 }
 
 function validateScopeArray(input: unknown, label: string): string[] {
@@ -684,7 +721,7 @@ export function confirmReviewManifest(
   }));
   const conclusions = new Map(items.map((item) => [item.id, item.conclusion as ReviewConclusion]));
   const withRequires = attachCandidateRequires(context, items, conclusions);
-  const writeSet = deriveWriteSet(withRequires, conclusions, manifest.advanceGlobalReview);
+  const writeSet = deriveWriteSet(withRequires, conclusions, manifest.advanceGlobalReview, context);
   return {
     ...manifest,
     // Trust the freshly resolved binding/revisions, never the manifest cache values.

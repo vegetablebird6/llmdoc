@@ -110,7 +110,7 @@ describe("review manifest and seal transaction", () => {
       .map((line) => line.trim())
       .filter(Boolean)
       .sort();
-    expect(committed).toEqual([".llmdoc/meta.json", "docs/a.md"]);
+    expect(committed).toEqual([".llmdoc/meta.json", "README.md", "docs/a.md"]);
 
     const meta = JSON.parse(fs.readFileSync(path.join(fixture.knowledgeRoot, ".llmdoc", "meta.json"), "utf8")) as {
       documents: Record<string, { validatedContentDigest: string; validatedSourceRevision: string }>;
@@ -638,6 +638,41 @@ describe("review manifest and seal transaction", () => {
     expect(manifestConsumed(fixture, manifest.reviewId)).toBe(false);
     expect(head(fixture.knowledgeRoot)).toBe(fixture.knowledgeHead);
     expect(git(fixture.knowledgeRoot, ["diff", "--cached", "--name-only"]).trim()).toBe("docs/a.md");
+  });
+
+  it("reports cleanup_required when a removed candidate is recreated after the final verification", async () => {
+    const fixture = await makeFixture("llmdoc-seal-candidate-race-", [{ id: "a.md", content: docA(), scope: ["src/a.ts"] }]);
+    const { captureCandidate } = await import("../src/lib/knowledge/capture.js");
+    const { runUpdateWorkflow } = await import("../src/lib/knowledge/update.js");
+    const captured = await captureCandidate({
+      sourceInput: fixture.source,
+      registryDir: fixture.registryDir,
+      title: "race candidate",
+      body: "# candidate\n"
+    });
+    const candidateId = captured.candidateId;
+
+    const update = await runUpdateWorkflow({
+      sourceInput: fixture.source,
+      registryDir: fixture.registryDir,
+      reject: [candidateId]
+    });
+    expect(update.writeSet?.candidates).toEqual([candidateId]);
+    await confirm(fixture, loadReviewManifest(fixture.knowledgeRoot, update.reviewId!));
+
+    const candidatePath = path.join(fixture.knowledgeRoot, "inbox", candidateId);
+    const recreated = '---\ntitle: "recreated draft"\n---\n\n# recreated\n';
+    const result = await seal(fixture, update.reviewId!, {
+      beforeCas: () => {
+        fs.writeFileSync(candidatePath, recreated);
+      }
+    });
+
+    // K1 removed the candidate, but the concurrent new draft is preserved and reported.
+    expect(result.cleanupRequired).toBe(true);
+    expect(fs.readFileSync(candidatePath, "utf8")).toBe(recreated);
+    expect(git(fixture.knowledgeRoot, ["ls-tree", "-r", "--name-only", "HEAD"])).not.toContain(`inbox/${candidateId}`);
+    expect(result.sync.errors.some((error) => error.includes(candidateId))).toBe(true);
   });
 });
 

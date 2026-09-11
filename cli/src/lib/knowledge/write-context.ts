@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { KnowledgeError } from "./errors.js";
 import { resolveWriteBinding, type PreciseBinding } from "./binding.js";
 import {
+  listTreeFiles,
   readCleanSnapshot,
   readHeadState,
   runGit,
@@ -11,6 +12,7 @@ import {
   type HeadState
 } from "./git-core.js";
 import { buildKnowledgeModelFromRaw, type KnowledgeIssue, type KnowledgeModel } from "./knowledge-model.js";
+import { isInboxCandidateId } from "./inbox.js";
 import { readKnowledgeSnapshot, type KnowledgeSnapshot } from "./read.js";
 import { resolveSourceContext, type KnowledgeContext, type SourceContext } from "./contexts.js";
 import type { BindingEntry } from "./registry.js";
@@ -33,6 +35,8 @@ export interface KnowledgeWriteContext {
   k0Model: KnowledgeModel;
   worktreeModel: KnowledgeModel;
   validity: ValidityProjection;
+  /** Committed inbox candidate ids at K0; used to compute promotion/rejection removals. */
+  k0InboxIds: string[];
   issues: KnowledgeIssue[];
 }
 
@@ -49,6 +53,7 @@ interface KnowledgeViews {
   k0Model: KnowledgeModel;
   worktreeModel: KnowledgeModel;
   validity: ValidityProjection;
+  k0InboxIds: string[];
 }
 
 /**
@@ -123,7 +128,15 @@ async function assembleKnowledgeViews(
     identityVerified: true,
     knowledgeRevision: k0.knowledgeRevision
   });
-  return { k0, worktree, k0Model, worktreeModel, validity };
+  const k0InboxIds =
+    k0.knowledgeRevision === null
+      ? []
+      : (await listTreeFiles(knowledgeGit, k0.knowledgeRevision, "inbox"))
+          .filter((file) => file.startsWith("inbox/"))
+          .map((file) => file.slice("inbox/".length))
+          .filter((id) => isInboxCandidateId(id))
+          .sort();
+  return { k0, worktree, k0Model, worktreeModel, validity, k0InboxIds };
 }
 
 export async function detectKnowledgeOperation(layout: GitRepoLayout): Promise<KnowledgeOperation | null> {
