@@ -2147,3 +2147,7 @@ Linux 无本机环境时：以现有 `ubuntu-latest` CI（`npm ci` → typecheck
 状态：本仓库本地 Git 身份已设置为 `vegetable6 <xukun6cai@gmail.com>`，未修改全局 Git 配置或其他仓库。`v3-ng` 尚未推送且无 upstream，因此将 M1–M5 五个提交的 author/committer 原地改写为该身份；改写前后 `git diff` 为空，代码树完全一致。改写后的 M1–M4 为 `4af2838`、`65151ff`、`bb1d72a`、`4b1e50e`；M5 保持为当前 HEAD。本轮不 push。
 
 `ponytail-review` 只审查过度设计，没有直接修改实现。高置信精简项是：删除已被领域测试覆盖的 R1/R2/roadmap 阶段测试；让运行时直接使用已发布 `knowledge.schema.json`，删除手写平行 validator；删除 viewer 内部旧字段适配；让 Codex 插件直接复用 canonical `skills/`，删除 `.agents/skills/` 镜像和 parity 维护；合并三处 canonical document id 谓词；将重复迁移故障场景改为表驱动；移除 CI 在 `npm test` 后的重复 build。事务 CAS、临时 index、锁、manifest 漂移和故障回滚属于协议安全边界，不列入删除范围。下一步是在用户确认实施范围后先写精简设计和验收边界，再改代码。
+
+## README 设计原则显式化 — 2026-09-11
+
+状态：完成，待提交。中英文 README 已在产品定位后增加同构的“Design principles / 设计原则”六项清单：事实与理解分离、唯一持久写入边界、长期知识准入、变化产生复核义务、有效性可检查、人机同权协议；原先后文重复的知识准入段落已合并删除。未改变冻结协议、CLI 行为或测试边界。`rg` 确认两份 README 均为六项且语义对应，`git diff --check` 通过（仅 LF→CRLF 提示）；提交边界仅为 `README.md`、`README.zh-CN.md` 和本进度记录。

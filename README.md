@@ -7,12 +7,25 @@ knowledge base that is maintained by humans and agents and stays independent of
 the source-code lifecycle. Source Git commits define facts; Knowledge Git commits
 preserve verified understanding of those facts.
 
-- The source repository is read-only. Knowledge lives in its own Git repository.
-- Documents preserve decisions, constraints, rationale, and cross-module
-  contracts that source code does not explain cheaply.
-- A code change creates a review obligation, not an automatic rewrite.
-- Retrieval is task-scoped and always reports the source revision and validity
-  status behind each document.
+## Design principles
+
+1. **Separate facts from understanding.** Source commits are the factual baseline;
+   Knowledge commits preserve the explanation verified against that baseline.
+2. **Keep one durable write boundary.** Source Git stays read-only. All durable
+   knowledge lives and evolves in an independent Knowledge Git.
+3. **Record only durable decision knowledge.** Keep decisions, constraints,
+   rationale, and cross-module contracts that affect future work, are expensive to
+   reconstruct from code, and survive multiple source commits. Rebuildable code
+   structure belongs in indexes and caches.
+4. **Treat change as a review obligation.** A source change may invalidate existing
+   understanding, but it never justifies an automatic prose rewrite. Semantic review
+   decides whether to update content, refresh evidence only, or leave it unchanged.
+5. **Make validity inspectable.** Every formal document identifies its source scope,
+   validated source revision, and validated content digest. Retrieval reports that
+   evidence and its current status instead of asking readers to trust freshness.
+6. **Give humans and agents the same protocol.** Both maintain standard Markdown
+   through the same review and seal workflow. Knowledge is reference data, not an
+   executable rule, skill, or hidden instruction channel.
 
 ## The dual-repository model
 
@@ -29,11 +42,6 @@ Knowledge Git is the only persistent write boundary. The CLI reads the source
 with optional index writes disabled, never modifies source files, index, or
 history, and never falls back to writing knowledge into the source repository.
 The association is recorded in a user-level registry, not inside the source.
-
-`llmdoc` stores understanding that is expensive to reconstruct from code, changes
-future decisions, and holds across many commits. It is not a code-wiki generator:
-a code change only triggers re-verification, and a re-verification may update
-only the validation evidence without touching the prose.
 
 ## Eight hard boundaries
 
