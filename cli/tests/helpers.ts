@@ -207,7 +207,7 @@ code:
   if (options.withSymlinkEscape) {
     const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "llmdoc-outside-"));
     fs.writeFileSync(path.join(outsideDir, "secret.mdx"), "# secret\n");
-    fs.symlinkSync(outsideDir, path.join(llmdocDir, "escape"));
+    fs.symlinkSync(outsideDir, path.join(llmdocDir, "escape"), process.platform === "win32" ? "junction" : "dir");
   }
 
   initGit(rootDir);

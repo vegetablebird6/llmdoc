@@ -1032,6 +1032,101 @@
           "type": "boolean"
         }
       }
+    },
+    "bind": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "repositoryId",
+        "sourcePath",
+        "knowledgeRoot"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "bound",
+            "already-bound"
+          ]
+        },
+        "repositoryId": {
+          "type": "string",
+          "pattern": "^llmdoc-[0-9a-f]{32}$"
+        },
+        "sourcePath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "knowledgeRoot": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "init": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repositoryId",
+        "sourcePath",
+        "knowledgeRoot",
+        "knowledgeCommit"
+      ],
+      "properties": {
+        "repositoryId": {
+          "type": "string",
+          "pattern": "^llmdoc-[0-9a-f]{32}$"
+        },
+        "sourcePath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "knowledgeRoot": {
+          "type": "string",
+          "minLength": 1
+        },
+        "knowledgeCommit": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "ngError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "message",
+            "paths",
+            "remediation"
+          ],
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "paths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "remediation": {
+              "type": "string"
+            }
+          }
+        }
+      }
     }
   }
 }

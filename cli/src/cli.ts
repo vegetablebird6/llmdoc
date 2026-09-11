@@ -4,6 +4,9 @@ import { Command } from "commander";
 
 import { findProjectRoot, findProjectRootOrNull } from "./lib/fs.js";
 import { CliError } from "./lib/errors.js";
+import { NgError } from "./lib/v3ng/errors.js";
+import { runBind } from "./commands/bind.js";
+import { runInit } from "./commands/init.js";
 import { runTree } from "./commands/tree.js";
 import { runIndex } from "./commands/index.js";
 import { runShow } from "./commands/show.js";
@@ -292,6 +295,46 @@ export async function runCli(argv: string[], cwd = process.cwd(), stdin = ""): P
       output.push(writeOutput("upgrade", await runUpgrade({ ...globalOptions, ...commandOptions, cwd: rootDir }), globalOptions.json));
     });
 
+  program
+    .command("bind")
+    .description("v3-ng: associate a source repository with an independent knowledge repository")
+    .requiredOption("--source <path>", "source worktree root")
+    .requiredOption("--knowledge <path>", "knowledge repository worktree root")
+    .option("--nested", "explicitly select nested mode (the knowledge repository lives inside the source worktree)")
+    .addHelpText(
+      "after",
+      "\nPrecise binding: the knowledge repository must be an independent Git worktree with an llmdoc.yaml identity, and the association is recorded in the user registry. llmdoc never writes to the source repository."
+    )
+    .action(async (commandOptions) => {
+      output.push(
+        writeOutput(
+          "bind",
+          await runBind({ source: commandOptions.source, knowledge: commandOptions.knowledge, nested: commandOptions.nested }),
+          globalOptions.json
+        )
+      );
+    });
+
+  program
+    .command("init")
+    .description("v3-ng: create an independent knowledge repository and bind it to a source repository")
+    .requiredOption("--source <path>", "source worktree root")
+    .requiredOption("--knowledge <path>", "new, empty target root for the knowledge repository")
+    .option("--nested", "explicitly select nested mode (the knowledge repository lives inside the source worktree)")
+    .addHelpText(
+      "after",
+      "\ninit creates the knowledge Git repository, the llmdoc layout, the initial knowledge commit and the user binding; existing non-empty targets are never overwritten and the source repository is never modified."
+    )
+    .action(async (commandOptions) => {
+      output.push(
+        writeOutput(
+          "init",
+          await runInit({ source: commandOptions.source, knowledge: commandOptions.knowledge, nested: commandOptions.nested }),
+          globalOptions.json
+        )
+      );
+    });
+
   const hookCommand = program.command("hook").description("read-only, fail-open signals for editor and Agent hooks");
   hookCommand
     .command("session-start")
@@ -328,6 +371,25 @@ export async function runCli(argv: string[], cwd = process.cwd(), stdin = ""): P
   try {
     await program.parseAsync(argv, { from: "user" });
   } catch (error) {
+    if (error instanceof NgError) {
+      if (globalOptions.json) {
+        return {
+          exitCode: error.exitCode,
+          stdout: stringifyValidatedOutput("ngError", {
+            error: {
+              code: error.code,
+              message: error.message,
+              paths: error.paths,
+              remediation: error.remediation
+            }
+          })
+        };
+      }
+      return {
+        exitCode: error.exitCode,
+        stdout: error.remediation ? `${error.message}\nRemediation: ${error.remediation}` : error.message
+      };
+    }
     if (error instanceof CliError) {
       return {
         exitCode: error.exitCode,

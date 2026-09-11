@@ -25,7 +25,10 @@ export type OutputSchemaName =
   | "mv"
   | "hook"
   | "initState"
-  | "commit";
+  | "commit"
+  | "bind"
+  | "init"
+  | "ngError";
 
 type AjvConstructor = new (options: { allErrors: boolean; strict: boolean }) => {
   compile: (schema: unknown) => ValidateFunction;

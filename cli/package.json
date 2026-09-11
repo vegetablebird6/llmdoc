@@ -35,11 +35,13 @@
     "ajv": "^8.17.1",
     "commander": "^13.1.0",
     "gray-matter": "^4.0.3",
+    "js-yaml": "^4.1.1",
     "marked": "^15.0.12",
     "minimatch": "^9.0.5"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^24.3.0",
     "eslint": "9.39.5",
     "typescript": "^5.9.2",
