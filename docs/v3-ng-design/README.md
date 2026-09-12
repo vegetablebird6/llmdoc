@@ -1,69 +1,54 @@
-# llmdoc v3-ng 设计
+# llmdoc 架构设计入口
 
-状态：协议主线冻结，P0/P1 评审已落地，作为实现基线；本目录定义目标契约，不代表功能已经实现。用户需求文本中的 v4 均指 v3-ng；后续版本统一写入 [roadmap](roadmap.md)，不预先承诺版本号。
+本目录说明当前双仓协议的设计与实现边界。产品定位、七项设计原则和八条硬边界以
+[项目 README](../../README.zh-CN.md) 为准；日常使用从该入口开始。
 
-## 定位与范围
+`v3-ng` 是设计阶段与分支代号，不是 CLI 运行模式。M1–M5 的实施与验收已经完成，
+具体提交和验证证据见 [进度记录](progress.md)。仓库完成状态不代表 npm 已发布该实现。
 
-**Detached Engineering Knowledge Base：独立于源码生命周期，由 Agent 维护、人工审阅的持久工程知识库。**
+## 设计要解决什么
 
-> Source Git commits define facts; Knowledge Git commits preserve verified understanding of those facts.
+Source Git 保存事实，Knowledge Git 保存经 Agent 验证、难以从代码低成本重建的工程理解。
+知识为具体任务提供上下文；当前代码仍是实现事实的依据。
 
-llmdoc 保存难以从代码低成本重建、会影响未来决策且跨多个 commit 成立的工程理解。它不是 Code Wiki Generator。代码变化只产生复核义务；复核可能只更新验证依据，不修改正文。
+每次任务由 Agent 判断是否值得新增、修正或复核知识。源码变化只使相关知识需要复核，
+不自动要求文档变化或全仓知识覆盖。人工按需审阅结论，CLI 承担确定性检查与提交保护。
 
-v3-ng 是 breaking change 的实现基线。进入 v3-ng 后，现有 CLI、hooks、skills、viewer 与知识布局直接切换到本协议，不保留 V3 运行时兼容分支，也不以缺少显式 v3-ng 参数为由回退到 V3/Source Git。旧 V3 内容只作为显式 `migrate` 的输入；迁移前继续使用旧版本工具，迁移后使用 v3-ng。
+## 协议如何支撑这个目标
 
-`v3-ng` 仅是分支与设计阶段代号，不是产品运行模式或代码命名空间。运行时代码使用稳定的领域名称，不建立 `lib/v3ng`、`ng-*` command、`runNg*`、`ngTree/ngError` 等平行入口；标准 `lib`、commands、输出 schema 与错误类型直接承载新协议。协议数据需要独立演进标识时可以保留明确 schema version，但不能据此分流到旧运行时。
-
-## 八条硬边界
-
-1. 知识工作流对 Source Repository 只读：不得修改其文件、index、history 或配置。Coding Agent 的源码开发是另一条工作流。
-2. Knowledge Repository 必须是独立 Git，默认外置；嵌套独立 Git 仅兼容已有用户。
-3. 持久知识写入不得向上回退到 Source Git。未绑定或非独立 Git 时明确失败；只读检索可以读取显式指定的无 Git 知识目录。
-4. 只认有效 HEAD 且全仓 worktree/index clean 的 Source commit；Source Revision 是验证依据，Knowledge Revision 是知识 Git commit。
-5. Review Manifest 绑定 source revision、内容 digest 和 scope；正文、关系、meta 用临时 index 与 CAS 一次发布，要求知识 index 无 staged 内容，成功后同步 index 与自有生成文件。meta 不存 knowledge commit。
-6. 正式知识的语义维护由 Agent 负责，人审阅结论并把纠正反馈给 Agent 流程；CLI 执行确定性的结构、范围及提交检查。`validate` 成功不证明知识正确。
-7. AST、符号和依赖图是可重建索引，不生成可提交的代码百科。
-8. Agent 通过验证声明及提交协议维护正式知识；人审阅同一份标准 Markdown，并把纠正反馈给 Agent 流程。知识是 reference data，不是可执行 rules/skills。
-
-“唯一写入边界”指知识内容及其 Git；`bind` 允许写用户级 registry，临时文件和缓存写知识目录或用户级缓存。它们都是明确例外，仍不能写入源码仓。嵌套兼容仅允许写独立知识子树；不得改外层 Git、ignore 或其他源码文件。若要求源码目录字节级完全不变，必须使用外置模式。
-
-嵌套兼容也不豁免 source 全仓 clean：若外层将知识目录显示为 untracked，则阻断正式复核。只有用户事先配置的忽略规则使其不进入外层 Git 状态时才可使用；llmdoc 不代改外层规则。
-
-## 本轮纳入
-
-| 能力 | v3-ng 决策 |
+| 责任 | 设计 |
 |---|---|
-| 双仓库与绑定 | 外置默认；用户级 registry；独立 Git 硬检查；嵌套兼容 |
-| 知识模型 | `.md`；architecture / decision / guide / reference；保留路径作为 ID |
-| 有效性 | revision/digest/source paths/requires 四项验证证据；全仓 clean 门控；文档仅三态 |
-| 人工维护 | 直接编辑、显式验证声明、单次知识提交 |
-| 多 Agent | 共享 CLI 协议与单写者锁；读不加写锁 |
-| 候选知识 | 最小 inbox / capture / review-promote；默认检索排除候选 |
-| 导航 | 标准 Markdown README，可重建，不作为知识节点或验证对象 |
-| 迁移 | 显式复制迁移、dry-run、旧格式只读诊断，禁止隐式原地升级 |
+| 隔离源码与个人知识 | 独立 Knowledge Git，默认外置；用户级 registry 绑定，不向 Source Git 回退写入。 |
+| 让上下文可检索、可审阅 | 标准 Markdown、路径作为文档 ID、source scope 与文档关系；不持久化可重建代码百科。 |
+| 说明知识的适用依据 | source revision、内容 digest、source paths 与 requires digest 四项验证证据；文档只分三态。 |
+| 保证复核对象与发布内容一致 | 固定 clean source 快照、Review Manifest、单写者锁、临时 index 与 ref CAS。 |
+| 支持任务中的自主维护 | Agent 直接维护正式文档，经 review、confirm、seal 发布；需要暂存时才使用 capture/inbox。 |
+| 保留旧数据而切换协议 | 仅显式 migrate 读取旧 V3；复制到新知识仓，重新验证，不修改旧数据。 |
 
-## 与当前 V3 的迁移边界
+这些机制不代替 Agent 的语义判断。`validate` 检查结构，`current` 表示已有验证证据仍成立，
+都不证明理解必然正确或知识覆盖完整。
 
-核对基准：2026-09-09，本地 `main` HEAD `ae0695dbf4fc4084e0078be3edf6a7772e059722` 加已有未提交修改；随后创建 `v3-ng`。这是工作树观察，不是对已发布 npm 包的断言。
+## 按问题阅读
 
-| 当前工作树证据 | v3-ng 变化 |
+| 需要了解 | 文档 |
 |---|---|
-| [workspace.ts](../../cli/src/lib/workspace.ts) 已有 sourceGitRoot / projectionGitRoot / nested-personal，但无嵌套时回退 source Git | 显式 SourceContext / KnowledgeContext，移除写入 fallback |
-| 同文件仍从 `root/llmdoc` 扫描 `.mdx`，限制两层，使用 `code.paths` | 外置根、`docs/**/*.md`、`source.paths`；允许多层目录，不要求 topic 入口 |
-| [commit.ts](../../cli/src/commands/commit.ts) 的 nested 分支已有单次 docs + meta 提交及 source HEAD 检查 | 复用分离方向；统一独立 Git 事务、显式验证范围和锁 |
-| embedded 分支仍提交正文后追加 meta commit | v3-ng 不读取或写入 embedded 知识；只允许显式迁移到独立 Knowledge Git 后使用 |
-| [V3 设计](../v3-design/README.md) 使用三个 kind、MDX、动态导航 | 新增 decision、纯 Markdown、人类导航；历史 V3 设计保留 |
+| 产品原则、安装和日常使用 | [项目 README](../../README.zh-CN.md) |
+| 目录、绑定、有效性、复核、提交和失败语义 | [架构与协议](architecture.md) |
+| 已实现范围、验收标准与延期能力 | [实施范围与 roadmap](roadmap.md) |
+| 实际完成情况、测试证据与历史决策 | [实施进度](progress.md) |
+| Agent 如何调用能力并维护知识 | [Agent 接入说明](../agent-integration.md) |
+| 为什么替换旧模型 | [历史 V3 设计](../v3-design/README.md) |
 
-不能把这些已有演进归功于本次设计，也不能据此认定实现已经满足全部新契约。
+## 兼容与演进边界
 
-## 阅读顺序
+标准 CLI、hooks、skills、viewer 直接使用本协议，不保留旧 V3 dispatch 或源码写入 fallback，
+也不建立 `ng-*` 命令或平行运行时。schema 可以独立版本化，但不用于回退旧协议。
 
-1. [架构与协议](architecture.md)：目录、绑定、schema、命令、有效性、事务、迁移。
-2. [实施与 roadmap](roadmap.md)：阶段、验收、延期内容及需求覆盖。
-3. [实施进度与续接记录](progress.md)：每步完成情况、验证证据和下一步；中断后先读此文件。
+旧 `.mdx`、`code.paths` 和旧 meta 只作为显式迁移输入。迁移前使用相应旧版本工具；
+迁移建立新知识仓，不抽取旧历史，也不把转换结果自动标为已验证。
 
-实施约定：先将设计落地并完成评审，再写运行时代码。每完成一个实施步骤，立即更新进度记录与受影响的设计契约；遇到方案调整先改设计再继续实现。不能只在聊天中记录完成情况。
+嵌套独立 Git 必须显式选择，外层不能跟踪知识子树，且仍需满足全仓 clean 门控。
+llmdoc 不修改外层 ignore；要求源码目录字节级不变时使用外置模式。
 
-评审收敛：最小 inbox、decision/supersedes、全仓 clean snapshot、临时 Review Manifest、digest、临时 index/CAS、opaque submodule、显式逻辑身份绑定均纳入基线。v3-ng 以 breaking replacement 覆盖 V3 运行时入口；旧 embedded 只作为显式复制迁移的输入，不再实现 dirty scope 或 live worktree 验证。
-
-冻结补充：requires 禁环并绑定目标 digest；review 使用旧新 scope 并集；capture 复用 scoped 写事务；全局扫描点命名为 lastGlobalReviewRevision。首版不支持任意 staged 状态保留，迁移不抽取旧仓历史。
+后续变更先明确用户问题，再更新受影响的设计契约并实现。持续在进度记录中注明实际验证、
+剩余事项和下一步，不把未执行的测试或未发布版本写成已经完成。

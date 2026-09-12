@@ -2,10 +2,34 @@
 
 [Website](https://llmdoc.tokenroll.ai/) · [简体中文](README.zh-CN.md)
 
-**Detached Engineering Knowledge Base.** llmdoc keeps a durable engineering
-knowledge base maintained by agents with human review, independent of the
-source-code lifecycle. Source Git commits define facts; Knowledge Git commits
-preserve verified understanding of those facts.
+**Detached Engineering Knowledge Base.** llmdoc preserves engineering understanding
+that is costly to reconstruct from code, so agents can retrieve useful context
+without rediscovering the same decisions in every task.
+
+Source Git commits define facts; Knowledge Git commits preserve verified
+understanding of those facts. Agents maintain that knowledge; humans review
+conclusions when useful and feed corrections back to the agent.
+
+## How it fits a task
+
+| Responsibility | Owner |
+|---|---|
+| Current implementation facts | Source Git; code takes precedence when knowledge conflicts with it. |
+| Decisions, rationale, constraints, and cross-module contracts | Standard Markdown in an independent Knowledge Git. |
+| What is worth preserving and whether it remains true | The agent working on the task. |
+| Retrieval, structural checks, and guarded publication | The llmdoc CLI. |
+
+On each task, the agent retrieves relevant context, checks the code, and decides
+whether it learned anything worth preserving. A task may need no knowledge write;
+a new source file does not automatically need a document. Related source changes
+prompt semantic review of existing knowledge, not an automatic changelog.
+
+One source worktree binds to one independent knowledge worktree through a
+user-level registry. External knowledge storage is the default, keeping personal
+knowledge commits separate from business-code collaboration.
+
+[Principles](#design-principles) · [Boundaries](#eight-hard-boundaries) ·
+[Install](#install) · [Daily use](#daily-use) · [Reference](#reference)
 
 ## Design principles
 
@@ -44,23 +68,6 @@ preserve verified understanding of those facts.
    readable, searchable, citable, and auditable reference knowledge. It does not
    distribute rules, skills, prompts, hooks, or other execution instructions, and no
    knowledge content may depend on hidden instructions or runtime behavior to hold.
-
-## The dual-repository model
-
-```mermaid
-flowchart LR
-    S[Source Git<br/>read-only] --> A[Agent]
-    A -->|semantic review| K[Knowledge Git<br/>docs + meta]
-    H[Human reviewer] -->|feedback| A
-    K --> R[Task-scoped retrieval]
-    R --> S
-```
-
-One Source Git worktree is bound to one independent Knowledge Git worktree. The
-Knowledge Git is the only persistent write boundary. The CLI reads the source
-with optional index writes disabled, never modifies source files, index, or
-history, and never falls back to writing knowledge into the source repository.
-The association is recorded in a user-level registry, not inside the source.
 
 ## Eight hard boundaries
 
@@ -131,18 +138,84 @@ session to use the `llmdoc:init` skill.
 
 ### Direct CLI
 
-No plugin is required. Run the external CLI from the repository you want to work
-on:
+No plugin is required. View the external CLI help from the target repository:
 
 ```bash
 npx -y @tokenroll/llmdoc --help
-npx -y @tokenroll/llmdoc tree --source .
 ```
 
 `@tokenroll/llmdoc` is external tooling. Do not add it to the consumer project's
 `package.json` or lockfile, and never use the unrelated bare package name
 `npx llmdoc`. For reproducible runs, pin the package spec:
 `npx -y @tokenroll/llmdoc@<version> <command>`.
+
+## Daily use
+
+### Initialize once
+
+After installing the plugin, ask the agent to use the `llmdoc:init` skill and
+choose an external knowledge directory. The skill investigates the project,
+creates the binding, and builds the initial useful knowledge surface.
+
+The CLI provides the repository setup step; it does not write engineering
+understanding by itself:
+
+```bash
+npx -y @tokenroll/llmdoc init --source ./app --knowledge ../app-knowledge
+# Or bind an existing independent knowledge repository
+npx -y @tokenroll/llmdoc bind --source ./app --knowledge ../app-knowledge
+```
+
+`init` never overwrites a non-empty target. Select `--nested` explicitly only
+when the outer Git does not track the knowledge subtree; formal review still
+requires the source worktree to be clean.
+
+### Retrieve the context the task needs
+
+Choose one entry point for the question; these are alternatives, not a checklist:
+
+| Need | Command after `npx -y @tokenroll/llmdoc` |
+|---|---|
+| Get oriented | `tree` |
+| Find a concept | `search "retry policy"` |
+| Locate knowledge for a source change | `context --files src/api/client.ts` |
+| Browse a topic without bodies | `index --topic lifecycle` |
+| Read a selected document | `show lifecycle/task-recovery.md` |
+
+The agent uses the returned knowledge as context and checks current facts in
+code. `status` and `delta` help identify review obligations when maintaining
+knowledge; they are not mandatory retrieval steps.
+
+### Preserve useful understanding
+
+The agent decides during each task whether knowledge needs to be added, corrected,
+or re-verified. It merges useful conclusions into their existing owner where
+possible. Human approval is not a routine prerequisite for knowledge maintenance.
+
+For verified understanding, the agent edits formal Markdown in the Knowledge Git
+and publishes through the review protocol:
+
+```bash
+npx -y @tokenroll/llmdoc validate
+npx -y @tokenroll/llmdoc review
+npx -y @tokenroll/llmdoc review --confirm <reviewId>
+npx -y @tokenroll/llmdoc commit --review <reviewId>
+```
+
+The agent performs semantic review before confirming. Conclusions are `changed`,
+`unchanged`, or `insufficient`; `--set <id>=<conclusion>` can override a proposal.
+Unchanged prose can receive a refreshed validation baseline. Insufficient evidence
+does not advance verification. Any edit after confirmation requires a new review.
+
+Formal review and seal require a valid, fully clean source snapshot and an
+unstaged knowledge index. The CLI writes the validation ledger; never hand-edit
+`.llmdoc/meta.json`.
+
+**Capture only when deferring.** If a useful finding cannot yet be finalized—for
+example, the source is still uncommitted—the agent may use `capture` to save an
+unverified candidate in `inbox/`. Later it can merge the finding into an existing
+document or promote it with `update`. Candidates stay out of formal retrieval.
+Capture is optional, not a required step before every knowledge edit.
 
 ## Knowledge layout
 
@@ -163,121 +236,7 @@ Document IDs are docs-relative POSIX `.md` paths, and `docs/` may be nested to
 any depth. The `README.md` navigation region is generated from titles,
 descriptions, and paths, and is never a knowledge node or a validation target.
 
-## Walkthrough
-
-### 1. Create and bind
-
-```bash
-# Create an external knowledge repository and bind it to the source
-npx -y @tokenroll/llmdoc init --source ./app --knowledge ../app-knowledge
-
-# Or bind an existing independent knowledge repository
-npx -y @tokenroll/llmdoc bind --source ./app --knowledge ../app-knowledge
-```
-
-`--nested` explicitly places the knowledge repository inside the source worktree;
-use it only when the outer Git does not track that subtree. `init` never
-overwrites a non-empty target and never modifies the source.
-
-### 2. Retrieve
-
-```bash
-npx -y @tokenroll/llmdoc tree                       # knowledge map (topics and root docs)
-npx -y @tokenroll/llmdoc index --topic lifecycle    # metadata without bodies
-npx -y @tokenroll/llmdoc search "retry policy"      # lexical search
-npx -y @tokenroll/llmdoc context --files src/api/client.ts
-npx -y @tokenroll/llmdoc show lifecycle/task-recovery.md
-```
-
-These entry points are alternatives, not a fixed sequence. `status` and `delta`
-report review obligations and source blockers; they are not retrieval steps.
-
-### 3. Capture a candidate
-
-```bash
-npx -y @tokenroll/llmdoc capture --title "lease vs timeout" \
-  --note "observed during incident review" --from notes.md
-```
-
-`capture` writes only `inbox/`. It never touches `docs/`, meta, the navigation
-README, or the source repository, carries no verification trailer, and does not
-require a clean source worktree. Formal retrieval never returns candidates.
-
-### 4. Update: review candidates
-
-```bash
-npx -y @tokenroll/llmdoc update --promote inbox/lease-vs-timeout.md \
-  --to lifecycle/task-recovery.md --kind decision \
-  --description "Why task recovery joins lease and timeout checks." \
-  --source-path "internal/task/**" --requires lifecycle/architecture.md
-```
-
-`update` applies explicit `--promote` / `--reject` decisions to the knowledge
-worktree and forms an unconfirmed Review Manifest. It never marks anything
-current; publication still requires confirmation and a commit.
-
-### 5. Review and confirm
-
-```bash
-npx -y @tokenroll/llmdoc review
-npx -y @tokenroll/llmdoc review --confirm <reviewId> --set lifecycle/task-recovery.md=unchanged
-```
-
-`review` requires a valid, fully clean source snapshot and generates a temporary
-Review Manifest that binds the fixed source revision, each document digest and
-scope, and the write set. A human or agent then confirms the semantic conclusion
-for each item: `changed`, `unchanged`, or `insufficient`. Any edit after
-confirmation invalidates the manifest.
-
-### 6. Commit (seal)
-
-```bash
-npx -y @tokenroll/llmdoc commit --review <reviewId>
-```
-
-`commit` consumes a confirmed manifest and seals the write set into one knowledge
-commit. There is no bare verified flag. Knowledge staging, a dirty or invalid
-source snapshot, and any content drift invalidate the manifest.
-
-### 7. Prune
-
-```bash
-npx -y @tokenroll/llmdoc prune --report
-npx -y @tokenroll/llmdoc prune --remove decisions/old.md
-```
-
-`prune --report` lists conservative convergence candidates. `prune --remove`
-removes eligible documents, repairs every inbound relation and link, and forms an
-unconfirmed Review Manifest to publish with `commit --review`. Fragment-only
-candidates are conservatively retained.
-
-### 8. Migrate legacy V3
-
-```bash
-npx -y @tokenroll/llmdoc migrate --dry-run --knowledge ../app-knowledge
-npx -y @tokenroll/llmdoc migrate --knowledge ../app-knowledge
-```
-
-`migrate` is the only command that reads the legacy V3 layout (`.mdx`, `CodeRef`,
-`code.paths`, `llmdoc/meta.json`, and `llmdoc.config.json`). It copies
-losslessly convertible documents into a new independent knowledge Git, creates a
-new migration baseline without extracting old history, never modifies the legacy
-repository or the source worktree, and writes the user binding only after the
-target fully validates.
-
-### 9. Hooks and viewer
-
-```bash
-npx -y @tokenroll/llmdoc hook session-start
-npx -y @tokenroll/llmdoc serve
-```
-
-`hook session-start | stop | compact` is read-only and fail-open: it reports
-review obligations and source blockers, never writes source or knowledge, and
-never initializes a binding. `serve` starts a read-only viewer of the fixed
-Knowledge HEAD with the same tri-state and double revision as the CLI.
-
-## Front matter and source evidence
+## Document format and source evidence
 
 Every formal document requires a non-empty `source.paths` list of repo-relative
 globs. Absolute paths and `..` are rejected, and each concrete path must exist in
@@ -306,93 +265,56 @@ validation state. `requires` forms an acyclic dependency graph: when an upstream
 document changes and is re-sealed, its dependents become `needs_review` until
 they are re-verified against the new digest.
 
-## Validity: double revision and tri-state
+## Understanding validity
 
-`.llmdoc/meta.json` (schema `llmdoc.meta/v3-ng`) stores per-document validation
-evidence. Unverified documents use `null/null/[]/{}`:
-
-```json
-{
-  "schema": "llmdoc.meta/v3-ng",
-  "source": {
-    "repositoryId": "project-id",
-    "lastGlobalReviewRevision": "<full-source-commit-oid>"
-  },
-  "documents": {
-    "lifecycle/task-recovery.md": {
-      "validatedSourceRevision": "<full-source-commit-oid>",
-      "validatedContentDigest": "sha256:<hex>",
-      "validatedSourcePaths": ["internal/task/**", "pkg/lease/**"],
-      "validatedRequires": {
-        "lifecycle/architecture.md": "sha256:<dependency-hex>"
-      }
-    }
-  }
-}
-```
-
-The four `validated*` fields are a snapshot of the evidence at seal time: the
-source revision, the document digest, the source evidence scope, and the upstream
-knowledge digests. The digest covers the whole normalized UTF-8 document,
-including front matter, scope, relations, and body.
-
-A document status is only one of:
+Retrieval reports both the source revision used as the factual snapshot and the
+Knowledge Git revision containing the documents. Each document has one status:
 
 | Status | Meaning |
 |---|---|
-| `unverified` | No validation declaration; not current fact. |
-| `current` | The digest matches, the validated revision is still explainable, and every `requires` target is current with the recorded digest. |
-| `needs_review` | Related source, knowledge prose, or a relation changed and needs semantic review. |
+| `unverified` | No validation evidence has been recorded. |
+| `current` | Content and scope match the recorded evidence, source history is available and compatible with no relevant changes, and required knowledge remains current with matching digests. |
+| `needs_review` | Content, relevant source, dependencies, or available evidence no longer support the previous verification. |
 
-Source blockers are reported separately from document status: `unbound`,
-`invalid_head`, `source_dirty`, `history_unavailable`, and `diverged`. Formal
-update, review, and seal require a valid source HEAD and a fully clean source
-worktree/index. If the source is not yet committed you can still retrieve
-existing knowledge or capture candidates, but you cannot formally re-verify or
-seal.
+`current` describes the document's recorded evidence; it is not proof that the
+knowledge covers all code or that the agent's interpretation is infallible. The
+agent remains responsible for semantic judgment.
 
-## Command reference
+Source conditions such as `source_dirty`, `invalid_head`,
+`history_unavailable`, and `diverged` are reported separately. Uncommitted
+source does not become part of the verified snapshot. Existing knowledge can
+still be retrieved while formal review is blocked.
 
-Run `npx -y @tokenroll/llmdoc --help` or
-`npx -y @tokenroll/llmdoc help <command>` for the current CLI reference. All
-retrieval commands support `--json`, `--budget`, and `--limit`; `--cursor`
-continues truncated output.
+The ledger stores four evidence fields: `validatedSourceRevision`,
+`validatedContentDigest`, `validatedSourcePaths`, and `validatedRequires`.
+`lastGlobalReviewRevision` records an explicit global review baseline, not the
+validity of every document. See the [protocol](docs/v3-ng-design/architecture.md)
+for schemas, dependency rules, and publication guarantees.
 
-| Command | Purpose |
+## Operations when needed
+
+| Situation | Entry point |
 |---|---|
-| `bind --source <dir> --knowledge <dir> [--nested]` | Associate a source repository with an independent knowledge repository. |
-| `init --source <dir> --knowledge <dir> [--nested]` | Create a new independent knowledge repository and bind it. |
-| `tree` | Knowledge map by topic. |
-| `index [--topic] [--kind]` | Document metadata without bodies. |
-| `show <path...>` | Read selected document bodies. |
-| `search <query>` | Lexical search with Chinese segmentation and a CJK-bigram fallback. |
-| `context --files <files...>` | Map source files to documents, including the `requires` closure. |
-| `validate` | Deterministic front matter, link, relation, source-scope, and schema checks. |
-| `status` | Source blockers, knowledge state, and review obligations. |
-| `delta [--scope <id...>]` | Documents needing semantic review after source or knowledge changes. |
-| `review [--confirm <reviewId>] [--set <id>=<conclusion>...] [--global]` | Generate or confirm a Review Manifest. |
-| `commit --review <reviewId>` | Seal a confirmed manifest into one knowledge commit. |
-| `capture [--title] [--note] [--from] [--body] [--source-revision]` | Persist an unverified candidate under `inbox/`. |
-| `update [--promote ...] [--reject ...] [--prepare] [--global]` | Review candidates and form an unconfirmed manifest. |
-| `prune [--report] [--remove <id...>] [--global]` | Report convergence candidates or prepare eligible removals. |
-| `migrate --knowledge <dir> [--source] [--legacy] [--dry-run] [--nested]` | Explicitly migrate a legacy V3 layout into a new independent knowledge repository. |
-| `hook <session-start\|stop\|compact>` | Read-only, fail-open host diagnostics. |
-| `serve [--port]` | Read-only viewer of the fixed Knowledge HEAD on `127.0.0.1`. |
+| Save an unverified finding for later | `capture --title "lease vs timeout" --from notes.md`; use the returned candidate ID. |
+| Process a candidate | `update --promote <candidateId> --to <newDocId> --kind decision --description "..." --source-path "internal/task/**"`, or `update --reject <candidateId>`; then review, confirm, and seal. |
+| Consolidate redundant knowledge | Start with `prune --report`; the agent judges whether removal is warranted before `prune --remove <id>` and publication. |
+| Read legacy V3 knowledge | Explicit `migrate --dry-run --knowledge <newRoot>`, then `migrate` with the same target when requested. |
+| Browse committed knowledge | `serve` starts a read-only viewer on `127.0.0.1`. |
+| Integrate lifecycle diagnostics | `hook session-start`, `hook stop`, or `hook compact`; read-only and fail-open. |
 
-## Platform integration
+Candidate IDs are relative to `inbox/`; promotion creates a new document and does
+not overwrite an existing one. `update` prepares changes, never verifies them by
+itself. Hooks report diagnostics; they do not maintain knowledge or create bindings.
 
-- **Claude Code:** the repository-root plugin provides the operating skill, the
-  workflows, roles, and lifecycle hooks. See the
-  [Claude Code plugin documentation](https://code.claude.com/docs/en/discover-plugins).
-- **Codex:** the Codex plugin exposes equivalent skills, roles, and hooks. See
-  the [official Codex plugin documentation](https://developers.openai.com/codex/plugins).
-- **Other agents:** use the portable
-  [`AGENTS.md` integration recipe](docs/agent-integration.md) and the same
-  external CLI.
+Legacy V3 layouts are read only by explicit migration. Migration copies into a new
+independent Knowledge Git without changing the old repository or importing its
+history; converted documents must be verified through the new protocol.
 
-All fixed CLI interface text is English, including help, diagnostics, hook
-messages, and the local viewer. Chinese queries and repository document content
-remain fully supported and are returned unchanged.
+Use `npx -y @tokenroll/llmdoc --help` or `help <command>` for exact flags.
+Retrieval supports `--json`, `--budget`, `--limit`, and `--cursor`.
+For other agents, use the [portable integration recipe](docs/agent-integration.md).
+CLI interface text, diagnostics, and the viewer are English; Chinese queries and
+knowledge content are supported.
 
 ## Develop this repository
 
@@ -423,7 +345,7 @@ the bilingual READMEs, the design documentation, and dogfood knowledge.
 ## Reference
 
 - [Portable Agent integration recipe](docs/agent-integration.md)
-- [architecture and protocol](docs/v3-ng-design/architecture.md)
+- [Architecture and protocol](docs/v3-ng-design/architecture.md)
 - [Operating protocol](skills/llmdoc/SKILL.md)
 - Workflow contracts: [`init`](skills/init/SKILL.md),
   [`update`](skills/update/SKILL.md), [`prune`](skills/prune/SKILL.md), and

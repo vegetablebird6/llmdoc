@@ -1,6 +1,11 @@
-# llmdoc V3 设计
+# llmdoc V3 设计（历史归档）
 
-> Status: Draft for review
+> 本目录保留旧 V3 的设计背景，不是当前使用说明或实现契约。
+> 当前产品原则与用法见 [项目 README](../../README.zh-CN.md)，
+> 当前协议见 [架构设计入口](../v3-ng-design/README.md)。
+> 下文关于 MDX、目录层级及提交模型的描述仅适用于历史方案。
+
+> 历史状态：评审草案
 > 关联 Issue: [#32 llmdoc V3 持久化工程上下文架构彻底重构](https://github.com/TokenRollAI/llmdoc/issues/32)
 > 本设计基于 issue #32 的 V3 spec 草案(00–08)review 后重新收敛,差异见下文「与原 spec 的差异」。
 

@@ -2289,3 +2289,17 @@ Linux 无本机环境时：以现有 `ubuntu-latest` CI（`npm ci` → typecheck
 - `roadmap.md` 已由实施前基线更新为 M1–M5 已完成，删除旧的未提交 V3 工作树和“只新增设计”描述，并明确 breaking replacement 不保留 V3 dispatch、source fallback 或 `v3-ng` 命令前缀。
 - `architecture.md` 中 Review Manifest 的使用主体已统一为 Agent 维护流程；人工只审阅结论并将纠正反馈给 Agent。
 - 当前权威文档术语扫描只命中本文件的历史实施记录，不再命中现行 README、architecture、roadmap 或 agent integration；`git diff --check` exit 0（仅 LF→CRLF 提示）。本次仅改三份设计文档，不需要重复运行时代码测试。
+
+## README 信息结构整理 — 2026-09-12
+
+状态：开始整理。范围为根中英文 README、当前 v3-ng 设计 README 和旧 V3 设计入口；不改运行时协议或发布版本。
+
+依据：README 七项设计原则与八条硬边界，以及用户明确的“每次任务由 Agent 自主判断长期知识价值”。源码是事实，知识提供任务上下文；不新增全仓覆盖、候选提醒或逐项确认机制。
+
+安排：根 README 按定位与职责、原则与边界、安装、日常工作流、知识格式与有效性、按需操作、开发与参考组织；中英文同构。当前设计入口只解释协议结构与阅读路径，删除重复原则和失效旧实现链接。旧 V3 内容保留历史语义，增加归档提示。候选 capture 是暂存分支，不是正式维护必经步骤。
+
+验收：检查 Markdown 结构、本地链接与锚点、双语章节和七项原则/八条边界、CLI 示例和候选 ID；核对 diff。纯文档整理不重复运行完整 Git 集成测试。
+
+完成与验证：四份 README 已整理，中英文首页章节同构；七项原则、八条硬边界逐字保留并以断言核对。日常主线为首次建立、按任务检索、Agent 自主维护；capture、prune、migrate、viewer、hooks 改为按需入口。候选示例改用 CLI 返回的 inbox-relative ID，修正原先带 inbox/ 前缀且假定固定文件名的问题。完整 meta JSON 与重复命令清单从首页移除，协议细节指向现有 architecture；当前设计入口删除重复边界及失效 workspace.ts 链接；旧 V3 仅增加历史归档导航，不改历史设计。
+
+实际检查：用现有 marked 解析四份 README，代码围栏配对、45 个本地链接/锚点、中英文标题层级及原则/边界原文一致性全部通过；本地 CLI 的 help update / help review 核对参数通过；git diff --check 通过（仅 LF→CRLF 提示）。仅文档变更，未执行运行时测试，未 stage/commit/push。整理完成，可评审 diff。
