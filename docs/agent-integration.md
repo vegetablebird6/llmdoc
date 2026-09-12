@@ -4,7 +4,7 @@
 
 Use this recipe when an agent host does not have a native llmdoc plugin. It
 gives the agent the same retrieval, maintenance, and safety boundaries while
-keeping `@tokenroll/llmdoc` outside the consumer repository's dependencies.
+keeping `@vegetablebird6/llmdoc` outside the consumer repository's dependencies.
 
 Copy the following block into the consumer repository's `AGENTS.md`:
 
@@ -30,11 +30,11 @@ This project uses llmdoc as a dual-repository engineering knowledge base.
 
 ## CLI boundary
 
-- Treat `@tokenroll/llmdoc` as external tooling. Run it as
-  `npx -y @tokenroll/llmdoc <command>`; never add it to this project's
+- Treat `@vegetablebird6/llmdoc` as external tooling. Run it as
+  `npx -y @vegetablebird6/llmdoc <command>`; never add it to this project's
   `package.json` or lockfile, and never call the unrelated bare package
   `npx llmdoc`. When reproducibility matters, pin the package spec:
-  `npx -y @tokenroll/llmdoc@<version> <command>`.
+  `npx -y @vegetablebird6/llmdoc@<version> <command>`.
 - If the CLI is unavailable, report the degraded path and continue only with
   narrowly scoped native inspection.
 - If hooks are available, keep them read-only and fail-open. They report the
@@ -154,5 +154,5 @@ This project uses llmdoc as a dual-repository engineering knowledge base.
 ```
 
 The recipe intentionally delegates exact command flags and schemas to the
-installed CLI. Use `npx -y @tokenroll/llmdoc --help` for the current runtime
+installed CLI. Use `npx -y @vegetablebird6/llmdoc --help` for the current runtime
 reference.

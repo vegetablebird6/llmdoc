@@ -101,7 +101,7 @@ jobs:
           cd "${consumer}"
           npm init --yes >/dev/null
           npm install "${GITHUB_WORKSPACE}/cli/${tarball}" >/dev/null
-          npx --no-install @tokenroll/llmdoc --help
+          npx --no-install @vegetablebird6/llmdoc --help
 
   website:
     name: Website and published schema

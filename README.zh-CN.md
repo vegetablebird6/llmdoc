@@ -89,7 +89,7 @@ Agent 负责维护知识，人按需审阅结论，并将纠正反馈给 Agent�
 添加 marketplace 并安装插件：
 
 ```text
-/plugin marketplace add TokenRollAI/llmdoc
+/plugin marketplace add vegetablebird6/llmdoc
 /plugin install llmdoc@llmdoc-plugin
 ```
 
@@ -102,7 +102,7 @@ Agent 负责维护知识，人按需审阅结论，并将纠正反馈给 Agent�
 添加 marketplace，然后从仓库目录启动 Codex：
 
 ```bash
-codex plugin marketplace add TokenRollAI/llmdoc
+codex plugin marketplace add vegetablebird6/llmdoc
 codex
 ```
 
@@ -114,12 +114,12 @@ codex
 不需要插件。在目标仓库中查看外部 CLI 帮助：
 
 ```bash
-npx -y @tokenroll/llmdoc --help
+npx -y @vegetablebird6/llmdoc --help
 ```
 
-`@tokenroll/llmdoc` 是项目外部工具。不要把它加入消费项目的 `package.json` 或
+`@vegetablebird6/llmdoc` 是项目外部工具。不要把它加入消费项目的 `package.json` 或
 lockfile，也不要使用会解析到无关第三方包的裸命令 `npx llmdoc`。需要可复现运行时，
-请在包名中固定版本：`npx -y @tokenroll/llmdoc@<version> <command>`。
+请在包名中固定版本：`npx -y @vegetablebird6/llmdoc@<version> <command>`。
 
 ## 日常使用
 
@@ -131,9 +131,9 @@ lockfile，也不要使用会解析到无关第三方包的裸命令 `npx llmdoc
 CLI 提供其中的建仓步骤，本身不会编写工程理解：
 
 ```bash
-npx -y @tokenroll/llmdoc init --source ./app --knowledge ../app-knowledge
+npx -y @vegetablebird6/llmdoc init --source ./app --knowledge ../app-knowledge
 # 或绑定已有的独立知识仓
-npx -y @tokenroll/llmdoc bind --source ./app --knowledge ../app-knowledge
+npx -y @vegetablebird6/llmdoc bind --source ./app --knowledge ../app-knowledge
 ```
 
 `init` 不覆盖非空目标。只有外层 Git 未跟踪知识子树时才显式选择 `--nested`；
@@ -143,7 +143,7 @@ npx -y @tokenroll/llmdoc bind --source ./app --knowledge ../app-knowledge
 
 根据问题选一个入口，它们是备选关系，不是必做清单：
 
-| 需要 | 接在 `npx -y @tokenroll/llmdoc` 后的命令 |
+| 需要 | 接在 `npx -y @vegetablebird6/llmdoc` 后的命令 |
 |---|---|
 | 了解知识地图 | `tree` |
 | 查找概念 | `search "重试策略"` |
@@ -162,10 +162,10 @@ Agent 在每次任务中自主判断是否需要新增、纠正或重新验证�
 对于依据充分的理解，Agent 直接维护 Knowledge Git 中的正式 Markdown，再通过复核协议发布：
 
 ```bash
-npx -y @tokenroll/llmdoc validate
-npx -y @tokenroll/llmdoc review
-npx -y @tokenroll/llmdoc review --confirm <reviewId>
-npx -y @tokenroll/llmdoc commit --review <reviewId>
+npx -y @vegetablebird6/llmdoc validate
+npx -y @vegetablebird6/llmdoc review
+npx -y @vegetablebird6/llmdoc review --confirm <reviewId>
+npx -y @vegetablebird6/llmdoc commit --review <reviewId>
 ```
 
 确认前由 Agent 完成语义复核，结论为 `changed`、`unchanged` 或 `insufficient`；
@@ -262,14 +262,14 @@ relations:
 旧 V3 布局只通过显式迁移读取。迁移复制到新的独立 Knowledge Git，不改动旧仓库，也不
 导入旧历史；转换后的文档仍需经新协议验证。
 
-精确参数以 `npx -y @tokenroll/llmdoc --help` 或 `help <command>` 为准。检索支持
+精确参数以 `npx -y @vegetablebird6/llmdoc --help` 或 `help <command>` 为准。检索支持
 `--json`、`--budget`、`--limit`、`--cursor`。其他 Agent 可使用
 [通用接入说明](docs/agent-integration.md)。CLI 界面、诊断和 viewer 使用英文，支持中文
 查询和知识正文。
 
 ## 开发本仓库
 
-仓库根目录是私有开发工作区；面向消费方的公开产物是 `@tokenroll/llmdoc` CLI。
+仓库根目录是私有开发工作区；面向消费方的公开产物是 `@vegetablebird6/llmdoc` CLI。
 
 ```bash
 npm install
@@ -297,4 +297,4 @@ review/seal 冒烟事务。`npm run test:integration` 执行完整双 Git、CAS�
 - 工作流约定：[`init`](skills/init/SKILL.md)、
   [`update`](skills/update/SKILL.md)、[`prune`](skills/prune/SKILL.md) 和
   [`migrate`](skills/migrate/SKILL.md)
-- CLI 参考：`npx -y @tokenroll/llmdoc --help`
+- CLI 参考：`npx -y @vegetablebird6/llmdoc --help`

@@ -6,7 +6,7 @@ allowed-tools: Read, Glob, Grep, Bash, Write, Edit, WebSearch, WebFetch
 
 # /llmdoc
 
-Retrieve durable architecture, decisions, constraints, and working agreements from the project's independent Knowledge Git. Run commands as `npx -y @tokenroll/llmdoc <cmd>`.
+Retrieve durable architecture, decisions, constraints, and working agreements from the project's independent Knowledge Git. Run commands as `npx -y @vegetablebird6/llmdoc <cmd>`.
 
 ## Dual-Repository Model
 
@@ -33,7 +33,7 @@ The gate guards broad native discovery outside a working set llmdoc has already 
 
 ## CLI Invocation
 
-`@tokenroll/llmdoc` is external tooling. Never add it to the served project's `package.json` or lockfile, and never call a bare `npx llmdoc`; pin with `npx -y @tokenroll/llmdoc@<version> <cmd>` when reproducibility matters. Global flags `--json`, `--budget`, `--limit`, `--cursor` apply to retrieval. If the CLI stays unavailable, report the degraded path and continue with narrowly scoped native tools.
+`@vegetablebird6/llmdoc` is external tooling. Never add it to the served project's `package.json` or lockfile, and never call a bare `npx llmdoc`; pin with `npx -y @vegetablebird6/llmdoc@<version> <cmd>` when reproducibility matters. Global flags `--json`, `--budget`, `--limit`, `--cursor` apply to retrieval. If the CLI stays unavailable, report the degraded path and continue with narrowly scoped native tools.
 
 ## Operating Rules
 

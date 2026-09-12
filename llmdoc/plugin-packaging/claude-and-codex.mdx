@@ -28,7 +28,7 @@ code:
 
 Claude 根插件是手工维护的 canonical surface；skills 定义知识门与显式工作流，agents 分隔调查、候选捕获和正式写入。Codex 的 skills、agents 与清单是转换产物，不得成为独立设计源。
 
-两种宿主都把确定性行为收敛到外部 `@tokenroll/llmdoc` CLI，不向消费仓库写依赖；需要复现时固定包版本，不能退回会解析错误包名的裸调用。
+两种宿主都把确定性行为收敛到外部 `@vegetablebird6/llmdoc` CLI，不向消费仓库写依赖；需要复现时固定包版本，不能退回会解析错误包名的裸调用。
 
 生命周期 hook 从消费仓库 cwd 启动，可能被同名 local/`file:` 依赖抢先满足，且无效 bin 不会自动回退 registry。hook 因此必须借助不同 identity 的 scoped npm alias 选择发布 runtime；alias 只隔离包解析，不改变 CLI 契约，也不用于日常交互。
 

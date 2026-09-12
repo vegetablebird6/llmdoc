@@ -206,7 +206,7 @@ Run these checks after `validate` during init, and for the affected scope during
 For each first-class subsystem, run two or three natural queries, including one term that does not simply repeat the document title:
 
 ```sh
-npx -y @tokenroll/llmdoc search "<natural concept or failure question>"
+npx -y @vegetablebird6/llmdoc search "<natural concept or failure question>"
 ```
 
 The intended owner should be the first relevant result from its description and content. If it is not first, record the actual rank and why earlier results do not make routing ambiguous; otherwise repair the description or boundary. If only a generic root document appears, the subsystem is not adequately owned.
@@ -216,8 +216,8 @@ The intended owner should be the first relevant result from its description and 
 Test at least one canonical entry or contract file and one representative leaf or boundary file per documented subsystem, plus at least one owner file from every declared implementation boundary. Invoke once per file because `unmappedFiles` is attributed per input while owner documents remain a union:
 
 ```sh
-npx -y @tokenroll/llmdoc context --files <entry-path>
-npx -y @tokenroll/llmdoc context --files <leaf-path>
+npx -y @vegetablebird6/llmdoc context --files <entry-path>
+npx -y @vegetablebird6/llmdoc context --files <leaf-path>
 ```
 
 The intended owner must appear, along with genuinely required prerequisites. Zero results or only a generic cross-topic document is a routing gap.

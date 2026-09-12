@@ -30,7 +30,7 @@ describe("llmdoc cli", () => {
             name: "llmdoc-consumer",
             version: "1.0.0",
             private: true,
-            dependencies: { "@tokenroll/llmdoc": `file:${packageDir}` }
+            dependencies: { "@vegetablebird6/llmdoc": `file:${packageDir}` }
           },
           null,
           2
@@ -49,7 +49,7 @@ describe("llmdoc cli", () => {
         const mode = fs.statSync(binPath).mode & 0o111;
         expect(mode).not.toBe(0);
       }
-      const installedPackageJson = JSON.parse(fs.readFileSync(path.join(consumerDir, "node_modules", "@tokenroll/llmdoc", "package.json"), "utf8")) as {
+      const installedPackageJson = JSON.parse(fs.readFileSync(path.join(consumerDir, "node_modules", "@vegetablebird6/llmdoc", "package.json"), "utf8")) as {
         version: string;
       };
       expect(installedPackageJson.version).toBe(PACKAGE_VERSION);

@@ -114,7 +114,7 @@ use external mode.
 Add the marketplace and install the plugin:
 
 ```text
-/plugin marketplace add TokenRollAI/llmdoc
+/plugin marketplace add vegetablebird6/llmdoc
 /plugin install llmdoc@llmdoc-plugin
 ```
 
@@ -128,7 +128,7 @@ with `/llmdoc:init`.
 Add the marketplace and start Codex from the repository:
 
 ```bash
-codex plugin marketplace add TokenRollAI/llmdoc
+codex plugin marketplace add vegetablebird6/llmdoc
 codex
 ```
 
@@ -141,13 +141,13 @@ session to use the `llmdoc:init` skill.
 No plugin is required. View the external CLI help from the target repository:
 
 ```bash
-npx -y @tokenroll/llmdoc --help
+npx -y @vegetablebird6/llmdoc --help
 ```
 
-`@tokenroll/llmdoc` is external tooling. Do not add it to the consumer project's
+`@vegetablebird6/llmdoc` is external tooling. Do not add it to the consumer project's
 `package.json` or lockfile, and never use the unrelated bare package name
 `npx llmdoc`. For reproducible runs, pin the package spec:
-`npx -y @tokenroll/llmdoc@<version> <command>`.
+`npx -y @vegetablebird6/llmdoc@<version> <command>`.
 
 ## Daily use
 
@@ -161,9 +161,9 @@ The CLI provides the repository setup step; it does not write engineering
 understanding by itself:
 
 ```bash
-npx -y @tokenroll/llmdoc init --source ./app --knowledge ../app-knowledge
+npx -y @vegetablebird6/llmdoc init --source ./app --knowledge ../app-knowledge
 # Or bind an existing independent knowledge repository
-npx -y @tokenroll/llmdoc bind --source ./app --knowledge ../app-knowledge
+npx -y @vegetablebird6/llmdoc bind --source ./app --knowledge ../app-knowledge
 ```
 
 `init` never overwrites a non-empty target. Select `--nested` explicitly only
@@ -174,7 +174,7 @@ requires the source worktree to be clean.
 
 Choose one entry point for the question; these are alternatives, not a checklist:
 
-| Need | Command after `npx -y @tokenroll/llmdoc` |
+| Need | Command after `npx -y @vegetablebird6/llmdoc` |
 |---|---|
 | Get oriented | `tree` |
 | Find a concept | `search "retry policy"` |
@@ -196,10 +196,10 @@ For verified understanding, the agent edits formal Markdown in the Knowledge Git
 and publishes through the review protocol:
 
 ```bash
-npx -y @tokenroll/llmdoc validate
-npx -y @tokenroll/llmdoc review
-npx -y @tokenroll/llmdoc review --confirm <reviewId>
-npx -y @tokenroll/llmdoc commit --review <reviewId>
+npx -y @vegetablebird6/llmdoc validate
+npx -y @vegetablebird6/llmdoc review
+npx -y @vegetablebird6/llmdoc review --confirm <reviewId>
+npx -y @vegetablebird6/llmdoc commit --review <reviewId>
 ```
 
 The agent performs semantic review before confirming. Conclusions are `changed`,
@@ -310,7 +310,7 @@ Legacy V3 layouts are read only by explicit migration. Migration copies into a n
 independent Knowledge Git without changing the old repository or importing its
 history; converted documents must be verified through the new protocol.
 
-Use `npx -y @tokenroll/llmdoc --help` or `help <command>` for exact flags.
+Use `npx -y @vegetablebird6/llmdoc --help` or `help <command>` for exact flags.
 Retrieval supports `--json`, `--budget`, `--limit`, and `--cursor`.
 For other agents, use the [portable integration recipe](docs/agent-integration.md).
 CLI interface text, diagnostics, and the viewer are English; Chinese queries and
@@ -319,7 +319,7 @@ knowledge content are supported.
 ## Develop this repository
 
 The repository root is a private development workspace; the public consumer
-artifact is the `@tokenroll/llmdoc` CLI.
+artifact is the `@vegetablebird6/llmdoc` CLI.
 
 ```bash
 npm install
@@ -350,4 +350,4 @@ the bilingual READMEs, the design documentation, and dogfood knowledge.
 - Workflow contracts: [`init`](skills/init/SKILL.md),
   [`update`](skills/update/SKILL.md), [`prune`](skills/prune/SKILL.md), and
   [`migrate`](skills/migrate/SKILL.md)
-- Runtime reference: `npx -y @tokenroll/llmdoc --help`
+- Runtime reference: `npx -y @vegetablebird6/llmdoc --help`

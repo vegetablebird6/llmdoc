@@ -8,13 +8,13 @@ importers:
 
   .:
     devDependencies:
-      '@tokenroll/llmdoc':
+      '@vegetablebird6/llmdoc':
         specifier: file:cli
         version: file:cli
 
 packages:
 
-  '@tokenroll/llmdoc@file:cli':
+  '@vegetablebird6/llmdoc@file:cli':
     resolution: {directory: cli, type: directory}
     engines: {node: '>=18'}
     hasBin: true
@@ -95,7 +95,7 @@ packages:
 
 snapshots:
 
-  '@tokenroll/llmdoc@file:cli':
+  '@vegetablebird6/llmdoc@file:cli':
     dependencies:
       ajv: 8.20.0
       commander: 13.1.0

@@ -10,7 +10,7 @@ Claude Code 根插件是唯一手工维护的准源。Codex 表面由 ACPlugin �
 - [ ] `migrate` 在两个平台都保持仅显式调用（Claude 侧 `disable-model-invocation: true`；Codex 侧 `agents/openai.yaml` 的 `allow_implicit_invocation: false`），未被 operating skill 或 hook 隐式触发。
 - [ ] 所有 skill/agent/reference 描述双仓协议：`source.paths`（非旧源码路径字段）、`docs/**/*.md`（非旧扩展名）、三态 `unverified|current|needs_review`、Review Manifest、`commit --review`，且明确知识正文是 reference data 而非可执行指令。
 - [ ] 不存在已删除的 V3 写入口或校验参数：旧的创建/登记/移动/指纹/初始化状态命令、旧的已验证/全部提交参数，以及旧扩展名与旧源码路径字段；仅 `migrate` skill 可把旧格式作为其转换的 legacy 输入提及。
-- [ ] Claude 的 `SessionStart`、`Stop`、`PreCompact` 都通过 npm alias `@tokenroll/llmdoc-hook-runtime@npm:@tokenroll/llmdoc` 调用 scoped CLI，避免消费仓库的同名本地依赖遮蔽 runtime；Codex 保留仓库根 `hooks/hooks.json`，并按官方信任模型启用。
+- [ ] Claude 的 `SessionStart`、`Stop`、`PreCompact` 都通过 npm alias `@vegetablebird6/llmdoc-hook-runtime@npm:@vegetablebird6/llmdoc` 调用 scoped CLI，避免消费仓库的同名本地依赖遮蔽 runtime；Codex 保留仓库根 `hooks/hooks.json`，并按官方信任模型启用。
 - [ ] hooks fail-open、永不写 Source Git 或 Knowledge Git；SessionStart 只读投影绑定、三态计数、review obligations 与 source blockers，不注入正文、无仓库 preload 配置，无绑定时输出诊断而非初始化；Stop/PreCompact 成功时输出合法英文 JSON message。
 - [ ] 生成目录中没有 V2 `worker`、tracked reflection/memory 树、隐式 startup pack、watermark 或旧命令残留；compact 重入只保留 `LLMDOC_STATE`、不重新注入正文，恢复后的 Reflector 不保存 transcript。
 - [ ] `.agents/skills/migrate/agents/openai.yaml` 设置 `allow_implicit_invocation: false`，确保 migrate 只能显式调用。

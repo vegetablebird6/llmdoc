@@ -12,7 +12,7 @@
 // built bin cannot shadow the hook runtime.
 import { spawnSync } from "node:child_process";
 
-const SCOPED_PACKAGE = "@tokenroll/llmdoc-hook-runtime@npm:@tokenroll/llmdoc";
+const SCOPED_PACKAGE = "@vegetablebird6/llmdoc-hook-runtime@npm:@vegetablebird6/llmdoc";
 const LAUNCH_TIMEOUT_MS = 60_000;
 const KNOWN_EVENTS = new Set(["session-start", "stop", "compact"]);
 

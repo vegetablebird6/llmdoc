@@ -7,7 +7,7 @@ description: "Explicit bootstrap that creates an independent Knowledge Git and b
 
 Use this command only when the source repository has no bound Knowledge Git yet.
 
-Load the `llmdoc` skill before broad exploration. CLI commands below run as `npx -y @tokenroll/llmdoc <cmd>`.
+Load the `llmdoc` skill before broad exploration. CLI commands below run as `npx -y @vegetablebird6/llmdoc <cmd>`.
 
 ## Authorization
 

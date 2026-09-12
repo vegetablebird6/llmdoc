@@ -1,11 +1,11 @@
 {
-  "name": "@tokenroll/llmdoc",
+  "name": "@vegetablebird6/llmdoc",
   "version": "3.6.0-ng",
   "description": "Dual-repository knowledge CLI for llmdoc",
-  "homepage": "https://github.com/TokenRollAI/llmdoc",
+  "homepage": "https://github.com/vegetablebird6/llmdoc",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/TokenRollAI/llmdoc.git"
+    "url": "git+https://github.com/vegetablebird6/llmdoc.git"
   },
   "author": "DJJ & Danniel",
   "type": "module",

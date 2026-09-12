@@ -10,7 +10,7 @@ argument-hint: '[--report | --remove <id...>] [summary]'
 
 Use this command only when existing Knowledge Git documents need convergence after growth, duplication, fragmentation, or accumulation of reconstructable inventory.
 
-Load the `llmdoc` skill before broad exploration. CLI commands below run as `npx -y @tokenroll/llmdoc <cmd>`.
+Load the `llmdoc` skill before broad exploration. CLI commands below run as `npx -y @vegetablebird6/llmdoc <cmd>`.
 
 ## Authorization
 

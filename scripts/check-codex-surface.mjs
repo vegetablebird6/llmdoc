@@ -264,7 +264,7 @@ if (hooks) {
     errors.push(`hooks.json: 缺少经插件根定位的 hook launcher 命令: ${missing}`);
   }
   const launcherSource = readText("hooks/llmdoc-hook-launcher.mjs");
-  if (launcherSource !== null && !launcherSource.includes("@tokenroll/llmdoc-hook-runtime@npm:@tokenroll/llmdoc")) {
+  if (launcherSource !== null && !launcherSource.includes("@vegetablebird6/llmdoc-hook-runtime@npm:@vegetablebird6/llmdoc")) {
     errors.push("hooks/llmdoc-hook-launcher.mjs: 缺少防本地遮蔽的 scoped npm alias");
   }
   if (launcherSource !== null && !launcherSource.includes("npx")) {

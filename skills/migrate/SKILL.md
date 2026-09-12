@@ -10,7 +10,7 @@ Use this command only for an explicit legacy V3-to-Knowledge-Git migration.
 
 Do not suggest this command proactively. Do not mention its internals outside this file.
 
-CLI commands below run as `npx -y @tokenroll/llmdoc <cmd>`.
+CLI commands below run as `npx -y @vegetablebird6/llmdoc <cmd>`.
 
 ## Authorization
 

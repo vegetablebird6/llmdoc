@@ -8,7 +8,7 @@ argument-hint: "[summary] [--promote <candidate> --to <docId>] [--reject <candid
 
 Use this command when inbox candidates or source/knowledge changes require formal knowledge to be reviewed or synchronized.
 
-Load the `llmdoc` skill before broad exploration. CLI commands below run as `npx -y @tokenroll/llmdoc <cmd>`.
+Load the `llmdoc` skill before broad exploration. CLI commands below run as `npx -y @vegetablebird6/llmdoc <cmd>`.
 
 ## Authorization
 

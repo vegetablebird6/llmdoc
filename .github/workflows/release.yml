@@ -71,7 +71,7 @@ jobs:
           echo "npm_tarball=${npm_tarball}" >> "${GITHUB_OUTPUT}"
           echo "plugin_tarball=${plugin_tarball}" >> "${GITHUB_OUTPUT}"
 
-      - name: Publish @tokenroll/llmdoc to npm (trusted publishing)
+      - name: Publish @vegetablebird6/llmdoc to npm (trusted publishing)
         shell: bash
         # 无 token:npmjs.com 上将本仓库的 release.yml 配置为 trusted publisher,
         # npm 通过 OIDC(顶部 id-token: write)换取短期凭证;provenance 自动附带。
@@ -85,8 +85,8 @@ jobs:
             dist_tag="${dist_tag%%.*}"
           fi
           # 幂等:tag 重跑时该版本可能已在 registry,跳过而不是 409 失败
-          if npm view "@tokenroll/llmdoc@${expected}" version >/dev/null 2>&1; then
-            echo "@tokenroll/llmdoc@${expected} already published — skipping"
+          if npm view "@vegetablebird6/llmdoc@${expected}" version >/dev/null 2>&1; then
+            echo "@vegetablebird6/llmdoc@${expected} already published — skipping"
           else
             npm publish "${{ steps.artifacts.outputs.npm_tarball }}" --access public --tag "${dist_tag}"
           fi
