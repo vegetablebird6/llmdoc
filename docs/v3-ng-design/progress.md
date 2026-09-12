@@ -1,6 +1,10 @@
 # v3-ng 实施进度与续接记录
 
-最后更新：2026-09-12（M1–M5 已完成并通过 Codex review；提交身份 `vegetable6 <xukun6cai@gmail.com>`；Codex review 修复、测试收敛与统一 timeout 已收口提交 `4d4bc5f`，默认 quick 与完整 integration 均通过；临时文件已清理，等待 Codex review 本轮修复）。
+最后更新：2026-09-12（M1–M5 与收口修复均已通过 Codex review；提交身份 `vegetable6 <xukun6cai@gmail.com>`；默认 quick 与完整 integration 均通过；临时文件已清理）。
+
+## 文档状态收口计划 — 2026-09-12
+
+状态：完成。运行时代码与测试证据未变更；已修正路线图完成状态、本文件当前检查点，以及 architecture 中 Review Manifest 的维护主体。术语扫描与 `git diff --check` 结果见文末收口记录。
 
 ## 执行约定
 
@@ -2279,3 +2283,9 @@ Linux 无本机环境时：以现有 `ubuntu-latest` CI（`npm ci` → typecheck
 - `npm run lint` exit 0；`npm run typecheck` exit 0；`git diff --check` exit 0（仅 LF→CRLF 提示）。
 - 提交边界：纳入全部 tracked 变更（测试收敛、timeout 统一、schema 单源、viewer DTO、README/设计文档/skills）；排除 `.codegraph/`、`.llmdoc-tmp/`、`website/dist`、`cli/dist`。已提交为 `4d4bc5f`（`test: converge protocol suite and validate config via published schema`，45 files，+639/−1620）。
 - 临时文件清理：删除 `.llmdoc-tmp/`、`cli/.llmdoc-tmp/` 与 `%TEMP%\llmdoc-*` 测试临时目录 307 个；真实 `%APPDATA%\llmdoc\bindings.json` 的 `llmdoc-dogfood-fail-*` 测试遗留绑定经只读核对（source/knowledge 临时路径均已不存在、文件仅含该一条）后按 incident 流程删除，空的 `%APPDATA%\llmdoc` 目录一并移除。
+
+### 文档状态一致性收口
+
+- `roadmap.md` 已由实施前基线更新为 M1–M5 已完成，删除旧的未提交 V3 工作树和“只新增设计”描述，并明确 breaking replacement 不保留 V3 dispatch、source fallback 或 `v3-ng` 命令前缀。
+- `architecture.md` 中 Review Manifest 的使用主体已统一为 Agent 维护流程；人工只审阅结论并将纠正反馈给 Agent。
+- 当前权威文档术语扫描只命中本文件的历史实施记录，不再命中现行 README、architecture、roadmap 或 agent integration；`git diff --check` exit 0（仅 LF→CRLF 提示）。本次仅改三份设计文档，不需要重复运行时代码测试。

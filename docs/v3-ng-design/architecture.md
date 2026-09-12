@@ -148,7 +148,7 @@ init/update/prune 是工作流入口；实际编排可由现有 skill 完成，�
 
 Review Manifest 存在知识仓可重建缓存中，不提交 Git。包含 schema、随机 reviewId、repositoryId、精确绑定、sourceRevision S、knowledgeBaseRevision K0、每篇文档 ID/digest/旧新 source scope/结论、旧 validatedRequires 与候选依赖 digest，以及完整写集（含删除、晋升和关系修改）。旧证据来自 K0 的 meta，commit 不信任 manifest 自行改写旧证据；新证据由已审查候选计算。review 先准备 manifest；Agent 显式确认每项语义结论后才可消费，人对结果的纠正重新进入 Agent 流程。任何编辑发生在确认之后，都必须重新 review；CLI 不因生成 manifest 自动认定语义成立。
 
-seal 重算文档和依赖 digest、scope、写集，确认与 manifest 完全一致，并要求知识 HEAD=K0、source HEAD=S 且 clean；不一致报 `E_REVIEW_INVALIDATED`。manifest 不允许新增未审查路径；meta-only 也需绑定已复核的文档 digest。成功后标记消费；即使消费标记丢失，K0 的 CAS 也阻止重复发布。manifest 是人机共同使用的本地验证声明，不是对恶意篡改的认证机制。
+seal 重算文档和依赖 digest、scope、写集，确认与 manifest 完全一致，并要求知识 HEAD=K0、source HEAD=S 且 clean；不一致报 `E_REVIEW_INVALIDATED`。manifest 不允许新增未审查路径；meta-only 也需绑定已复核的文档 digest。成功后标记消费；即使消费标记丢失，K0 的 CAS 也阻止重复发布。manifest 是 Agent 维护流程使用的本地验证声明；人工审阅其结论并将纠正反馈给 Agent，它不是对恶意篡改的认证机制。
 
 结构错误建议退出码 2；状态阻断 3；事务/IO 错误 70；成功 0。JSON 错误统一含 code、message、paths 和 remediation；最终输出 schema 与 CLI 实现同步评审。
 

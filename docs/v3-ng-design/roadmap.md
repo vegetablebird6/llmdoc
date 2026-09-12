@@ -1,6 +1,6 @@
 # v3-ng 实施计划与 Roadmap
 
-状态：用户评审收敛后的实现基线；以下阶段尚未实现或验收。文中的后续阶段不命名为 v4，避免与用户输入中的旧代称混淆。
+状态：M1–M5 已实现、通过 Codex review 并按阶段提交；下表保留交付范围与验收基线。文中的后续阶段不命名为 v4，避免与用户输入中的旧代称混淆。
 
 ## v3-ng 实施顺序
 
@@ -12,7 +12,7 @@
 | M4 最小维护闭环 | capture、update/prune 编排、导航生成、显式迁移 | 候选可拒绝/晋升；普通编辑不自动验证；迁移失败不影响旧知识和 source |
 | M5 接入与发布 | hooks、skills、agents、CLI 帮助、双语文档、viewer、示例 | 读取入口已在 M2 完成 breaking replacement，其余入口使用相同双仓契约；端到端 dogfood 通过后再确定版本号 |
 
-当前工作树已有大量未提交 V3 演进内容。实施前先明确其保留/提交边界，再分阶段提交；本设计不将已有修改批量提交，也不从零重写已具备的 source/projection 能力。
+M1–M5 已按独立提交落地；v3-ng 作为 breaking replacement 直接替换旧运行时，不保留 V3 dispatch、源码仓 fallback 或 `v3-ng` 命令前缀。
 
 ## 必须验收的行为
 
@@ -28,7 +28,7 @@
 10. CLI JSON schema、viewer 和各 Agent 接入口端到端一致；Windows 与 Linux 都运行关键集成用例。
 11. v3-ng 同名主命令不得保留 V3 dispatch 或 embedded/source fallback；旧 `.mdx` 只能由显式 migrate 读取。缺绑定应返回 v3-ng 绑定错误，而不是进入旧 workspace。
 
-测试优先真实临时双 Git 仓与故障注入，不只 mock Git 或测试字段改名。每阶段执行对应测试；最终再运行项目要求的 lint/typecheck/test、文档链接与 prompt 检查。本次只新增设计，不声称这些验收已经通过。
+测试优先真实临时双 Git 仓与故障注入，不只 mock Git 或测试字段改名。各阶段已执行对应测试；最终收口的 lint、typecheck、默认 quick、完整 integration、文档/prompt 与网站 Schema 检查证据记录在 `progress.md`。
 
 ## 后续版本
 
