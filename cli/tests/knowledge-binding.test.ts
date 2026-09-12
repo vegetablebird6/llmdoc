@@ -1,8 +1,6 @@
 import fs from "node:fs";
 
-import { afterAll, describe, expect, it, vi } from "vitest";
-
-vi.setConfig({ testTimeout: 30000 });
+import { afterAll, describe, expect, it } from "vitest";
 
 import { resolveWriteBinding } from "../src/lib/knowledge/binding.js";
 import { generateRepositoryId } from "../src/lib/knowledge/identity.js";

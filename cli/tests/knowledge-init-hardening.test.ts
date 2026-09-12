@@ -3,8 +3,6 @@ import path from "node:path";
 
 import { afterAll, describe, expect, it, vi } from "vitest";
 
-vi.setConfig({ testTimeout: 30000 });
-
 import { resolveWriteBinding } from "../src/lib/knowledge/binding.js";
 import { initKnowledgeRepository } from "../src/lib/knowledge/init.js";
 import { loadKnowledgeLayoutConfig } from "../src/lib/knowledge/knowledge-config.js";

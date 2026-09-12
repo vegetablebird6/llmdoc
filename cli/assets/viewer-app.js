@@ -59,9 +59,9 @@ async function loadState() {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const nextState = await response.json();
     if (!Array.isArray(nextState.nodes) || !Array.isArray(nextState.edges)) throw new Error("The server returned invalid state");
-    state = adaptState(nextState);
+    state = nextState;
     topicColors = createTopicColors(state.nodes);
-    if (selectedDocument && !state.nodes.some((node) => node.path === selectedDocument)) selectedDocument = null;
+    if (selectedDocument && !state.nodes.some((node) => node.id === selectedDocument)) selectedDocument = null;
     if (selectedTopic && !state.nodes.some((node) => node.topic === selectedTopic)) selectedTopic = null;
     renderHeader();
     renderSidebar();
@@ -76,27 +76,10 @@ async function loadState() {
   }
 }
 
-function adaptState(nextState) {
-  const nodes = (nextState.nodes ?? []).map((node) => ({
-    ...node,
-    path: node.id,
-    codePaths: node.sourcePaths ?? []
-  }));
-  const issues = nextState.issues ?? [];
-  const errors = issues.filter((issue) => issue.severity === "error").length;
-  const warnings = issues.filter((issue) => issue.severity === "warning").length;
-  return {
-    ...nextState,
-    nodes,
-    edges: nextState.edges ?? [],
-    growth: { currentTotalEstimatedTokens: nodes.reduce((sum, node) => sum + (node.estimatedTokens ?? 0), 0) },
-    validate: { ok: errors === 0, errors, warnings, issues }
-  };
-}
-
 function renderHeader() {
   elements.repo.textContent = `/ ${state.repository ?? "knowledge"}`;
-  elements.statDocs.textContent = `${state.nodes.length} docs · ~${state.growth.currentTotalEstimatedTokens} tokens`;
+  const totalEstimatedTokens = state.nodes.reduce((sum, node) => sum + (node.estimatedTokens ?? 0), 0);
+  elements.statDocs.textContent = `${state.nodes.length} docs · ~${totalEstimatedTokens} tokens`;
 
   const knowledgeRevision = state.knowledgeRevision?.slice(0, 7);
   const sourceRevision = state.sourceRevision?.slice(0, 7);
@@ -112,11 +95,12 @@ function renderHeader() {
     );
   }
 
-  const validation = state.validate;
+  const errors = state.issues.filter((issue) => issue.severity === "error").length;
+  const warnings = state.issues.filter((issue) => issue.severity === "warning").length;
   setChip(
     elements.statValidate,
-    validation.ok ? `validate ok${validation.warnings ? ` · ${validation.warnings} warn` : ""}` : `validate ${validation.errors} errors`,
-    validation.ok ? "ok" : "bad"
+    errors === 0 ? `validate ok${warnings ? ` · ${warnings} warn` : ""}` : `validate ${errors} errors`,
+    errors === 0 ? "ok" : "bad"
   );
 
   const pending = state.nodes.filter((node) => node.status !== "current").length;
@@ -159,15 +143,15 @@ function renderSidebar() {
     fragment.append(label);
 
     for (const node of nodes) {
-      const item = element("button", `doc-item${selectedDocument === node.path ? " active" : ""}`);
+      const item = element("button", `doc-item${selectedDocument === node.id ? " active" : ""}`);
       item.type = "button";
-      item.title = node.path;
-      item.setAttribute("aria-current", selectedDocument === node.path ? "true" : "false");
+      item.title = node.id;
+      item.setAttribute("aria-current", selectedDocument === node.id ? "true" : "false");
       const dot = element("span", "dot");
       dot.style.backgroundColor = STATUS_COLOR[node.status];
       dot.style.color = STATUS_COLOR[node.status];
-      item.append(dot, element("span", "name", documentName(node.path)), element("span", "kind", node.kind));
-      item.addEventListener("click", () => selectDocument(node.path));
+      item.append(dot, element("span", "name", documentName(node.id)), element("span", "kind", node.kind));
+      item.addEventListener("click", () => selectDocument(node.id));
       fragment.append(item);
     }
   }
@@ -202,13 +186,13 @@ function selectTopic(topic) {
   detail.showTopic(topic, state, topicColors);
 }
 
-async function selectDocument(path) {
-  selectedDocument = path;
+async function selectDocument(id) {
+  selectedDocument = id;
   selectedTopic = null;
   renderSidebar();
   if (mode !== "docs") setMode("docs");
-  else graph.highlight(path);
-  await detail.showDocument(path, state);
+  else graph.highlight(id);
+  await detail.showDocument(id, state);
 }
 
 function showError(message) {

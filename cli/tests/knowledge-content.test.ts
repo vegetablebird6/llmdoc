@@ -1,15 +1,13 @@
 import fs from "node:fs";
 
-import { afterAll, describe, expect, it, vi } from "vitest";
-
-vi.setConfig({ testTimeout: 30000 });
+import { afterAll, describe, expect, it } from "vitest";
 
 import { contentDigest, normalizeKnowledgeContent } from "../src/lib/knowledge/document.js";
 import { buildKnowledgeModelFromRaw, type KnowledgeRawEntry } from "../src/lib/knowledge/knowledge-model.js";
 import { validateKnowledgeMeta, type KnowledgeMeta } from "../src/lib/knowledge/meta.js";
 import { computeValidity } from "../src/lib/knowledge/validity.js";
 import { resolveSourceContext } from "../src/lib/knowledge/contexts.js";
-import { commitFile, initRepo, makeTempDir, realPath } from "./knowledge-helpers.js";
+import { commitFile, git, head, initRepo, makeTempDir, realPath, writeFile } from "./knowledge-helpers.js";
 
 const createdDirs: string[] = [];
 
@@ -140,6 +138,17 @@ describe("knowledge document model", () => {
     expect(cyclic.cyclicIds.has("a.md")).toBe(true);
     expect(cyclic.issues.some((issue) => issue.code === "relations.requires.cycle")).toBe(true);
 
+    const filtered = modelFrom({
+      "guides/a.md": doc({ kind: "guide", requires: ["guides/b.md", "guides/a.md", "guides/missing.md", "../evil.md", "refs\\api.md"] }),
+      "guides/b.md": doc({ kind: "guide" }),
+      "refs/api.md": doc({ kind: "reference" })
+    });
+    expect(filtered.relations.get("guides/a.md")!.requires).toEqual(["guides/b.md", "refs/api.md"]);
+    expect(filtered.requiresProblems.has("guides/a.md")).toBe(true);
+    for (const code of ["relations.requires.self", "relations.requires.missing", "relations.requires.invalid-path"]) {
+      expect(filtered.issues.some((issue) => issue.code === code && issue.path === "guides/a.md")).toBe(true);
+    }
+
     const badSupersedes = modelFrom({
       "new.md": doc({ kind: "decision", supersedes: ["guide.md"] }),
       "guide.md": doc({ kind: "guide" })
@@ -153,10 +162,13 @@ describe("knowledge document model", () => {
   it("annotates supersedes and reports missing body links", () => {
     const model = modelFrom({
       "decisions/old.md": doc({ kind: "decision", description: "Old" }),
-      "decisions/new.md": doc({ kind: "decision", description: "New", supersedes: ["decisions/old.md"] }),
+      "decisions/new.md": doc({ kind: "decision", description: "New", supersedes: ["decisions/old.md", "decisions/missing.md", "decisions/new.md"] }),
       "guides/g.md": doc({ kind: "guide", body: "# G\n\nsee [gone](./missing.md)" })
     });
     expect(model.supersededBy.get("decisions/old.md")).toEqual(["decisions/new.md"]);
+    expect(model.relations.get("decisions/new.md")!.supersedes).toEqual(["decisions/old.md"]);
+    expect(model.issues.some((issue) => issue.code === "relations.supersedes.missing")).toBe(true);
+    expect(model.issues.some((issue) => issue.code === "relations.supersedes.self")).toBe(true);
     expect(model.issues.some((issue) => issue.code === "link.missing" && issue.path === "guides/g.md")).toBe(true);
   });
 });
@@ -208,7 +220,7 @@ describe("knowledge validity projection", () => {
     const sourceContext = await resolveSourceContext(source);
     const revision = sourceContext.headRevision!;
     const model = modelFrom({
-      "guides/a.md": doc({ kind: "guide", description: "A", requires: ["guides/b.md"] }),
+      "guides/a.md": doc({ kind: "guide", description: "A", requires: ["./guides/b.md"] }),
       "guides/b.md": doc({ kind: "guide", description: "B" })
     });
     const b1 = model.byId.get("guides/b.md")!;
@@ -224,7 +236,7 @@ describe("knowledge validity projection", () => {
     expect(initial.byId.get("guides/a.md")!.status).toBe("current");
 
     const changed = modelFrom({
-      "guides/a.md": doc({ kind: "guide", description: "A", requires: ["guides/b.md"] }),
+      "guides/a.md": doc({ kind: "guide", description: "A", requires: ["./guides/b.md"] }),
       "guides/b.md": doc({ kind: "guide", description: "B", body: "# B\n\nchanged" })
     });
     const changedProjection = await computeValidity({ model: changed, meta: baseMeta, source: sourceContext, identityVerified: true, knowledgeRevision: sourceContext.headRevision });
@@ -259,6 +271,13 @@ describe("knowledge validity projection", () => {
     const projection = await computeValidity({ model, meta: missingRevision, source: sourceContext, identityVerified: true, knowledgeRevision: sourceContext.headRevision });
     expect(projection.byId.get("guides/g.md")!.status).toBe("needs_review");
     expect(projection.byId.get("guides/g.md")!.reasons.join(" ")).toContain("not available in history");
+    expect(projection.historyAvailable).toBe(false);
+    expect(projection.sourceBlockers.some((blocker) => blocker.code === "history_unavailable")).toBe(true);
+
+    const edited = modelFrom({ "guides/g.md": doc({ kind: "guide", description: "G", body: "# G\n\nedited" }) });
+    const stale = await computeValidity({ model: edited, meta: missingRevision, source: sourceContext, identityVerified: true, knowledgeRevision: sourceContext.headRevision });
+    expect(stale.byId.get("guides/g.md")!.reasons.join(" ")).toContain("digest mismatch");
+    expect(stale.sourceBlockers.some((blocker) => blocker.code === "history_unavailable")).toBe(true);
 
     const scopeChanged = metaFor({
       repositoryId: REPOSITORY_ID,
@@ -266,6 +285,73 @@ describe("knowledge validity projection", () => {
     });
     const scopeProjection = await computeValidity({ model, meta: scopeChanged, source: sourceContext, identityVerified: true, knowledgeRevision: sourceContext.headRevision });
     expect(scopeProjection.byId.get("guides/g.md")!.reasons.join(" ")).toContain("Source scope changed");
+  });
+
+  it("never treats source paths absent from the committed snapshot as current", async () => {
+    const source = await makeSource("llmdoc-knowledge-source-evidence-");
+    writeFile(source, "src/live/untracked.ts", "export const live = true;\n");
+    const sourceContext = await resolveSourceContext(source);
+    const model = modelFrom({
+      "missing.md": doc({ kind: "guide", source: ["src/missing.ts"] }),
+      "empty-glob.md": doc({ kind: "guide", source: ["src/**/*.tsx"] }),
+      "live-glob.md": doc({ kind: "guide", source: ["src/live/**"] }),
+      "matched.md": doc({ kind: "guide", source: ["src/**/*.ts"] })
+    });
+    const revision = sourceContext.headRevision!;
+    const meta = metaFor({
+      repositoryId: REPOSITORY_ID,
+      documents: Object.fromEntries(
+        model.documents.map((document) => [document.id, {
+          revision,
+          digest: document.contentDigest,
+          paths: document.frontmatter.source.paths
+        }])
+      )
+    });
+
+    const projection = await computeValidity({ model, meta, source: sourceContext, identityVerified: true, knowledgeRevision: revision });
+    expect(projection.byId.get("matched.md")!.status).toBe("current");
+    for (const id of ["missing.md", "empty-glob.md", "live-glob.md"]) {
+      expect(projection.byId.get(id)!.status).toBe("needs_review");
+    }
+  });
+
+  it("reports diverged when the validated source revision is not an ancestor of HEAD", async () => {
+    const source = await makeSource("llmdoc-knowledge-diverged-");
+    const baseRevision = head(source);
+    commitFile(source, "src/side.ts", "export const side = true;\n", "side");
+    const sideRevision = head(source);
+    git(source, ["reset", "--hard", baseRevision]);
+    const sourceContext = await resolveSourceContext(source);
+    const model = modelFrom({ "guides/g.md": doc({ kind: "guide", description: "G" }) });
+    const meta = metaFor({
+      repositoryId: REPOSITORY_ID,
+      documents: { "guides/g.md": { revision: sideRevision, digest: model.byId.get("guides/g.md")!.contentDigest, paths: ["src/api/retry.ts"] } }
+    });
+
+    const projection = await computeValidity({ model, meta, source: sourceContext, identityVerified: true, knowledgeRevision: baseRevision });
+    expect(projection.byId.get("guides/g.md")!.status).toBe("needs_review");
+    expect(projection.byId.get("guides/g.md")!.reasons.join(" ")).toContain("not an ancestor");
+    expect(projection.historyAvailable).toBe(false);
+    expect(projection.sourceBlockers.some((blocker) => blocker.code === "diverged")).toBe(true);
+  });
+
+  it("keeps supersedes cycles out of dependency validity", async () => {
+    const source = await makeSource("llmdoc-knowledge-supersedes-cycle-");
+    const sourceContext = await resolveSourceContext(source);
+    const model = modelFrom({
+      "old.md": doc({ kind: "decision", supersedes: ["new.md"] }),
+      "new.md": doc({ kind: "decision", supersedes: ["old.md"] })
+    });
+    const revision = sourceContext.headRevision!;
+    const meta = metaFor({
+      repositoryId: REPOSITORY_ID,
+      documents: Object.fromEntries(model.documents.map((document) => [document.id, { revision, digest: document.contentDigest, paths: ["src/api/retry.ts"] }]))
+    });
+    const projection = await computeValidity({ model, meta, source: sourceContext, identityVerified: true, knowledgeRevision: revision });
+    expect(model.issues.some((issue) => issue.code === "relations.supersedes.cycle")).toBe(true);
+    expect(model.cyclicIds.size).toBe(0);
+    expect([...projection.byId.values()].every((entry) => entry.status === "current")).toBe(true);
   });
 
   it("rejects malformed meta ledgers instead of trusting them", () => {
@@ -282,5 +368,18 @@ describe("knowledge validity projection", () => {
         "/virtual/meta.json"
       )
     ).toThrow(/sha256/);
+  });
+
+  it.each([
+    ["partial evidence", "a.md", { validatedSourceRevision: null, validatedContentDigest: null, validatedSourcePaths: ["src/a.ts"], validatedRequires: {} }, /partial validation evidence/],
+    ["digest without revision", "a.md", { validatedSourceRevision: null, validatedContentDigest: `sha256:${"a".repeat(64)}`, validatedSourcePaths: ["src/a.ts"], validatedRequires: {} }, /no validated source revision/],
+    ["non-canonical id", "../evil.md", { validatedSourceRevision: null, validatedContentDigest: null, validatedSourcePaths: [], validatedRequires: {} }, /canonical docs-relative/],
+    ["short revision", "a.md", { validatedSourceRevision: "abc123", validatedContentDigest: `sha256:${"a".repeat(64)}`, validatedSourcePaths: ["src/a.ts"], validatedRequires: {} }, /full commit OID/]
+  ])("rejects %s", (_name, id, evidence, message) => {
+    expect(() => validateKnowledgeMeta({
+      schema: "llmdoc.meta/v3-ng",
+      source: { repositoryId: REPOSITORY_ID, lastGlobalReviewRevision: null },
+      documents: { [id]: evidence }
+    }, "/virtual/meta.json")).toThrow(message);
   });
 });

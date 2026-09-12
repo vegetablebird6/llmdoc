@@ -1,8 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, test, vi } from "vitest";
-
-vi.setConfig({ testTimeout: 120000 });
+import { describe, expect, test } from "vitest";
 
 import { runCli } from "../src/cli.js";
 import { commitFile, initRepo, makeTempDir } from "./knowledge-helpers.js";

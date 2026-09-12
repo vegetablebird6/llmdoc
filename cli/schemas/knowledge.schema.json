@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://llmdoc.tokenroll.ai/schemas/knowledge.schema.json",
   "title": "llmdoc Knowledge layout (llmdoc.yaml)",
-  "description": "Identity and layout of an independent Knowledge Git repository. The canonical definition is owned by the CLI runtime; this is its published static projection.",
+  "description": "Canonical machine-readable identity and layout contract for an independent Knowledge Git repository.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema", "repositoryId", "layoutVersion"],
@@ -19,6 +19,7 @@
     },
     "remotes": {
       "type": "array",
+      "default": [],
       "items": {
         "type": "object",
         "additionalProperties": false,

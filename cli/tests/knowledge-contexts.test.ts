@@ -3,9 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
-import { afterAll, describe, expect, it, vi } from "vitest";
-
-vi.setConfig({ testTimeout: 30000 });
+import { afterAll, describe, expect, it } from "vitest";
 
 import { KnowledgeError } from "../src/lib/knowledge/errors.js";
 import { resolveKnowledgeContext, resolveSourceContext } from "../src/lib/knowledge/contexts.js";

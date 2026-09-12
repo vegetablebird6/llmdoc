@@ -3,9 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-
-vi.setConfig({ testTimeout: 30000 });
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { runCli } from "../src/cli.js";
 import { commitFile, head, initRepo, makeTempDir, realPath, snapshotWorktree, sourceIndexBytes } from "./knowledge-helpers.js";

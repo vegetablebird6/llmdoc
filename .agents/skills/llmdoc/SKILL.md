@@ -44,14 +44,14 @@ The gate guards broad native discovery outside a working set llmdoc has already 
 - Temporary investigation notes belong in `.llmdoc-tmp/`, not in the Knowledge Git.
 - Formal knowledge writes go only through the CLI review/commit protocol: `capture` → `update` → `review` → `review --confirm <reviewId>` → `commit --review <reviewId>`. Never hand-edit `.llmdoc/meta.json`.
 - Formal review and seal require a valid source HEAD and an entirely clean source worktree/index.
-- Align with the user before non-trivial edits. No binding? suggest `/llmdoc:init` or `/llmdoc:bind`; legacy V3 layout? suggest `/llmdoc:migrate`; after durable knowledge changes, suggest `/llmdoc:update`.
+- Align with the user before non-trivial code edits. No binding? suggest `/llmdoc:init` or `/llmdoc:bind`; legacy V3 layout? suggest `/llmdoc:migrate`; after durable knowledge changes, run `/llmdoc:update`.
 - Topology or routing work: read [Knowledge Topology](references/knowledge-topology.md). Host startup guidance: read [Startup Configuration](references/startup-config.md).
 
 ## Reflection Gate
 
 Strong reflection signals: a user correction, verification proving an approach wrong, substantial rework/rollback or an instruction violation, or a missing project signal likely to prevent recurrence. Skip transient failures, typos, speculation, and one-task preferences unless durable.
 
-On a strong signal, continue the task and give `reflector` compact evidence while context is fresh. It writes a privacy-safe candidate under `.llmdoc-tmp/reflections/pending/`, never the transcript or tracked knowledge. A pending candidate is an update signal even with no source delta. At task end, name the lesson and ask once to run `/llmdoc:update`; wait for authorization.
+On a strong signal, continue the task and give `reflector` compact evidence while context is fresh. It writes a privacy-safe candidate under `.llmdoc-tmp/reflections/pending/`, never the transcript or tracked knowledge. A pending candidate is an update signal even with no source delta. At task end, name the lesson and fold it into stable knowledge via `/llmdoc:update`; review may follow.
 
 ## Continuation State
 

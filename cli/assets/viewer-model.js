@@ -35,7 +35,7 @@ export function compactLabel(label, limit = 24) {
 export function matchesSearch(node, rawQuery) {
   const query = rawQuery.trim().toLocaleLowerCase();
   if (!query) return true;
-  return [node.path, node.title, node.description, node.kind, node.topic]
+  return [node.id, node.title, node.description, node.kind, node.topic]
     .filter(Boolean)
     .some((value) => String(value).toLocaleLowerCase().includes(query));
 }
@@ -56,26 +56,26 @@ export function buildTopicGraph(state, topicColors) {
       radius: 26 + Math.min(26, Math.sqrt(tokens)),
       fill: colorOf(topicColors, topic),
       status: worstStatus(documents),
-      tooltip: `${topic}/\n${documents.map((document) => `· ${documentName(document.path)}`).join("\n")}`,
+      tooltip: `${topic}/\n${documents.map((document) => `· ${documentName(document.id)}`).join("\n")}`,
       target: { type: "topic", value: topic }
     });
   }
 
   for (const node of state.nodes.filter((item) => !item.topic)) {
     nodes.push({
-      id: `doc:${node.path}`,
+      id: `doc:${node.id}`,
       isTopic: false,
-      label: compactLabel(node.path.replace(/\.md$/, "")),
+      label: compactLabel(node.id.replace(/\.md$/, "")),
       radius: 10 + Math.min(9, Math.sqrt(node.estimatedTokens)),
       fill: colorOf(topicColors, null),
       status: node.status,
-      tooltip: `${node.path}\n${node.description}`,
-      target: { type: "document", value: node.path }
+      tooltip: `${node.id}\n${node.description}`,
+      target: { type: "document", value: node.id }
     });
   }
 
   const groupByPath = new Map(
-    state.nodes.map((node) => [node.path, node.topic ? `topic:${node.topic}` : `doc:${node.path}`])
+    state.nodes.map((node) => [node.id, node.topic ? `topic:${node.topic}` : `doc:${node.id}`])
   );
   const aggregated = new Map();
   for (const edge of state.edges) {
@@ -97,16 +97,16 @@ export function buildTopicGraph(state, topicColors) {
 
 export function buildDocumentGraph(state, topicColors) {
   const nodes = state.nodes.map((node) => ({
-    id: node.path,
+    id: node.id,
     isTopic: false,
     topic: node.topic,
     cluster: node.topic || "·root",
-    label: compactLabel(documentName(node.path)),
+    label: compactLabel(documentName(node.id)),
     radius: 8 + Math.min(11, Math.sqrt(node.estimatedTokens)),
     fill: colorOf(topicColors, node.topic),
     status: node.status,
-    tooltip: `${node.path}\n${node.description}`,
-    target: { type: "document", value: node.path }
+    tooltip: `${node.id}\n${node.description}`,
+    target: { type: "document", value: node.id }
   }));
   const edges = state.edges.map((edge) => ({ ...edge, style: edge.type }));
   return { nodes, edges };

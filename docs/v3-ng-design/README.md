@@ -4,7 +4,7 @@
 
 ## 定位与范围
 
-**Detached Engineering Knowledge Base：独立于源码生命周期，由人和 Agent 共同维护的持久工程知识库。**
+**Detached Engineering Knowledge Base：独立于源码生命周期，由 Agent 维护、人工审阅的持久工程知识库。**
 
 > Source Git commits define facts; Knowledge Git commits preserve verified understanding of those facts.
 
@@ -21,9 +21,9 @@ v3-ng 是 breaking change 的实现基线。进入 v3-ng 后，现有 CLI、hook
 3. 持久知识写入不得向上回退到 Source Git。未绑定或非独立 Git 时明确失败；只读检索可以读取显式指定的无 Git 知识目录。
 4. 只认有效 HEAD 且全仓 worktree/index clean 的 Source commit；Source Revision 是验证依据，Knowledge Revision 是知识 Git commit。
 5. Review Manifest 绑定 source revision、内容 digest 和 scope；正文、关系、meta 用临时 index 与 CAS 一次发布，要求知识 index 无 staged 内容，成功后同步 index 与自有生成文件。meta 不存 knowledge commit。
-6. 语义验证由人或 Agent 负责，CLI 执行确定性的结构、范围及提交检查。`validate` 成功不证明知识正确。
+6. 正式知识的语义维护由 Agent 负责，人审阅结论并把纠正反馈给 Agent 流程；CLI 执行确定性的结构、范围及提交检查。`validate` 成功不证明知识正确。
 7. AST、符号和依赖图是可重建索引，不生成可提交的代码百科。
-8. 人和 Agent 都能编辑标准 Markdown，并经过相同的验证声明及提交协议；知识是 reference data，不是可执行 rules/skills。
+8. Agent 通过验证声明及提交协议维护正式知识；人审阅同一份标准 Markdown，并把纠正反馈给 Agent 流程。知识是 reference data，不是可执行 rules/skills。
 
 “唯一写入边界”指知识内容及其 Git；`bind` 允许写用户级 registry，临时文件和缓存写知识目录或用户级缓存。它们都是明确例外，仍不能写入源码仓。嵌套兼容仅允许写独立知识子树；不得改外层 Git、ignore 或其他源码文件。若要求源码目录字节级完全不变，必须使用外置模式。
 

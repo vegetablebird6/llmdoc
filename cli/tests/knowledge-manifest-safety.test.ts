@@ -1,9 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { afterAll, describe, expect, it, vi } from "vitest";
-
-vi.setConfig({ testTimeout: 30000 });
+import { afterAll, describe, expect, it } from "vitest";
 
 import {
   buildReviewManifest,

@@ -1,12 +1,10 @@
 import fs from "node:fs";
 
-import { afterAll, describe, expect, it, vi } from "vitest";
-
-vi.setConfig({ testTimeout: 30000 });
+import { afterAll, describe, expect, it } from "vitest";
 
 import { runStatus, type StatusPayload } from "../src/commands/status.js";
 import { runDelta, type DeltaPayload } from "../src/commands/delta.js";
-import { advanceSource, createKnowledgeFixture, knowledgeDoc, writeFile, type KnowledgeFixture } from "./knowledge-helpers.js";
+import { advanceSource, commitFile, createKnowledgeFixture, knowledgeDoc, writeFile, type KnowledgeFixture } from "./knowledge-helpers.js";
 
 const createdDirs: string[] = [];
 
@@ -66,6 +64,24 @@ describe("status and delta diagnostics", () => {
     expect(delta.suggestedMode).toBe("light");
     expect(delta.impacted.map((impact) => impact.id)).toEqual(["a.md"]);
     expect(delta.impacted[0]!.contentChanged).toBe(false);
+  });
+
+  it("keeps knowledge current after an unrelated committed source change", async () => {
+    const fixture = await makeFixture("llmdoc-status-unrelated-");
+    commitFile(fixture.source, "src/other.ts", "export const other = 1;\n", "unrelated");
+
+    const status = (await runStatus({ ...options(fixture), json: true })) as StatusPayload;
+    expect(status.documents).toEqual({ total: 1, current: 1, needsReview: 0, unverified: 0 });
+    expect(status.reviewObligations).toEqual([]);
+  });
+
+  it("reports a dirty source blocker without changing committed document validity", async () => {
+    const fixture = await makeFixture("llmdoc-status-dirty-");
+    writeFile(fixture.source, "src/uncommitted.ts", "export const draft = true;\n");
+
+    const status = (await runStatus({ ...options(fixture), json: true })) as StatusPayload;
+    expect(status.sourceBlockers.some((blocker) => blocker.code === "source_dirty")).toBe(true);
+    expect(status.documents).toEqual({ total: 1, current: 1, needsReview: 0, unverified: 0 });
   });
 
   it("switches delta to deep when a document body is edited in the worktree", async () => {

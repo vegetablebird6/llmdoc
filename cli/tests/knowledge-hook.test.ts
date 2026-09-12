@@ -1,8 +1,6 @@
 import fs from "node:fs";
 
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-
-vi.setConfig({ testTimeout: 60000 });
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { runCli } from "../src/cli.js";
 import { runHook } from "../src/commands/hook.js";

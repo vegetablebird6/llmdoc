@@ -41,6 +41,7 @@ describe("runtime surface regression scans", () => {
 
   test("removed V3 runtime commands are not registered and the current surface is present", () => {
     const cli = read("cli.ts");
+    expect(cli).not.toContain("--docs");
     for (const command of ["new", "adopt", "mv", "fingerprint", "init-state", "upgrade"]) {
       expect(cli).not.toMatch(new RegExp(`\\.command\\(["'\`]${command}`));
     }

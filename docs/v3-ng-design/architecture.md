@@ -7,10 +7,10 @@
 ## 1. 运行时边界
 
 ```text
-Source Git -- read / diff / inspect --> Human or Agent
-                                              |
-                                      semantic review
-                                              v
+Source Git -- read / diff / inspect --> Agent <-- review feedback -- Human
+                                         |
+                                 semantic maintenance
+                                         v
 User registry --> llmdoc CLI --> Knowledge Git: docs + meta
                                   | inbox (unverified)
                                   | cache (rebuildable)
@@ -138,7 +138,7 @@ DocumentStatus 仅上述三种。SourceContext 单独报告 unbound、invalid_he
 | status / delta | 展示 dirty、历史问题与复核义务；不修改 meta |
 | validate | front matter、链接、关系、source scope、schema 的确定性检查；不推进 revision |
 | capture | 保存未验证候选，不污染正式召回 |
-| review | 全仓 clean 门控后针对固定 S、文档 digest 与 scope 生成临时 Review Manifest；人或 Agent 确认语义结论 |
+| review | 全仓 clean 门控后针对固定 S、文档 digest 与 scope 生成临时 Review Manifest；Agent 确认语义结论，人审阅结果并反馈纠正 |
 | commit --review <manifest> | 消费已确认 manifest，通过门控后 seal；不能用裸 verified 参数绕过 manifest |
 | migrate --dry-run / migrate | 读取旧格式，向独立目标知识 Git 复制迁移 |
 
@@ -146,7 +146,7 @@ init/update/prune 是工作流入口；实际编排可由现有 skill 完成，�
 
 人工可以先修改知识 Markdown，再执行 validate / review / commit；知识 worktree 允许 dirty，source 必须全仓 clean。知识写事务要求真实 index 与知识 HEAD 一致，任何 staged 内容（包括范围外）均返回 E_KNOWLEDGE_INDEX_DIRTY，不替用户 unstage。临时 index 从知识 HEAD 初始化，仅纳入 manifest 写集；成功发布后同步真实 index 到新提交，保留范围外工作树草稿。不执行 `git add .`。`--all` 如保留，仅选择全部复核范围，不能绕过 manifest 或当作自动语义验证。
 
-Review Manifest 存在知识仓可重建缓存中，不提交 Git。包含 schema、随机 reviewId、repositoryId、精确绑定、sourceRevision S、knowledgeBaseRevision K0、每篇文档 ID/digest/旧新 source scope/结论、旧 validatedRequires 与候选依赖 digest，以及完整写集（含删除、晋升和关系修改）。旧证据来自 K0 的 meta，commit 不信任 manifest 自行改写旧证据；新证据由已审查候选计算。review 先准备 manifest；人或 Agent 显式确认每项语义结论后才可消费。任何编辑发生在确认之后，都必须重新 review；CLI 不因生成 manifest 自动认定语义成立。
+Review Manifest 存在知识仓可重建缓存中，不提交 Git。包含 schema、随机 reviewId、repositoryId、精确绑定、sourceRevision S、knowledgeBaseRevision K0、每篇文档 ID/digest/旧新 source scope/结论、旧 validatedRequires 与候选依赖 digest，以及完整写集（含删除、晋升和关系修改）。旧证据来自 K0 的 meta，commit 不信任 manifest 自行改写旧证据；新证据由已审查候选计算。review 先准备 manifest；Agent 显式确认每项语义结论后才可消费，人对结果的纠正重新进入 Agent 流程。任何编辑发生在确认之后，都必须重新 review；CLI 不因生成 manifest 自动认定语义成立。
 
 seal 重算文档和依赖 digest、scope、写集，确认与 manifest 完全一致，并要求知识 HEAD=K0、source HEAD=S 且 clean；不一致报 `E_REVIEW_INVALIDATED`。manifest 不允许新增未审查路径；meta-only 也需绑定已复核的文档 digest。成功后标记消费；即使消费标记丢失，K0 的 CAS 也阻止重复发布。manifest 是人机共同使用的本地验证声明，不是对恶意篡改的认证机制。
 

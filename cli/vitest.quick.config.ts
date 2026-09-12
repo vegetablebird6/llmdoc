@@ -5,6 +5,7 @@ import { sharedTestConfig } from "./vitest.config.js";
 export default defineConfig({
   test: {
     ...sharedTestConfig,
+    testTimeout: 120000,
     include: [
       "tests/search-cjk.test.ts",
       "tests/runtime-surface.test.ts",

@@ -3,9 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-
-vi.setConfig({ testTimeout: 30000 });
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { runCli } from "../src/cli.js";
 import { contentDigest } from "../src/lib/knowledge/document.js";
@@ -150,11 +148,14 @@ const BASE_DOCS: Record<string, string> = {
 describe("knowledge read resolution", () => {
   it("reads committed docs from the fixed knowledge HEAD at any depth and excludes inbox/cache", async () => {
     const fixture = await setupKnowledge("llmdoc-knowledge-read-", BASE_DOCS);
+    const committedKnowledge = head(fixture.knowledge);
+    writeFile(fixture.knowledge, "llmdoc.yaml", "schema: broken\n");
+    writeFile(fixture.knowledge, ".llmdoc/meta.json", "{}\n");
     const loaded = await loadKnowledgeForRead({ sourceInput: fixture.source, registryDir: fixture.registryDir });
 
     expect(loaded.mode).toBe("bound");
     expect(loaded.repositoryId).toBe(fixture.repositoryId);
-    expect(loaded.knowledgeRevision).toBe(head(fixture.knowledge));
+    expect(loaded.knowledgeRevision).toBe(committedKnowledge);
     expect(loaded.model.documents.map((document) => document.id)).toEqual([
       "architecture.md",
       "decisions/retry.md",
@@ -187,6 +188,57 @@ describe("knowledge read resolution", () => {
     const loaded = await loadKnowledgeForRead({ sourceInput: fixture.source, registryDir: fixture.registryDir });
     expect(loaded.validity.byId.get("architecture.md")!.status).toBe("needs_review");
     expect(loaded.validity.byId.get("architecture.md")!.reasons.join(" ")).toContain("digest mismatch");
+  });
+
+  it("propagates unavailable source history through the viewer projection", async () => {
+    const fixture = await setupKnowledge("llmdoc-knowledge-read-history-", BASE_DOCS);
+    const metaPath = path.join(fixture.knowledge, ".llmdoc", "meta.json");
+    const meta = JSON.parse(fs.readFileSync(metaPath, "utf8")) as {
+      documents: Record<string, { validatedSourceRevision: string }>;
+    };
+    for (const evidence of Object.values(meta.documents)) {
+      evidence.validatedSourceRevision = "f".repeat(40);
+    }
+    writeFile(fixture.knowledge, ".llmdoc/meta.json", `${JSON.stringify(meta, null, 2)}\n`);
+    git(fixture.knowledge, ["add", "-A"]);
+    git(fixture.knowledge, ["commit", "-m", "point evidence at unavailable history"]);
+
+    const loaded = await loadKnowledgeForRead({ sourceInput: fixture.source, registryDir: fixture.registryDir });
+    const viewer = projectKnowledgeViewerState(loaded);
+    expect(viewer.historyAvailable).toBe(false);
+    expect(viewer.sourceBlockers.some((blocker) => blocker.code === "history_unavailable")).toBe(true);
+    expect(viewer.nodes.every((node) => node.status === "needs_review")).toBe(true);
+  });
+
+  it("rejects committed config and meta identities that disagree", async () => {
+    const fixture = await setupKnowledge("llmdoc-knowledge-read-identity-", BASE_DOCS);
+    const metaPath = path.join(fixture.knowledge, ".llmdoc", "meta.json");
+    const meta = JSON.parse(fs.readFileSync(metaPath, "utf8")) as { source: { repositoryId: string } };
+    meta.source.repositoryId = `llmdoc-${"f".repeat(32)}`;
+    writeFile(fixture.knowledge, ".llmdoc/meta.json", `${JSON.stringify(meta, null, 2)}\n`);
+    git(fixture.knowledge, ["add", "-A"]);
+    git(fixture.knowledge, ["commit", "-m", "mismatch identities"]);
+
+    await expectKnowledgeError(
+      () => loadKnowledgeForRead({ sourceInput: fixture.source, registryDir: fixture.registryDir }),
+      "E_SOURCE_IDENTITY_MISMATCH"
+    );
+  });
+
+  it("treats a committed invalid evidence ledger as unverified", async () => {
+    const fixture = await setupKnowledge("llmdoc-knowledge-read-invalid-meta-", BASE_DOCS);
+    const meta = JSON.parse(fs.readFileSync(path.join(fixture.knowledge, ".llmdoc", "meta.json"), "utf8")) as {
+      documents: Record<string, { validatedSourceRevision: string | null }>;
+    };
+    meta.documents["architecture.md"]!.validatedSourceRevision = null;
+    writeFile(fixture.knowledge, ".llmdoc/meta.json", `${JSON.stringify(meta, null, 2)}\n`);
+    git(fixture.knowledge, ["add", "-A"]);
+    git(fixture.knowledge, ["commit", "-m", "invalid evidence"]);
+
+    const loaded = await loadKnowledgeForRead({ sourceInput: fixture.source, registryDir: fixture.registryDir });
+    expect(loaded.meta).toBeNull();
+    expect(loaded.issues.some((issue) => issue.code === "meta.invalid")).toBe(true);
+    expect(loaded.validity.byId.get("architecture.md")!.status).toBe("unverified");
   });
 
   it("excludes candidates and cache from formal search and annotates source and status", async () => {
@@ -272,6 +324,40 @@ describe("knowledge read resolution", () => {
 });
 
 describe("knowledge read CLI surface", () => {
+  it("uses a bound cwd for bare commands and never exposes source-side legacy documents", async () => {
+    const fixture = await setupKnowledge("llmdoc-knowledge-read-cwd-", BASE_DOCS);
+    commitFile(
+      fixture.source,
+      "llmdoc/legacy.mdx",
+      "---\ndescription: legacy-source-token\nkind: guide\n---\n\n# legacy-source-token\n",
+      "legacy source file"
+    );
+    await withRegistryDir(fixture.registryDir, async () => {
+      const index = await runCli(["--json", "index"], fixture.source);
+      expect(index.exitCode).toBe(0);
+      expect((JSON.parse(index.stdout) as { mode: string }).mode).toBe("bound");
+
+      const search = await runCli(["--json", "search", "legacy-source-token"], fixture.source);
+      expect((JSON.parse(search.stdout) as { results: unknown[] }).results).toEqual([]);
+      const show = await runCli(["--json", "show", "llmdoc/legacy.mdx"], fixture.source);
+      expect(show.exitCode).toBe(2);
+      expect((JSON.parse(show.stdout) as { error: { code: string } }).error.code).toBe("E_KNOWLEDGE_DOC_NOT_FOUND");
+    });
+  });
+
+  it("never claims current for an explicit source and knowledge pair without a precise binding", async () => {
+    const fixture = await setupKnowledge("llmdoc-knowledge-read-unassociated-", BASE_DOCS);
+    const loaded = await loadKnowledgeForRead({
+      sourceInput: fixture.source,
+      knowledgeInput: fixture.knowledge,
+      registryDir: `${fixture.base}/unused-registry`
+    });
+    expect(loaded.mode).toBe("explicit");
+    expect(loaded.identityVerified).toBe(false);
+    expect(loaded.validity.byId.get("architecture.md")!.status).not.toBe("current");
+    expect(loaded.validity.byId.get("architecture.md")!.reasons.join(" ")).toContain("No provable source/knowledge identity association");
+  });
+
   it("validates every knowledge read command's JSON output against its schema", async () => {
     const fixture = await setupKnowledge("llmdoc-knowledge-read-cli-", BASE_DOCS);
     const commands: Array<[string, string[]]> = [

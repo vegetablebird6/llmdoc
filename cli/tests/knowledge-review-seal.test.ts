@@ -2,9 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
-import { afterAll, describe, expect, it, vi } from "vitest";
-
-vi.setConfig({ testTimeout: 120000 });
+import { afterAll, describe, expect, it } from "vitest";
 
 import { contentDigest } from "../src/lib/knowledge/document.js";
 import {

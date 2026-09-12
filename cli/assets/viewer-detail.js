@@ -36,11 +36,11 @@ export function createDetailRenderer({ panel, container, onSelectDocument, getSt
     const cards = documents.map((node) => {
       const card = element("button", "topic-doc-card");
       card.type = "button";
-      card.addEventListener("click", () => onSelectDocument(node.path));
+      card.addEventListener("click", () => onSelectDocument(node.id));
       const cardTitle = element("span", "title");
       const dot = element("span", "dot");
       dot.style.backgroundColor = STATUS_COLOR[node.status];
-      cardTitle.append(dot, documentName(node.path), element("span", "kind", node.kind));
+      cardTitle.append(dot, documentName(node.id), element("span", "kind", node.kind));
       card.append(cardTitle, element("span", "description", node.description));
       return card;
     });
@@ -48,7 +48,7 @@ export function createDetailRenderer({ panel, container, onSelectDocument, getSt
     openPanel();
   }
 
-  async function showDocument(path, state) {
+  async function showDocument(id, state) {
     activeRequest?.abort();
     activeRequest = new AbortController();
     const request = activeRequest;
@@ -56,11 +56,11 @@ export function createDetailRenderer({ panel, container, onSelectDocument, getSt
     openPanel();
 
     try {
-      const response = await fetch(`/api/doc?path=${encodeURIComponent(path)}`, { signal: request.signal });
+      const response = await fetch(`/api/doc?path=${encodeURIComponent(id)}`, { signal: request.signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const documentData = await response.json();
       if (request !== activeRequest) return;
-      renderDocument(path, documentData, state);
+      renderDocument(id, documentData, state);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
       const message = error instanceof Error ? error.message : String(error);
@@ -68,13 +68,13 @@ export function createDetailRenderer({ panel, container, onSelectDocument, getSt
     }
   }
 
-  function renderDocument(path, documentData, state) {
+  function renderDocument(id, documentData, state) {
     if (documentData.error) {
       container.replaceChildren(element("div", "placeholder", documentData.error));
       return;
     }
-    const node = state.nodes.find((item) => item.path === path);
-    const title = element("h2", null, documentData.id ?? path);
+    const node = state.nodes.find((item) => item.id === id);
+    const title = element("h2", null, documentData.id ?? id);
     const description = element("div", "desc", documentData.description ?? "");
     const meta = element("div", "meta-row");
     meta.append(
@@ -103,7 +103,7 @@ export function createDetailRenderer({ panel, container, onSelectDocument, getSt
 
     const body = element("div");
     body.id = "doc-body";
-    renderMarkdown(body, documentData.body ?? "", path, getState(), onSelectDocument);
+    renderMarkdown(body, documentData.body ?? "", id, getState(), onSelectDocument);
     content.push(body);
     container.replaceChildren(...content);
     panel.scrollTop = 0;
@@ -163,7 +163,7 @@ function renderMarkdown(target, source, documentPath, state, onSelectDocument) {
     }
     if (href.startsWith("#")) continue;
     const targetPath = resolveRelativeDocumentPath(documentPath, href);
-    if (state.nodes.some((node) => node.path === targetPath)) {
+    if (state.nodes.some((node) => node.id === targetPath)) {
       link.addEventListener("click", (event) => {
         event.preventDefault();
         onSelectDocument(targetPath);

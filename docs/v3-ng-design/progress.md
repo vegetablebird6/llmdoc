@@ -2151,3 +2151,130 @@ Linux 无本机环境时：以现有 `ubuntu-latest` CI（`npm ci` → typecheck
 ## README 设计原则显式化 — 2026-09-11
 
 状态：完成，待提交。中英文 README 已在产品定位后增加同构的“Design principles / 设计原则”六项清单：事实与理解分离、唯一持久写入边界、长期知识准入、变化产生复核义务、有效性可检查、人机同权协议；原先后文重复的知识准入段落已合并删除。未改变冻结协议、CLI 行为或测试边界。`rg` 确认两份 README 均为六项且语义对应，`git diff --check` 通过（仅 LF→CRLF 提示）；提交边界仅为 `README.md`、`README.zh-CN.md` 和本进度记录。
+
+## Ponytail 高收益精简实施计划 — 2026-09-11
+
+状态：设计先行，待实施。基线为 README 原则提交 `aa0eb39`，只精简重复实现和重复验证，不改变双仓协议、错误码、正式命令面或持久写入边界。
+
+| 子项 | 实施边界 | 必须保留 | 验收 |
+|---|---|---|---|
+| S1 Schema 单一真源 | `knowledge.schema.json` 改为 canonical machine-readable contract；`knowledge-config.ts` 直接用现有 Ajv + `packageRootFromImport` 编译该 schema，删除手写 shape/key/version validator；测试删除“schema 与同一 schema 比较”的双轨矩阵 | YAML parse 错误、`E_KNOWLEDGE_CONFIG_INVALID`/exit 2/paths、未知键诊断、缺省 `remotes=[]`、手工配置与 Git remote 的 URL credential strip、包内 schema 缺失仍算内部故障 | focused config test、typecheck/build、默认 quick；最终统一 integration |
+| S2 Viewer 新 DTO 直用 | 删除 `adaptState`；三个 viewer asset 统一消费 `id/sourcePaths/issues`，直接计算 token/error/warning，不再合成 `path/codePaths/growth/validate` | document fetch 参数仍是文档 id；topic/document graph、内部链接、状态 chip 行为不变 | legacy 字段 grep 为空、三个 asset `node --check`、viewer/read tests；必要时浏览器 smoke |
+| S3 Skills 镜像 | 本轮调查后保留，不机械删除 | Claude 依赖 `disable-model-invocation: true`，当前 Codex validator 拒绝该字段并要求 `agents/openai.yaml` policy；零副本会削弱一侧“migrate 仅显式调用”的硬门控。当前 664 行镜像是宿主 schema 冲突成本，不是 V3 兼容层 | 记录阻塞证据；未来只有在单一 SKILL 可同时通过两宿主官方 validator 时删除 |
+| S4 阶段测试收敛 | 将 `knowledge-r1/r2` 的独有断言迁入 content/read/validate/status/runtime 等领域测试；`knowledge-boundaries` 全部由现有领域测试覆盖后删除；`knowledge-replacement` 仅迁移 bare bound cwd 与 legacy 不可见行为；再删除四个阶段文件 | fixed committed K、identity mismatch、partial evidence、supersedes、literal/glob、history blocker、canonical graph、bare command 和 no legacy fallback；事务/CAS/锁/manifest/故障注入测试不动 | 先跑迁移目标定向集，再跑默认 `npm test`；完整 `npm run test:integration` 作为本轮收口证据 |
+
+实施可并行进行 S1、S2 与 S4；它们文件边界独立。合并后先检查实际 diff 与净删行，再执行定向、quick 和完整 integration。任何独有协议断言未找到明确落点时保留，不以删行数代替覆盖。
+
+## Ponytail 精简实施记录 S1–S4 — 2026-09-11
+
+状态：S1/S2/S4 已实施，S3 经调查保留；定向、quick、surface/prompt 门禁已通过；完整 `test:integration` 尚未完成（首跑被中断，待重跑）。未 stage/commit/reset/push。
+
+### S1 Schema 单一真源（完成）
+
+- `cli/schemas/knowledge.schema.json` 改为 canonical machine-readable contract（补 `remotes.default=[]`）；`cli/src/lib/knowledge/knowledge-config.ts` 删除手写 shape/key/version validator（`LAYOUT_ALLOWED_KEYS`/`REMOTE_ALLOWED_KEYS`/`rejectUnknownKeys`/`validateRemotes`），改为用现有 Ajv + `packageRootFromImport` 在模块加载时编译该已发布 schema；运行时不变量保持不变：YAML parse 错误、`E_KNOWLEDGE_CONFIG_INVALID`/exit 2/paths、未知键诊断（`formatSchemaErrors`）、缺省 `remotes=[]`、URL 凭据剥离、包内 schema 缺失仍为 `E_FILESYSTEM_IO`(70)。
+- `cli/tests/knowledge-config-schema.test.ts` 重写为 13 个运行时候选契约用例；删除与同一 schema 比较的双轨矩阵。
+
+### S2 Viewer 新 DTO 直用（完成）
+
+- `cli/assets/viewer-app.js`：删除 `adaptState`（`path/codePaths/growth/validate` 旧字段合成），直接消费 `id/sourcePaths/issues` 并即时计算 token/error/warning；文档选择、graph highlight、fetch 均改用 `node.id`。`viewer-model.js`/`viewer-detail.js` 同步改 `id`。`/api/doc?path=<id>` 的参数约定保持不变（服务端仍按文档 id 读取）。
+- legacy 字段 grep（`codePaths|\.growth|\.validate\b|node\.path|adaptState`）在 assets 中为空；四个 asset `node --check` 通过。
+
+### S3 Skills 镜像（调查后保留，不删）
+
+- Claude `migrate` 依赖 `disable-model-invocation: true` 强制显式调用，当前 Codex validator 拒绝该字段并要求独立 `agents/openai.yaml` policy；零副本会削弱至少一个宿主的“migrate 仅显式调用”门控。保留 canonical `skills/` 与 `.agents/skills/` 镜像，等待单一 SKILL 可同时通过两宿主官方 validator 时再收敛。
+
+### S4 阶段测试收敛（完成）
+
+- 删除四个按开发阶段保留的测试文件：`knowledge-boundaries`（262 行）、`knowledge-r1`（392）、`knowledge-r2`（410）、`knowledge-replacement`（200）。
+- 独有契约断言已迁入领域测试并保留：
+  - `knowledge-content`：canonical relation graph（missing/self/非法路径只进 issue 不入图）、`requiresProblems`、supersedes missing/self/cycle 仅结构 issue 且不改三态、`history_unavailable` blocker + `historyAvailable=false`（digest mismatch 短路不掩盖历史 blocker）、`diverged` blocker、meta evidence 成组拒绝（partial evidence / digest 无 revision / 非规范 ID / 短 OID）。
+  - `knowledge-read`：committed config/meta 身份不符 `E_SOURCE_IDENTITY_MISMATCH`、committed 非法 ledger → `unverified`、裸命令在已绑定 cwd 读正式知识且 source 侧 legacy `.mdx` 不可见、无精确绑定的 explicit pair `identityVerified=false` 且不得 current。
+  - `knowledge-validate`：合法+非法 source path 别名逐篇报错、glob 有匹配不报 `glob-empty`、live worktree 未提交文件不满足 glob。
+  - `knowledge-status-delta`：无关 committed source 变化保持 current、dirty source 只报 blocker 不改 committed 文档状态。
+  - `runtime-surface`：CLI 不再出现 `--docs`。
+- `knowledge-helpers.ts` 清理死导出：删除无引用的 `gitAllowFail`，`commitKnowledge`/`knowledgeMetaJson` 收回为内部函数。
+
+### 定向与门禁证据（本机 Windows，真实临时双 Git）
+
+- 定向 6 文件 62/62：`knowledge-config-schema` 13、`knowledge-content` 16、`knowledge-read` 17、`knowledge-validate` 5、`knowledge-status-delta` 6、`runtime-surface` 5；另 `knowledge-viewer` + `knowledge-cli` 14/14；全部 exit 0。
+- `npm run typecheck` exit 0；`npm run lint` exit 0；`node scripts/check-codex-surface.mjs` ok；`node scripts/check-prompt-budget.mjs` ok；`git diff --check` exit 0（仅 LF→CRLF 提示）；asset `node --check` 4/4。
+- 默认 quick `npm test`：exit 0，12 files / 98 tests + seal smoke 1 passed / 29 skipped。
+- 本轮实际 diff：22 files，+414/−1520（净 −1106 行，含 progress/README 记录）。
+
+### Ponytail 复查（合并后）
+
+- 复查未发现新增过度设计；两处保留判断：`knowledge-config.ts` 与 `output-schema.ts` 各自引导 Ajv 是约 10 行的重复，但抽共享 helper 需要新模块、净收益接近零；`knowledge.schema.json` 的 `default: []` 仅作契约文档，运行时不消费（`?? []`），保留。
+- `.codegraph/` 与 `.llmdoc-tmp/` 未纳入实现或提交。
+
+### 剩余问题与下一步
+
+- 完整 `npm run test:integration` 需在本轮变更冻结后重跑一次，记录真实 exit/files/tests/duration；此前首跑被用户中断，不作为通过证据。
+
+## 设计原则对齐（更新为 7 项）— 2026-09-11
+
+状态：README 原则更新为最新 7 项；Agent 接入面按第 6 项（Agent 维护知识，人负责审阅结论）修正；运行时审计未发现需要改协议代码的偏差。未 stage/commit/reset/push。
+
+### 原则更新与代码审计
+
+- `README.md` / `README.zh-CN.md`：设计原则由 6 项更新为最新 7 项（新增“Agent 维护知识，人负责审阅结论”“知识与执行指令分离”；中英文同构）。最终版原则未包含早前草稿中的 MDX 格式条款，实现继续保持“受限、可静态阅读的标准 Markdown”；若后续恢复 MDX 条款，属协议变更，应单独设计。
+- P1–P5、P7 运行时核对（不依赖测试数量）：Source Git 经 `resolveSourceContext` 只读且无 fallback（P2）；持久知识+四项证据只在 Knowledge Git（P1/P5）；inbox 候选与 prune 收敛区分正式/非正式知识（P3）；`status`/`delta` 产出复核义务、无 diff 自动 changelog（P4）；检索 envelope 返回双 revision/blockers/history/issues，文档 summary 返回 status/reasons/sourcePaths（P5）；正式文档为静态 Markdown，hook 仅输出计数与 guidance 且显式声明 reference data（P7）。
+- P6 修正（删除把人工授权当维护前置条件的措辞）：
+  - `skills/llmdoc/SKILL.md` 与 `.agents/skills/llmdoc/SKILL.md`（正文镜像一致）：Reflection Gate 由“ask once to run `/llmdoc:update`; wait for authorization”改为“fold it into stable knowledge via `/llmdoc:update`; review may follow”；Operating Rules 的“Align before non-trivial edits”明确为 code edits。
+  - `docs/agent-integration.md`：删除“then wait for user confirmation”“Run `prune` only with user confirmation”“After user confirmation”；改为 Agent 运行 `update`/在报告给出具体证据时运行 `prune`，人工审阅 sealed conclusions 保持可选；reflection 合并对象由“durable rule”改为“durable knowledge”（P3/P7 用词）。
+- 预算回归：`skills/llmdoc` 曾因新措辞到 ~1618/1600，已压缩到 ~1591/1600；`check-codex-surface`/`check-prompt-budget` 复跑 ok。
+- 待办：上述变更并入最终 integration 门禁；若通过，更新本节状态为“实现完成，等待 Codex review”。
+
+### Integration 首跑失败与预算修正 — 2026-09-11
+
+- 首跑 `npm run test:integration`：exit 1，27 files（24 passed / 3 failed）、257 tests（252 passed / 5 failed）、Duration 4407.79s。失败为 4 个超时 + 1 个断言：
+  - `knowledge-dogfood-e2e` 主用例 180s 超时；`knowledge-dogfood-e2e` dirty/staged 用例 `expected 2 to be 3`。
+  - `knowledge-review-seal` “refuses to review or seal a structurally invalid worktree”“does not consume a no_change manifest…” 各 120s 超时。
+  - `knowledge-viewer` “never lists inbox candidates as formal knowledge” 60s 超时。
+- 根因判定：非代码回归。断言失败的 dirty/staged 用例隔离复跑通过（42s）；同机实测这些真实双 Git 用例已超出旧预算——viewer inbox 71s、dogfood 主用例 197s、review-seal 单测最长 106s（旧记录最长 78.6s）。本机 `%TEMP%` 还积累了 5389 个历史测试临时目录（11.6MB），已清理。
+- 修正（仅调度参数，未改任何断言/未吞错）：`knowledge-dogfood-e2e` `testTimeout` 180000→300000；`knowledge-viewer` 60000→120000；`knowledge-review-seal` 120000→180000。
+- 隔离复跑：3 files / 41 tests 全过（viewer 119.0s、dogfood 243.8s、review-seal 单测最长 106.2s）。
+- 下一步：重跑完整 `npm run test:integration` 作为本轮收口证据。
+
+## Codex review 修复计划 — 2026-09-11
+
+状态：设计先行，待实施。以当前 README 七项原则为准；第 6 项“Agent 维护知识，人审阅结论”不回退。仅修复本轮 review 已确认的问题，不扩大协议或恢复已删除的阶段测试。
+
+1. `knowledge-config.ts` 将 packaged schema 的定位、读取与 Ajv 编译改为首次配置校验时惰性执行并缓存；所有失败继续映射为 `E_FILESYSTEM_IO`(70)，避免 ESM 模块加载阶段绕过 CLI 错误处理。
+2. README 第 5 项只修正三态名称为 `current / needs_review / unverified`，不改变当前七项原则。
+3. 在现有领域测试中补最小协议断言：canonical requires 与 ledger key 对齐可保持 current；缺失 literal、零匹配 glob、仅 live worktree 命中的 scope 不得 current；history blocker 至少经一个公开 viewer/read 投影保持 `historyAvailable=false` 与 blocker code。
+4. 定向测试、typecheck/lint/build 通过后执行 `ponytail-review`；只删除本轮新增的重复或无收益结构，不触碰 CAS、临时 index、锁、manifest 和故障回滚边界。完整 integration 由修复后的冻结工作树重新取证。
+
+用户补充：七项原则与八条硬边界必须使用同一维护主体和权限模型。按当前第 6 项，将 README、流程图及冻结设计中残留的“人或 Agent 同权维护/确认”统一为“Agent 执行正式维护与验证，人审阅结论并将反馈送回 Agent 流程”；标准 Markdown 继续作为人可直接审阅的开放格式，不表示绕过 Agent + CLI 的正式发布协议。
+
+### 实施与验证结果
+
+- Schema validator 改为 `validateKnowledgeLayoutConfig` 首次调用时惰性编译并缓存；`packageRootFromImport`、schema 读取/解析及 Ajv 编译全部进入同一 `try`，失败映射为 `E_FILESYSTEM_IO`(70)。ESM 模块加载不再访问 packaged schema，`--help`/`--version` 不会因 schema 故障在 CLI 错误处理前崩溃。
+- README 中英文第 5 项改用正式三态名 `current / needs_review / unverified`。第 6 项保持当前原则；双仓流程图、八条硬边界 6/8、`docs/v3-ng-design/README.md` 与 `architecture.md` 已统一为“Agent 正式维护，人审阅并反馈”，旧的人机同权维护/确认表述扫描为空。
+- 覆盖缺口落入现有领域测试：依赖有效性用例用 `./guides/b.md` 证明 docs-root canonical key 与 ledger 对齐；单个 validity 用例同时证明 missing literal、空 glob、仅 live worktree 命中的 glob 均不得 current，而 committed matching glob 可 current；read 用例证明 `history_unavailable` 经 viewer DTO 保留 blocker、`historyAvailable=false` 和 needs_review。
+- 定向测试：config/content/read 共 48 个用例最终全部通过。首次合跑有 1 个测试数据错误（误把 `./b.md` 当作相对当前文档目录）；按协议改为 docs-root 的 `./guides/b.md` 后 content 17/17 通过。`npm run typecheck`、`npm run lint`、`npm run build`、Codex surface、prompt budget、viewer asset `node --check` 均 exit 0；`git diff --check` 无错误，仅 Windows LF→CRLF 提示。
+- `ponytail-review` 只发现一项：单调用点的 `knowledgeSchemaValidator()` 缓存 getter 可内联，预计净删 4 行；已内联为 `cachedValidateConfig ??= compileKnowledgeSchema()` 并复跑 config 13/13、typecheck、lint、build，全部通过。复查未发现其他可安全删除的抽象；Schema 单源、viewer 直用 DTO、阶段测试收敛与双宿主 skills 镜像均有当前边界支撑。
+- 当前 OpenCode integration 在本轮修复前启动，其结果只代表旧快照，不能作为最终收口证据。最终提交前需基于当前冻结工作树重新跑完整 integration。
+
+### 当前快照 integration 首跑 — 2026-09-12
+
+- `npm run test:integration`：exit 1，27 files（26 passed / 1 failed）、259 tests（258 passed / 1 failed），Duration 4037.08s；唯一失败为 `knowledge-review-seal` 的 global review 用例在 180.478s 命中 180s timeout，其余事务、故障注入和所有其他文件均通过。
+- 该用例串行执行 scoped review/seal 与 global review/seal 两套完整真实 Git 流程；同文件单次事务用例本轮已达 156.089s。处理边界：只为该双事务用例设置 300s 独立预算，不再提高整个文件的统一 180s timeout，不改断言和产品实现；先隔离复跑，再重新执行完整 integration 取得最终 exit 0。
+
+### 第二次 integration 与 timeout 方案收敛
+
+- global review 用例独立预算后隔离复跑 1/1 通过（70.406s）；第二次完整 integration 中该用例也以 68.266s 通过，但 `knowledge-update-prune` 的 candidate-only reject 用例从首跑的 57.500s 抖动到 90.019s，命中其文件 90s timeout。完整结果仍为 27 files 中 26 passed、259 tests 中 258 passed，Duration 3692.05s；唯一失败继续是 timeout，无断言失败。
+- 两次全量分别由不同已单独通过的真实 Git 用例击穿文件级预算，证明分散 `vi.setConfig` 是不稳定的调度配置。收敛方案：默认 integration config 统一 `testTimeout=300000`；quick config 显式保持 `120000`；删除各测试文件的 23 处 timeout 覆盖和因此产生的无用 `vi` imports（保留实际用于 spy 的 `knowledge-init-hardening`）。不改断言或产品代码。完成后跑 typecheck/lint、失败用例隔离测试，再跑第三次完整 integration。
+
+### 最终 integration 证据
+
+- timeout 配置已收敛：`vitest.config.ts` 的 serial integration 统一 300s，`vitest.quick.config.ts` 显式 120s；23 个测试文件删除 `vi.setConfig`，仅 `knowledge-init-hardening` 保留真实 spy 所需的 `vi` import。candidate-only reject 隔离复跑 1/1 通过（69.624s），typecheck/lint exit 0。
+- 第三次 `npm run test:integration`：exit 0，27/27 files、259/259 tests，Duration 3761.02s（tests 3751.60s）。此前超时的 global review 与 candidate-only reject 本轮分别 70.556s、75.501s 通过；无断言失败。
+- 下一步只剩默认 `npm test` 验证 quick 的独立预算、网站 Schema 发布检查、最终 ponytail 复查与提交边界核对。
+
+### 收口验证（默认 quick、网站 Schema、最终 ponytail、提交边界）— 2026-09-12
+
+- 默认 `npm test`：exit 0。quick config 12 files / 99 tests，Duration 335.63s（tests 331.38s）；seal smoke 1 passed / 29 skipped（43.90s）。单测最长 52.674s（`knowledge-viewer` inbox），低于 quick 独立 120s 预算；`knowledge-contexts` 文件 153.974s 为 22 个用例合计，非单测超时。
+- 网站 Schema 发布检查：`npm --prefix website run check:schema` 首跑发现 `website/dist/schemas/knowledge.schema.json` 仍是旧描述且缺 `default: []`；执行 `npm --prefix website run build` 重新生成后复跑 ok。`website/dist` 已被 .gitignore 忽略，不进入提交。
+- 最终 ponytail 复查：只审视本轮新增结构（schema validator 惰性编译、viewer 适配层删除、测试收敛与 timeout 统一），无可继续删除项；`knowledge-config.ts`/`output-schema.ts` 各自引导 Ajv 与 schema `default: []` 两处保留判断维持不变。
+- `npm run lint` exit 0；`npm run typecheck` exit 0；`git diff --check` exit 0（仅 LF→CRLF 提示）。
+- 提交边界：纳入全部 tracked 变更（测试收敛、timeout 统一、schema 单源、viewer DTO、README/设计文档/skills）；排除 `.codegraph/`、`.llmdoc-tmp/`、`website/dist`、`cli/dist`。真实 `%APPDATA%\llmdoc\bindings.json` 留有一条 2026-09-11 20:02 的 `llmdoc-dogfood-fail-*` 测试遗留绑定；本轮默认 quick 与两次全量 integration 均未再写默认 registry，该文件在仓库边界外，单独提示用户处理。

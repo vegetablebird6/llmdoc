@@ -2,31 +2,44 @@
 
 [官网](https://llmdoc.tokenroll.ai/) · [English](README.md)
 
-**Detached Engineering Knowledge Base（独立工程知识库）。** llmdoc 维护一份由人和
-Agent 共同维护、独立于源码生命周期的持久工程知识库。Source Git 的 commit 定义事实；
+**Detached Engineering Knowledge Base（独立工程知识库）。** llmdoc 维护一份由
+Agent 维护、人工审阅且独立于源码生命周期的持久工程知识库。Source Git 的 commit 定义事实；
 Knowledge Git 的 commit 保存对这些事实经过验证的理解。
 
 ## 设计原则
 
-1. **事实与理解分离。** Source commit 是事实基线；Knowledge commit 保存针对该基线
-   验证过的解释。
-2. **只有一个持久写入边界。** Source Git 始终只读；所有持久知识只在独立的
-   Knowledge Git 中保存和演进。
-3. **只记录长期决策知识。** 只保留会影响未来工作、难以从源码低成本重建、并能跨越
-   多个 source commit 的决策、约束、理由和跨模块契约。可重建的代码结构属于索引和缓存。
-4. **把变化视为复核义务。** 源码变化可能让已有理解失效，但不能据此自动改写正文。
-   语义复核决定更新内容、只刷新验证依据，还是保持不变。
-5. **让有效性可以检查。** 每篇正式文档都声明 source scope、validated source revision
-   和 validated content digest；检索直接报告这些依据及当前状态，不要求读者盲信新鲜度。
-6. **人和 Agent 遵循同一协议。** 双方维护同一份标准 Markdown，并经过相同的 review
-   与 seal 流程。知识是 reference data，不是可执行 rule、skill 或隐藏指令通道。
+1. **事实与理解分离。** Source commit 是可追溯的事实基线；Knowledge commit 保存
+   Agent 针对该事实基线形成并验证过的工程理解。源码回答“系统现在是什么”，llmdoc
+   回答“为什么这样设计、哪些约束必须成立，以及未来修改时需要知道什么”。
+2. **只有一个持久写入边界。** Source Git 对 llmdoc 始终只读；llmdoc 不得修改、
+   stage 或 commit 业务仓。所有持久知识及其元数据只在独立的 Knowledge Git 中保存和
+   演进，且不得在 Knowledge Git 缺失时退回 Source Git。
+3. **只沉淀长期工程知识。** 只有同时具备未来决策价值、较高重建成本和跨多个 source
+   commit 稳定性的知识才进入正式知识库，包括架构意图、设计决策、约束、不变量、失败
+   语义和跨模块契约。文件结构、符号关系、调用图等可从源码重新生成的信息属于索引或
+   缓存，而不是持久知识。
+4. **源码变化只产生复核义务。** 代码变化意味着相关知识需要重新验证，而不意味着文档
+   必须变化。语义复核可以得到三种结果：正文需要更新、正文不变但刷新验证基线，或确认
+   变化与该知识无关。llmdoc 不根据代码 diff 自动生成知识变更日志。
+5. **知识有效性必须可验证。** 每份正式知识都应声明其 source scope、validated
+   source revision 和必要的内容完整性信息，使 llmdoc 能明确区分 `current`、
+   `needs_review`、`unverified` 三种状态。检索结果应同时返回知识内容和验证依据，
+   而不是仅依赖文档更新时间判断可信度。
+6. **Agent 维护知识，人负责审阅结论。** 知识的发现、整理、修改、验证和 seal 由
+   Agent 驱动。人可以审阅 Agent 生成的结论并提出纠正、补充或质疑；这些反馈重新进入
+   Agent 的知识更新流程，由 llmdoc 完成正式知识的修改和重新验证。人工审阅是可选的质量
+   控制环节，而不是日常知识维护的前置条件。
+7. **知识与执行指令分离。** llmdoc 保存的是可阅读、可检索、可引用和可审计的
+   reference knowledge，不承担 rule、skill、prompt、hook 或其他执行指令的分发职责。
+   知识内容不得依赖隐藏指令或运行时行为才能成立。
 
 ## 双仓库模型
 
 ```mermaid
 flowchart LR
-    S[Source Git<br/>只读] --> A[人或 Agent]
+    S[Source Git<br/>只读] --> A[Agent]
     A -->|语义复核| K[Knowledge Git<br/>docs + meta]
+    H[人工审阅] -->|反馈| A
     K --> R[按任务检索]
     R --> S
 ```
@@ -51,11 +64,13 @@ index 或 history，也绝不会把知识回退写入源码仓库。绑定关系
    revision、内容 digest 与 scope。正文、关系与 meta 通过临时 index 和 ref 的
    compare-and-swap 一次发布；知识 index 不得有任何 staged 内容，成功后与
    llmdoc 自有生成文件一起同步。
-6. **语义验证由人或 Agent 负责。** CLI 执行确定性的结构、范围与提交检查。
-   `validate` 通过并不证明知识正确。
+6. **Agent 负责语义维护。** 正式知识由 Agent 修改、验证和 seal；人审阅结论并把纠正
+   反馈给 Agent 流程。CLI 执行确定性的结构、范围与提交检查，`validate` 通过并不证明
+   知识正确。
 7. **可重建索引。** AST、符号与依赖图是可重建索引，不是可提交的代码百科。
-8. **面向所有人使用标准 Markdown。** 人和 Agent 编辑同一份 Markdown，并经过相同的
-   验证声明与提交协议。知识是 reference data，不是可执行 rules/skills。
+8. **使用可审阅的标准 Markdown。** Agent 通过受保护的验证与提交协议维护正式知识；
+   人审阅同一份纯 Markdown，并把纠正反馈给 Agent 流程。知识是 reference data，
+   不是可执行 rules/skills。
 
 “唯一写入边界”指知识内容及其 Git。`bind` 可以写用户级 registry，临时文件和缓存
 写在知识目录或用户级缓存下。这些都是明确例外，且都不能写入源码仓库。嵌套模式只写
@@ -178,7 +193,7 @@ npx -y @tokenroll/llmdoc review --confirm <reviewId> --set lifecycle/task-recove
 ```
 
 `review` 要求有效且全仓 clean 的 source 快照，并生成临时 Review Manifest，绑定固定
-source revision、每篇文档的 digest 与 scope，以及完整写集。随后由人或 Agent 逐项确认
+source revision、每篇文档的 digest 与 scope，以及完整写集。随后由 Agent 逐项确认
 语义结论：`changed`、`unchanged` 或 `insufficient`。确认之后的任何编辑都会使 manifest
 失效。
 

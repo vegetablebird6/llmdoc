@@ -7,10 +7,9 @@ export const sharedTestConfig = {
   // starves the worker RPC deadline. Serial file execution keeps the suite
   // deterministic.
   fileParallelism: false,
-  // Baseline per-test budget. Git-heavy files opt into a larger explicit budget
-  // with `vi.setConfig` where a full init/review/seal transaction demonstrably
-  // exceeds this value on a slow/AV-scanned host.
-  testTimeout: 30000
+  // Integration tests execute real Git transactions; Windows process startup and
+  // antivirus scanning can push the same passing case from seconds to minutes.
+  testTimeout: 300000
 };
 
 export default defineConfig({

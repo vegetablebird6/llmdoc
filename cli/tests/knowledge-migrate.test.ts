@@ -1,8 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, test, vi } from "vitest";
-
-vi.setConfig({ testTimeout: 60000 });
+import { describe, expect, test } from "vitest";
 
 import { git, head, initRepo, makeTempDir, snapshotWorktree, writeFile } from "./knowledge-helpers.js";
 import { migrateKnowledge } from "../src/lib/knowledge/migrate.js";

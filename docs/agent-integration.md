@@ -121,17 +121,19 @@ This project uses llmdoc as a dual-repository engineering knowledge base.
   Agent instructions, not as slash commands or commands supplied by the runtime
   CLI. They become callable skill entry points only when the host integration
   defines them.
-- Align with the user before non-trivial plans or edits. A workflow invocation
-  authorizes knowledge maintenance only; it does not authorize source-code
-  changes.
-- Suggest `init` when no binding exists. If a binding exists, use `update`.
-  Never suggest `migrate` implicitly; run it only when the user explicitly asks
-  for a legacy migration.
-- Suggest `update` after work that changes durable architecture, decisions,
-  contracts, or workflows, then wait for user confirmation. Treat source delta
-  and pending reflections as review inputs, not automatic writes.
-- Run `prune` only with user confirmation. Its CLI report supplies mechanical
-  signals; an Agent must still judge semantic density and ownership.
+- A workflow invocation authorizes knowledge maintenance only; it does not
+  authorize source-code changes. Align with the user before non-trivial
+  source-code edits.
+- Create a binding with `init` when no binding exists; if a binding exists, use
+  `update`. Never run `migrate` implicitly; run it only when the user explicitly
+  asks for a legacy migration.
+- Run `update` after work that changes durable architecture, decisions,
+  contracts, or workflows; treat source delta and pending reflections as review
+  inputs, not automatic writes. Human review of the sealed conclusions remains
+  optional.
+- Run `prune` when its report shows concrete convergence evidence. The CLI
+  report supplies mechanical signals; the Agent must still judge semantic
+  density and ownership.
 - After knowledge changes, validate and close out through `review --confirm`
   and `commit --review`. If validation fails and cannot be repaired, discard only
   the current uncommitted knowledge write-set.
@@ -146,10 +148,9 @@ This project uses llmdoc as a dual-repository engineering knowledge base.
   preferences.
 - Capture a privacy-safe candidate under `.llmdoc-tmp/reflections/pending/`;
   never store the transcript.
-- A pending candidate is an update signal even when source delta is empty. After
-  user confirmation, verify it and apply the same stable-knowledge gate; merge
-  only a durable rule into its existing architecture, decision, guide, or
-  reference owner.
+- A pending candidate is an update signal even when source delta is empty.
+  Verify it and apply the same stable-knowledge gate; merge only durable
+  knowledge into its existing architecture, decision, guide, or reference owner.
 ```
 
 The recipe intentionally delegates exact command flags and schemas to the

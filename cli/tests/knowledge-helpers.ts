@@ -22,10 +22,6 @@ export function git(dir: string, args: string[]): string {
   return result.stdout;
 }
 
-export function gitAllowFail(dir: string, args: string[]): void {
-  spawnSync("git", args, { cwd: dir, encoding: "utf8", env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" } });
-}
-
 export function initRepo(dir: string): string {
   fs.mkdirSync(dir, { recursive: true });
   git(dir, ["init"]);
@@ -51,7 +47,7 @@ export function head(dir: string): string {
   return git(dir, ["rev-parse", "HEAD"]).trim();
 }
 
-export async function commitKnowledge(knowledgeRoot: string, message: string): Promise<string> {
+async function commitKnowledge(knowledgeRoot: string, message: string): Promise<string> {
   git(knowledgeRoot, ["add", "-A"]);
   const result = spawnSync(
     "git",
@@ -144,7 +140,7 @@ export function knowledgeDoc(kind: string, description: string, options: Knowled
   return `${lines.join("\n")}\n`;
 }
 
-export function knowledgeMetaJson(
+function knowledgeMetaJson(
   repositoryId: string,
   lastGlobalReviewRevision: string | null,
   documents: Record<string, unknown>

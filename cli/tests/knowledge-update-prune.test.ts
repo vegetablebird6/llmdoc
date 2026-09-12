@@ -1,8 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, test, vi } from "vitest";
-
-vi.setConfig({ testTimeout: 90000 });
+import { describe, expect, test } from "vitest";
 
 import { createKnowledgeFixture, expectKnowledgeError, git, head, knowledgeDoc, writeFile } from "./knowledge-helpers.js";
 import { captureCandidate } from "../src/lib/knowledge/capture.js";

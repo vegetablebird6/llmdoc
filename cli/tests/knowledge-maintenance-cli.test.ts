@@ -1,8 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, test, vi } from "vitest";
-
-vi.setConfig({ testTimeout: 90000 });
+import { describe, expect, test } from "vitest";
 
 import { createKnowledgeFixture, knowledgeDoc, makeTempDir, writeFile } from "./knowledge-helpers.js";
 import { runCli } from "../src/cli.js";

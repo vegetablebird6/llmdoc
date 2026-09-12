@@ -1,12 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { afterAll, describe, expect, it, vi } from "vitest";
-
-vi.setConfig({ testTimeout: 30000 });
+import { afterAll, describe, expect, it } from "vitest";
 
 import { runValidate, type ValidateResult } from "../src/commands/validate.js";
-import { createKnowledgeFixture, knowledgeDoc, type FixtureDoc, type KnowledgeFixture } from "./knowledge-helpers.js";
+import { createKnowledgeFixture, knowledgeDoc, writeFile, type FixtureDoc, type KnowledgeFixture } from "./knowledge-helpers.js";
 
 const createdDirs: string[] = [];
 
@@ -56,6 +54,7 @@ describe("knowledge validate", () => {
     const fixture = await makeFixture("llmdoc-validate-errors-", [
       { id: "bad-kind.md", content: knowledgeDoc("bogus", "Bad", { paths: ["src/a.ts"] }), scope: ["src/a.ts"] },
       { id: "escape.md", content: knowledgeDoc("guide", "Escape", { paths: ["../secret"] }), scope: ["../secret"] },
+      { id: "alias.md", content: knowledgeDoc("guide", "Alias", { paths: ["src/a.ts", "src\\a.ts"] }), scope: ["src/a.ts"] },
       { id: "linker.md", content: knowledgeDoc("guide", "Linker", { paths: ["src/a.ts"], body: "See [missing](missing.md).\n" }), scope: ["src/a.ts"] },
       { id: "cyc-a.md", content: knowledgeDoc("guide", "Cycle A", { paths: ["src/a.ts"], requires: ["cyc-b.md"] }), scope: ["src/a.ts"], requires: ["cyc-b.md"] },
       { id: "cyc-b.md", content: knowledgeDoc("guide", "Cycle B", { paths: ["src/a.ts"], requires: ["cyc-a.md"] }), scope: ["src/a.ts"], requires: ["cyc-a.md"] },
@@ -66,6 +65,7 @@ describe("knowledge validate", () => {
     const codes = payload(result).errors.map((issue) => issue.code);
     expect(codes).toContain("document.invalid");
     expect(codes).toContain("source.paths.invalid");
+    expect(payload(result).errors.some((issue) => issue.code === "source.paths.invalid" && issue.path === "alias.md")).toBe(true);
     expect(codes).toContain("link.missing");
     expect(codes).toContain("relations.requires.cycle");
     expect(codes).toContain("relations.supersedes.target-kind");
@@ -74,13 +74,25 @@ describe("knowledge validate", () => {
   it("reports source evidence that is absent or empty at the fixed source snapshot", async () => {
     const fixture = await makeFixture("llmdoc-validate-evidence-", [
       { id: "literal.md", content: knowledgeDoc("guide", "Literal", { paths: ["src/nope.ts"] }), scope: ["src/nope.ts"] },
-      { id: "glob.md", content: knowledgeDoc("guide", "Glob", { paths: ["src/*.tsx"] }), scope: ["src/*.tsx"] }
+      { id: "glob.md", content: knowledgeDoc("guide", "Glob", { paths: ["src/*.tsx"] }), scope: ["src/*.tsx"] },
+      { id: "matched.md", content: knowledgeDoc("guide", "Matched", { paths: ["src/*.ts"] }), scope: ["src/*.ts"] }
     ]);
     const result = await runValidate(options(fixture));
     expect(result.exitCode).toBe(2);
     const codes = payload(result).errors.map((issue) => issue.code);
     expect(codes).toContain("source.paths.missing");
     expect(codes).toContain("source.paths.glob-empty");
+    expect(payload(result).errors.some((issue) => issue.path === "matched.md")).toBe(false);
+  });
+
+  it("does not satisfy a glob with an uncommitted source file", async () => {
+    const fixture = await makeFixture("llmdoc-validate-live-", [
+      { id: "live.md", content: knowledgeDoc("guide", "Live", { paths: ["src/live/**"] }), scope: ["src/live/**"] }
+    ]);
+    writeFile(fixture.source, "src/live/untracked.ts", "export const live = true;\n");
+
+    const result = await runValidate(options(fixture));
+    expect(payload(result).errors.some((issue) => issue.code === "source.paths.glob-empty" && issue.path === "live.md")).toBe(true);
   });
 
   it("never advances the validation revision", async () => {

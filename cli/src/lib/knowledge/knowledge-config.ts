@@ -1,12 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import Ajv2020Module from "ajv/dist/2020.js";
+import type { ErrorObject, ValidateFunction } from "ajv";
 import { load, dump } from "js-yaml";
 
 import { KnowledgeError, runFileSystemIo } from "./errors.js";
-import { REPOSITORY_ID_PATTERN } from "./identity.js";
 import { runGit } from "./git-core.js";
 import type { GitRepoLayout } from "./git-core.js";
+import { packageRootFromImport } from "../package-root.js";
 
 export const KNOWLEDGE_LAYOUT_SCHEMA = "llmdoc.knowledge/v1";
 
@@ -23,6 +25,14 @@ export interface KnowledgeLayoutConfig {
 }
 
 export const KNOWLEDGE_CONFIG_FILENAME = "llmdoc.yaml";
+
+type AjvConstructor = new (options: { allErrors: boolean; strict: boolean }) => {
+  compile: (schema: unknown) => ValidateFunction;
+};
+
+type ValidatedKnowledgeLayoutConfig = Omit<KnowledgeLayoutConfig, "remotes"> & { remotes?: KnowledgeRemote[] };
+
+let cachedValidateConfig: ValidateFunction | null = null;
 
 export function knowledgeConfigPath(knowledgeRoot: string): string {
   return path.join(knowledgeRoot, KNOWLEDGE_CONFIG_FILENAME);
@@ -50,69 +60,47 @@ export function parseKnowledgeLayoutConfig(raw: string, label: string): Knowledg
   return validateKnowledgeLayoutConfig(parsed, label);
 }
 
-const LAYOUT_ALLOWED_KEYS = new Set(["schema", "repositoryId", "layoutVersion", "remotes"]);
-const REMOTE_ALLOWED_KEYS = new Set(["name", "url"]);
-
 export function validateKnowledgeLayoutConfig(parsed: unknown, filePath: string): KnowledgeLayoutConfig {
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new KnowledgeError("E_KNOWLEDGE_CONFIG_INVALID", "llmdoc.yaml must contain a mapping", { paths: [filePath] });
-  }
-  const record = parsed as Record<string, unknown>;
-  rejectUnknownKeys(record, LAYOUT_ALLOWED_KEYS, "llmdoc.yaml", filePath);
-  if (record.schema !== KNOWLEDGE_LAYOUT_SCHEMA) {
-    throw new KnowledgeError("E_KNOWLEDGE_CONFIG_INVALID", `llmdoc.yaml schema must be ${KNOWLEDGE_LAYOUT_SCHEMA}`, {
+  const validateConfig = (cachedValidateConfig ??= compileKnowledgeSchema());
+  if (!validateConfig(parsed)) {
+    throw new KnowledgeError("E_KNOWLEDGE_CONFIG_INVALID", `llmdoc.yaml is invalid: ${formatSchemaErrors(validateConfig.errors ?? [])}`, {
       paths: [filePath]
     });
   }
-  if (!REPOSITORY_ID_PATTERN.test(String(record.repositoryId ?? ""))) {
-    throw new KnowledgeError("E_KNOWLEDGE_CONFIG_INVALID", "llmdoc.yaml is missing a valid repositoryId (llmdoc-<32 hex>)", {
-      paths: [filePath]
-    });
-  }
-  const remotes = validateRemotes(record.remotes, filePath);
-  if (record.layoutVersion !== 1) {
-    throw new KnowledgeError("E_KNOWLEDGE_CONFIG_INVALID", "llmdoc.yaml layoutVersion must be 1", { paths: [filePath] });
-  }
+  const config = parsed as ValidatedKnowledgeLayoutConfig;
   return {
-    schema: KNOWLEDGE_LAYOUT_SCHEMA,
-    repositoryId: String(record.repositoryId),
-    layoutVersion: 1,
-    remotes
+    schema: config.schema,
+    repositoryId: config.repositoryId,
+    layoutVersion: config.layoutVersion,
+    remotes: (config.remotes ?? []).map((remote) => ({ name: remote.name, url: stripUrlCredentials(remote.url) }))
   };
 }
 
-function validateRemotes(input: unknown, filePath: string): KnowledgeRemote[] {
-  if (input === undefined) {
-    return [];
-  }
-  if (!Array.isArray(input)) {
-    throw new KnowledgeError("E_KNOWLEDGE_CONFIG_INVALID", "llmdoc.yaml remotes must be a list of {name, url}", {
-      paths: [filePath]
+function compileKnowledgeSchema(): ValidateFunction {
+  let schemaPath = "schemas/knowledge.schema.json";
+  try {
+    schemaPath = path.join(packageRootFromImport(import.meta.url), "schemas", "knowledge.schema.json");
+    const schema = JSON.parse(fs.readFileSync(schemaPath, "utf8")) as unknown;
+    const Ajv2020 = Ajv2020Module as unknown as AjvConstructor;
+    return new Ajv2020({ allErrors: true, strict: false }).compile(schema);
+  } catch (error) {
+    throw new KnowledgeError("E_FILESYSTEM_IO", `Failed to load packaged knowledge schema: ${(error as Error).message}`, {
+      exitCode: 70,
+      paths: [schemaPath],
+      remediation: "Reinstall llmdoc; the packaged knowledge schema is missing or invalid."
     });
   }
-  return input.map((item) => {
-    if (item === null || typeof item !== "object" || Array.isArray(item)) {
-      throw new KnowledgeError("E_KNOWLEDGE_CONFIG_INVALID", "llmdoc.yaml remotes entries must be mappings", {
-        paths: [filePath]
-      });
-    }
-    const entry = item as Record<string, unknown>;
-    rejectUnknownKeys(entry, REMOTE_ALLOWED_KEYS, "llmdoc.yaml remotes entries", filePath);
-    if (typeof entry.name !== "string" || entry.name.length === 0 || typeof entry.url !== "string") {
-      throw new KnowledgeError("E_KNOWLEDGE_CONFIG_INVALID", "llmdoc.yaml remotes entries need non-empty name and url strings", {
-        paths: [filePath]
-      });
-    }
-    return { name: entry.name, url: stripUrlCredentials(entry.url) };
-  });
 }
 
-function rejectUnknownKeys(record: Record<string, unknown>, allowed: Set<string>, label: string, filePath: string): void {
-  for (const key of Object.keys(record)) {
-    if (!allowed.has(key)) {
-      throw new KnowledgeError("E_KNOWLEDGE_CONFIG_INVALID", `${label} has an unknown key: ${key}`, { paths: [filePath] });
-    }
-  }
+function formatSchemaErrors(errors: ErrorObject[]): string {
+  return errors
+    .map((error) => {
+      if (error.keyword === "additionalProperties") {
+        return `${error.instancePath || "/"} has an unknown key: ${String(error.params.additionalProperty)}`;
+      }
+      return `${error.instancePath || "/"} ${error.message ?? "is invalid"}`;
+    })
+    .join("; ");
 }
 
 export function renderKnowledgeLayoutConfig(config: KnowledgeLayoutConfig): string {

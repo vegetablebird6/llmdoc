@@ -3,36 +3,55 @@
 [Website](https://llmdoc.tokenroll.ai/) · [简体中文](README.zh-CN.md)
 
 **Detached Engineering Knowledge Base.** llmdoc keeps a durable engineering
-knowledge base that is maintained by humans and agents and stays independent of
-the source-code lifecycle. Source Git commits define facts; Knowledge Git commits
+knowledge base maintained by agents with human review, independent of the
+source-code lifecycle. Source Git commits define facts; Knowledge Git commits
 preserve verified understanding of those facts.
 
 ## Design principles
 
-1. **Separate facts from understanding.** Source commits are the factual baseline;
-   Knowledge commits preserve the explanation verified against that baseline.
-2. **Keep one durable write boundary.** Source Git stays read-only. All durable
-   knowledge lives and evolves in an independent Knowledge Git.
-3. **Record only durable decision knowledge.** Keep decisions, constraints,
-   rationale, and cross-module contracts that affect future work, are expensive to
-   reconstruct from code, and survive multiple source commits. Rebuildable code
-   structure belongs in indexes and caches.
-4. **Treat change as a review obligation.** A source change may invalidate existing
-   understanding, but it never justifies an automatic prose rewrite. Semantic review
-   decides whether to update content, refresh evidence only, or leave it unchanged.
-5. **Make validity inspectable.** Every formal document identifies its source scope,
-   validated source revision, and validated content digest. Retrieval reports that
-   evidence and its current status instead of asking readers to trust freshness.
-6. **Give humans and agents the same protocol.** Both maintain standard Markdown
-   through the same review and seal workflow. Knowledge is reference data, not an
-   executable rule, skill, or hidden instruction channel.
+1. **Separate facts from understanding.** Source commits are the traceable factual
+   baseline; Knowledge commits preserve the engineering understanding that agents
+   formed and verified against that baseline. Source answers "what the system is
+   now"; llmdoc answers "why it is designed this way, which constraints must hold,
+   and what future changes need to know."
+2. **Keep one durable write boundary.** Source Git stays read-only: llmdoc never
+   modifies, stages, or commits the business repository. All durable knowledge and
+   its metadata live and evolve only in an independent Knowledge Git, and llmdoc
+   never falls back to the source Git when that Knowledge Git is missing.
+3. **Record only durable engineering knowledge.** Only knowledge with future
+   decision value, high reconstruction cost, and stability across multiple source
+   commits enters the formal knowledge base: architectural intent, design decisions,
+   constraints, invariants, failure semantics, and cross-module contracts. File
+   structure, symbol relations, call graphs, and similar source-rebuildable
+   information belong in indexes or caches, not durable knowledge.
+4. **Treat source change as a review obligation.** A source change means related
+   knowledge must be re-verified, not that the prose must change. Semantic review has
+   three outcomes: update the prose, keep the prose and refresh the validation
+   baseline, or confirm the change is irrelevant. llmdoc never turns a source diff
+   into an automatic knowledge changelog.
+5. **Make knowledge validity verifiable.** Every formal document declares its source
+   scope, validated source revision, and the content-integrity information needed to
+   distinguish `current`, `needs_review`, and `unverified` states. Retrieval
+   returns content together with its validation evidence instead of relying on
+   document update times.
+6. **Agents maintain knowledge; humans review conclusions.** Agents drive discovery,
+   organization, editing, verification, and sealing. Humans can review agent
+   conclusions and raise corrections, additions, or challenges; that feedback
+   re-enters the agent's update flow, and llmdoc performs the formal edit and
+   re-verification. Human review is an optional quality-control step, not a
+   precondition for routine knowledge maintenance.
+7. **Keep knowledge separate from execution instructions.** llmdoc preserves
+   readable, searchable, citable, and auditable reference knowledge. It does not
+   distribute rules, skills, prompts, hooks, or other execution instructions, and no
+   knowledge content may depend on hidden instructions or runtime behavior to hold.
 
 ## The dual-repository model
 
 ```mermaid
 flowchart LR
-    S[Source Git<br/>read-only] --> A[Human or Agent]
+    S[Source Git<br/>read-only] --> A[Agent]
     A -->|semantic review| K[Knowledge Git<br/>docs + meta]
+    H[Human reviewer] -->|feedback| A
     K --> R[Task-scoped retrieval]
     R --> S
 ```
@@ -62,14 +81,16 @@ The association is recorded in a user-level registry, not inside the source.
    are published in one step through a temporary index and a compare-and-swap ref
    update; the knowledge index must have nothing staged, and it is synchronized
    on success together with llmdoc-owned generated files.
-6. **Semantic validation is human or agent work.** The CLI performs deterministic
-   structure, scope, and commit checks. A passing `validate` does not prove that
-   the knowledge is correct.
+6. **Agents own semantic maintenance.** Agents edit, verify, and seal formal
+   knowledge; humans review conclusions and return corrections to that workflow.
+   The CLI performs deterministic structure, scope, and commit checks. A passing
+   `validate` does not prove that the knowledge is correct.
 7. **Rebuildable indexes.** AST, symbol, and dependency graphs are rebuildable
    indexes, not a committable code encyclopedia.
-8. **Standard Markdown for everyone.** Humans and agents edit the same Markdown
-   and go through the same validation declaration and commit protocol. Knowledge
-   is reference data, not executable rules or skills.
+8. **Reviewable standard Markdown.** Agents maintain formal knowledge through the
+   guarded validation and commit protocol. Humans review the same plain Markdown
+   and feed corrections back through the Agent workflow. Knowledge is reference
+   data, not executable rules or skills.
 
 The "only write boundary" means the knowledge content and its Git. `bind` may
 write a user-level registry, and temporary files and caches are written under the
