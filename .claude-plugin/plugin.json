@@ -1,7 +1,7 @@
 {
   "name": "llmdoc",
   "description": "Detached engineering knowledge base powered by the llmdoc CLI: a read-only Source Git plus an independent Knowledge Git maintained through a review and commit protocol",
-  "version": "3.6.0",
+  "version": "3.6.0-ng",
   "author": {
     "name": "DJJ & Danniel"
   }

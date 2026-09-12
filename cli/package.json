@@ -1,6 +1,6 @@
 {
   "name": "@tokenroll/llmdoc",
-  "version": "3.6.0",
+  "version": "3.6.0-ng",
   "description": "Dual-repository knowledge CLI for llmdoc",
   "homepage": "https://github.com/TokenRollAI/llmdoc",
   "repository": {

@@ -78,11 +78,17 @@ jobs:
         run: |
           set -euo pipefail
           expected="${GITHUB_REF_NAME#v}"
+          # fork 版本使用 prerelease(如 3.6.0-ng)，npm 要求显式 --tag；稳定版仍走 latest
+          dist_tag=latest
+          if [[ "${expected}" == *-* ]]; then
+            dist_tag="${expected#*-}"
+            dist_tag="${dist_tag%%.*}"
+          fi
           # 幂等:tag 重跑时该版本可能已在 registry,跳过而不是 409 失败
           if npm view "@tokenroll/llmdoc@${expected}" version >/dev/null 2>&1; then
             echo "@tokenroll/llmdoc@${expected} already published — skipping"
           else
-            npm publish "${{ steps.artifacts.outputs.npm_tarball }}" --access public
+            npm publish "${{ steps.artifacts.outputs.npm_tarball }}" --access public --tag "${dist_tag}"
           fi
 
       - name: Build release notes
