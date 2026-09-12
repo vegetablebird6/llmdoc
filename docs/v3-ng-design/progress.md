@@ -1,6 +1,6 @@
 # v3-ng 实施进度与续接记录
 
-最后更新：2026-09-11（M1–M5 已完成并通过 Codex review；提交身份已统一为 `vegetable6 <xukun6cai@gmail.com>`；完成 ponytail 过度设计审查，尚未应用精简项）。
+最后更新：2026-09-12（M1–M5 已完成并通过 Codex review；提交身份 `vegetable6 <xukun6cai@gmail.com>`；Codex review 修复、测试收敛与统一 timeout 已收口提交 `4d4bc5f`，默认 quick 与完整 integration 均通过；临时文件已清理，等待 Codex review 本轮修复）。
 
 ## 执行约定
 
@@ -2212,7 +2212,7 @@ Linux 无本机环境时：以现有 `ubuntu-latest` CI（`npm ci` → typecheck
 
 ## 设计原则对齐（更新为 7 项）— 2026-09-11
 
-状态：README 原则更新为最新 7 项；Agent 接入面按第 6 项（Agent 维护知识，人负责审阅结论）修正；运行时审计未发现需要改协议代码的偏差。未 stage/commit/reset/push。
+状态：已完成并纳入收口提交 `4d4bc5f`；README 原则更新为最新 7 项；Agent 接入面按第 6 项（Agent 维护知识，人负责审阅结论）修正；运行时审计未发现需要改协议代码的偏差；完整 integration 与默认 quick 均通过，等待 Codex review。
 
 ### 原则更新与代码审计
 
@@ -2222,7 +2222,7 @@ Linux 无本机环境时：以现有 `ubuntu-latest` CI（`npm ci` → typecheck
   - `skills/llmdoc/SKILL.md` 与 `.agents/skills/llmdoc/SKILL.md`（正文镜像一致）：Reflection Gate 由“ask once to run `/llmdoc:update`; wait for authorization”改为“fold it into stable knowledge via `/llmdoc:update`; review may follow”；Operating Rules 的“Align before non-trivial edits”明确为 code edits。
   - `docs/agent-integration.md`：删除“then wait for user confirmation”“Run `prune` only with user confirmation”“After user confirmation”；改为 Agent 运行 `update`/在报告给出具体证据时运行 `prune`，人工审阅 sealed conclusions 保持可选；reflection 合并对象由“durable rule”改为“durable knowledge”（P3/P7 用词）。
 - 预算回归：`skills/llmdoc` 曾因新措辞到 ~1618/1600，已压缩到 ~1591/1600；`check-codex-surface`/`check-prompt-budget` 复跑 ok。
-- 待办：上述变更并入最终 integration 门禁；若通过，更新本节状态为“实现完成，等待 Codex review”。
+- 收口：上述变更已并入最终 integration 门禁并通过（见文末「收口验证」）；本节状态已更新为“实现完成，等待 Codex review”。
 
 ### Integration 首跑失败与预算修正 — 2026-09-11
 
@@ -2237,7 +2237,7 @@ Linux 无本机环境时：以现有 `ubuntu-latest` CI（`npm ci` → typecheck
 
 ## Codex review 修复计划 — 2026-09-11
 
-状态：设计先行，待实施。以当前 README 七项原则为准；第 6 项“Agent 维护知识，人审阅结论”不回退。仅修复本轮 review 已确认的问题，不扩大协议或恢复已删除的阶段测试。
+状态：已实施并收口（见「实施与验证结果」与文末「收口验证」），提交 `4d4bc5f`；等待 Codex review。以当前 README 七项原则为准；第 6 项“Agent 维护知识，人审阅结论”不回退。仅修复本轮 review 已确认的问题，不扩大协议或恢复已删除的阶段测试。
 
 1. `knowledge-config.ts` 将 packaged schema 的定位、读取与 Ajv 编译改为首次配置校验时惰性执行并缓存；所有失败继续映射为 `E_FILESYSTEM_IO`(70)，避免 ESM 模块加载阶段绕过 CLI 错误处理。
 2. README 第 5 项只修正三态名称为 `current / needs_review / unverified`，不改变当前七项原则。
@@ -2277,4 +2277,5 @@ Linux 无本机环境时：以现有 `ubuntu-latest` CI（`npm ci` → typecheck
 - 网站 Schema 发布检查：`npm --prefix website run check:schema` 首跑发现 `website/dist/schemas/knowledge.schema.json` 仍是旧描述且缺 `default: []`；执行 `npm --prefix website run build` 重新生成后复跑 ok。`website/dist` 已被 .gitignore 忽略，不进入提交。
 - 最终 ponytail 复查：只审视本轮新增结构（schema validator 惰性编译、viewer 适配层删除、测试收敛与 timeout 统一），无可继续删除项；`knowledge-config.ts`/`output-schema.ts` 各自引导 Ajv 与 schema `default: []` 两处保留判断维持不变。
 - `npm run lint` exit 0；`npm run typecheck` exit 0；`git diff --check` exit 0（仅 LF→CRLF 提示）。
-- 提交边界：纳入全部 tracked 变更（测试收敛、timeout 统一、schema 单源、viewer DTO、README/设计文档/skills）；排除 `.codegraph/`、`.llmdoc-tmp/`、`website/dist`、`cli/dist`。真实 `%APPDATA%\llmdoc\bindings.json` 留有一条 2026-09-11 20:02 的 `llmdoc-dogfood-fail-*` 测试遗留绑定；本轮默认 quick 与两次全量 integration 均未再写默认 registry，该文件在仓库边界外，单独提示用户处理。
+- 提交边界：纳入全部 tracked 变更（测试收敛、timeout 统一、schema 单源、viewer DTO、README/设计文档/skills）；排除 `.codegraph/`、`.llmdoc-tmp/`、`website/dist`、`cli/dist`。已提交为 `4d4bc5f`（`test: converge protocol suite and validate config via published schema`，45 files，+639/−1620）。
+- 临时文件清理：删除 `.llmdoc-tmp/`、`cli/.llmdoc-tmp/` 与 `%TEMP%\llmdoc-*` 测试临时目录 307 个；真实 `%APPDATA%\llmdoc\bindings.json` 的 `llmdoc-dogfood-fail-*` 测试遗留绑定经只读核对（source/knowledge 临时路径均已不存在、文件仅含该一条）后按 incident 流程删除，空的 `%APPDATA%\llmdoc` 目录一并移除。
