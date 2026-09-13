@@ -12,10 +12,10 @@ import DocsLayout from "../../../layouts/DocsLayout.astro";
 
   <h2>Create and bind a knowledge repository</h2>
   <pre><code># Create an external knowledge repository and bind it to the source
-npx -y @tokenroll/llmdoc init --source ./app --knowledge ../app-knowledge
+npx -y @vegetablebird6/llmdoc init --source ./app --knowledge ../app-knowledge
 
 # Or bind an existing independent knowledge repository
-npx -y @tokenroll/llmdoc bind --source ./app --knowledge ../app-knowledge</code></pre>
+npx -y @vegetablebird6/llmdoc bind --source ./app --knowledge ../app-knowledge</code></pre>
   <p>The source repository is never modified. The knowledge repository is external by default; use <code>--nested</code> only when it must live inside the source worktree and the outer Git does not track that subtree.</p>
 
   <div class="callout">
@@ -24,38 +24,38 @@ npx -y @tokenroll/llmdoc bind --source ./app --knowledge ../app-knowledge</code>
 
   <h2>Claude Code</h2>
   <p>Add the repository-verified marketplace, then install the plugin:</p>
-  <pre><code>/plugin marketplace add https://github.com/TokenRollAI/llmdoc
+  <pre><code>/plugin marketplace add https://github.com/vegetablebird6/llmdoc
 /plugin install llmdoc@llmdoc-plugin</code></pre>
   <p>Once the plugin is active, initialize the repository with <code>/llmdoc:init</code>.</p>
 
   <h2>Codex</h2>
   <p>Add llmdoc as a plugin marketplace source, then install it from the Plugins Directory. Review the plugin hooks before trusting them.</p>
-  <pre><code>codex plugin marketplace add TokenRollAI/llmdoc</code></pre>
+  <pre><code>codex plugin marketplace add vegetablebird6/llmdoc</code></pre>
 
   <h2>Other coding agents</h2>
   <p>Use a thin <code>AGENTS.md</code> rule that routes discovery through the external CLI. Keep durable knowledge in the independent Knowledge Git; never hand-edit <code>.llmdoc/meta.json</code>.</p>
 
   <h2>Your first retrieval</h2>
   <pre><code># Unclear scope
-npx -y @tokenroll/llmdoc tree
+npx -y @vegetablebird6/llmdoc tree
 
 # A concept or contract
-npx -y @tokenroll/llmdoc search "retry policy"
+npx -y @vegetablebird6/llmdoc search "retry policy"
 
 # Context for concrete files
-npx -y @tokenroll/llmdoc context --files src/api/client.ts</code></pre>
+npx -y @vegetablebird6/llmdoc context --files src/api/client.ts</code></pre>
   <p>These are alternatives, not a mandatory sequence. Read document bodies with <code>show</code> only after identifying what matters.</p>
 
   <h2>Capture and publish</h2>
-  <pre><code>npx -y @tokenroll/llmdoc capture --title "retry budget" --from notes.md
-npx -y @tokenroll/llmdoc update --promote inbox/retry-budget.md --to guides/retry.md \
+  <pre><code>npx -y @vegetablebird6/llmdoc capture --title "retry budget" --from notes.md
+npx -y @vegetablebird6/llmdoc update --promote inbox/retry-budget.md --to guides/retry.md \
   --kind guide --description "How retry budgets are chosen." --source-path "src/retry/**"
-npx -y @tokenroll/llmdoc review
-npx -y @tokenroll/llmdoc review --confirm &lt;reviewId&gt;
-npx -y @tokenroll/llmdoc commit --review &lt;reviewId&gt;</code></pre>
+npx -y @vegetablebird6/llmdoc review
+npx -y @vegetablebird6/llmdoc review --confirm &lt;reviewId&gt;
+npx -y @vegetablebird6/llmdoc commit --review &lt;reviewId&gt;</code></pre>
   <p>Publishing requires a valid source HEAD and a fully clean source worktree/index. A code change creates a review obligation; <code>delta</code> and <code>status</code> report what needs re-verification.</p>
 
   <h2>Browse locally</h2>
   <p>Launch the read-only viewer to inspect the fixed Knowledge HEAD. The server binds only to <code>127.0.0.1</code>.</p>
-  <pre><code>npx -y @tokenroll/llmdoc serve</code></pre>
+  <pre><code>npx -y @vegetablebird6/llmdoc serve</code></pre>
 </DocsLayout>

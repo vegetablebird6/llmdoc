@@ -3,7 +3,7 @@
 > Detached engineering knowledge base for codebases. llmdoc keeps architecture, constraints, rationale, contracts, non-obvious failures, and risky workflows in an independent Knowledge Git repository, while the source repository stays read-only.
 
 Canonical site: https://llmdoc.tokenroll.ai/
-Repository: https://github.com/TokenRollAI/llmdoc
+Repository: https://github.com/vegetablebird6/llmdoc
 
 ## English documentation
 
@@ -27,17 +27,17 @@ Treat llmdoc as external tooling. Do not add it to the consumer project's packag
 
 Create or bind an independent knowledge repository first. The source repository is never modified.
 
-    npx -y @tokenroll/llmdoc init --source . --knowledge ../app-knowledge
-    npx -y @tokenroll/llmdoc bind --source . --knowledge ../app-knowledge
+    npx -y @vegetablebird6/llmdoc init --source . --knowledge ../app-knowledge
+    npx -y @vegetablebird6/llmdoc bind --source . --knowledge ../app-knowledge
 
 Retrieve task-scoped knowledge from the bound knowledge repository:
 
-    npx -y @tokenroll/llmdoc tree
-    npx -y @tokenroll/llmdoc context --files src/api/client.ts
+    npx -y @vegetablebird6/llmdoc tree
+    npx -y @vegetablebird6/llmdoc context --files src/api/client.ts
 
 To inspect the fixed Knowledge HEAD in a browser, start the local-only Viewer. It binds to 127.0.0.1.
 
-    npx -y @tokenroll/llmdoc serve
+    npx -y @vegetablebird6/llmdoc serve
 
 Always use the full scoped package name. A bare npx llmdoc resolves to an unrelated package.
 

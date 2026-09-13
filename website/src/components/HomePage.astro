@@ -16,7 +16,7 @@ const isZh = locale === "zh";
     </p>
     <div class="hero-actions">
       <a class="button" href={isZh ? "/zh/docs/getting-started/" : "/docs/getting-started/"}>{isZh ? "开始使用 →" : "Get started →"}</a>
-      <a class="button secondary" href="https://github.com/TokenRollAI/llmdoc">{isZh ? "在 GitHub 查看" : "View on GitHub"}</a>
+      <a class="button secondary" href="https://github.com/vegetablebird6/llmdoc">{isZh ? "在 GitHub 查看" : "View on GitHub"}</a>
     </div>
   </div>
   <aside class="manifesto" aria-label={isZh ? "设计原则" : "Design principle"}>
@@ -105,8 +105,8 @@ const isZh = locale === "zh";
       <p>{isZh ? "通过外部 CLI 读取 llmdoc。缺少包时，npx 会写入机器缓存，而不是消费仓库。" : "Run the CLI as external tooling. npx uses the machine cache without changing the consumer repository."}</p>
     </div>
     <div>
-      <pre><code>npx -y @tokenroll/llmdoc tree
-npx -y @tokenroll/llmdoc context --files src/api/client.ts</code></pre>
+      <pre><code>npx -y @vegetablebird6/llmdoc tree
+npx -y @vegetablebird6/llmdoc context --files src/api/client.ts</code></pre>
       <div class="command-notes">
         <span>Standard Markdown</span><span>Git-native validity</span><span>Claude + Codex</span>
       </div>

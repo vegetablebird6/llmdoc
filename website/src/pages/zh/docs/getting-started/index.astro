@@ -13,48 +13,48 @@ import DocsLayout from "../../../../layouts/DocsLayout.astro";
 
   <h2>创建并绑定知识仓</h2>
   <pre><code># 创建外置知识仓并绑定到源码
-npx -y @tokenroll/llmdoc init --source ./app --knowledge ../app-knowledge
+npx -y @vegetablebird6/llmdoc init --source ./app --knowledge ../app-knowledge
 
 # 或绑定已有的独立知识仓
-npx -y @tokenroll/llmdoc bind --source ./app --knowledge ../app-knowledge</code></pre>
+npx -y @vegetablebird6/llmdoc bind --source ./app --knowledge ../app-knowledge</code></pre>
   <p>源码仓库绝不被修改。知识仓默认外置；只有当它必须位于源码 worktree 内且外层 Git 未跟踪该子树时，才使用 <code>--nested</code>。</p>
 
   <div class="callout"><p>始终使用完整的 scoped 包名。裸的 <code>npx llmdoc</code> 会解析到另一个无关包。</p></div>
 
   <h2>Claude Code</h2>
   <p>添加经仓库验证的 marketplace，然后安装插件：</p>
-  <pre><code>/plugin marketplace add https://github.com/TokenRollAI/llmdoc
+  <pre><code>/plugin marketplace add https://github.com/vegetablebird6/llmdoc
 /plugin install llmdoc@llmdoc-plugin</code></pre>
   <p>插件生效后，用 <code>/llmdoc:init</code> 初始化仓库。</p>
 
   <h2>Codex</h2>
   <p>把 llmdoc 添加为插件 marketplace 来源，再从 Plugins Directory 安装。信任插件前请先审查 hooks。</p>
-  <pre><code>codex plugin marketplace add TokenRollAI/llmdoc</code></pre>
+  <pre><code>codex plugin marketplace add vegetablebird6/llmdoc</code></pre>
 
   <h2>其他 Coding Agent</h2>
   <p>在 <code>AGENTS.md</code> 中加入一条简洁规则，把发现过程路由到外部 CLI。持久知识保存在独立的 Knowledge Git；不要手工编辑 <code>.llmdoc/meta.json</code>。</p>
 
   <h2>第一次检索</h2>
   <pre><code># 范围不明确
-npx -y @tokenroll/llmdoc tree
+npx -y @vegetablebird6/llmdoc tree
 
 # 概念或契约
-npx -y @tokenroll/llmdoc search "重试策略"
+npx -y @vegetablebird6/llmdoc search "重试策略"
 
 # 具体文件所需的上下文
-npx -y @tokenroll/llmdoc context --files src/api/client.ts</code></pre>
+npx -y @vegetablebird6/llmdoc context --files src/api/client.ts</code></pre>
   <p>这些命令是不同入口，不是固定流水线。确认目标文档后，再用 <code>show</code> 读取正文。</p>
 
   <h2>捕获与发布</h2>
-  <pre><code>npx -y @tokenroll/llmdoc capture --title "retry budget" --from notes.md
-npx -y @tokenroll/llmdoc update --promote inbox/retry-budget.md --to guides/retry.md \
+  <pre><code>npx -y @vegetablebird6/llmdoc capture --title "retry budget" --from notes.md
+npx -y @vegetablebird6/llmdoc update --promote inbox/retry-budget.md --to guides/retry.md \
   --kind guide --description "重试预算如何确定。" --source-path "src/retry/**"
-npx -y @tokenroll/llmdoc review
-npx -y @tokenroll/llmdoc review --confirm &lt;reviewId&gt;
-npx -y @tokenroll/llmdoc commit --review &lt;reviewId&gt;</code></pre>
+npx -y @vegetablebird6/llmdoc review
+npx -y @vegetablebird6/llmdoc review --confirm &lt;reviewId&gt;
+npx -y @vegetablebird6/llmdoc commit --review &lt;reviewId&gt;</code></pre>
   <p>发布要求有效 source HEAD 且 source worktree/index 全仓 clean。代码变化产生复核义务；<code>delta</code> 与 <code>status</code> 报告需要重新验证的内容。</p>
 
   <h2>在本地浏览</h2>
   <p>启动只读 viewer 查看固定的 Knowledge HEAD。服务器只绑定 <code>127.0.0.1</code>。</p>
-  <pre><code>npx -y @tokenroll/llmdoc serve</code></pre>
+  <pre><code>npx -y @vegetablebird6/llmdoc serve</code></pre>
 </DocsLayout>

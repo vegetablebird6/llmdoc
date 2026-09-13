@@ -20,7 +20,7 @@ import DocsLayout from "../../../layouts/DocsLayout.astro";
 
   <h2>Initialize</h2>
   <p>Use <code>init</code> when a source repository has no independent knowledge repository yet. It creates the Knowledge Git, the layout, the initial knowledge commit, and the user binding, and it never overwrites a non-empty target or modifies the source.</p>
-  <pre><code>npx -y @tokenroll/llmdoc init --source ./app --knowledge ../app-knowledge</code></pre>
+  <pre><code>npx -y @vegetablebird6/llmdoc init --source ./app --knowledge ../app-knowledge</code></pre>
   <p>To attach an existing independent knowledge repository instead, use <code>bind</code>. Both commands accept <code>--nested</code> only when the knowledge repository lives inside the source worktree and the outer Git does not track that subtree.</p>
 
   <h2>Update</h2>

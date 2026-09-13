@@ -21,7 +21,7 @@ import DocsLayout from "../../../../layouts/DocsLayout.astro";
 
   <h2>初始化</h2>
   <p>当源码仓还没有独立知识仓时，使用 <code>init</code>。它创建 Knowledge Git、布局、初始知识提交与用户绑定，绝不覆盖非空目标，也绝不修改源码。</p>
-  <pre><code>npx -y @tokenroll/llmdoc init --source ./app --knowledge ../app-knowledge</code></pre>
+  <pre><code>npx -y @vegetablebird6/llmdoc init --source ./app --knowledge ../app-knowledge</code></pre>
   <p>若改为挂接已有的独立知识仓，请使用 <code>bind</code>。只有当知识仓位于源码 worktree 内且外层 Git 未跟踪该子树时，两个命令才接受 <code>--nested</code>。</p>
 
   <h2>更新</h2>
