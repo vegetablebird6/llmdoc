@@ -9,7 +9,7 @@ import { withKnowledgeLock } from "./lock.js";
 import type { KnowledgeMeta, ValidatedEvidence } from "./meta.js";
 import { replaceNavigationRegion } from "./navigation.js";
 import {
-  assertReviewObservationMatches,
+  assertReviewedDocumentsMatch,
   assertReviewProjectionMatches,
   loadReviewManifest,
   markReviewConsumed,
@@ -380,7 +380,7 @@ function verifyManifestAgainstWorktree(
   conclusions: Map<string, ReviewConclusion>
 ): ReviewProjection {
   const observation = observeReview(context);
-  assertReviewObservationMatches(observation, manifest);
+  assertReviewedDocumentsMatch(observation, manifest);
   const projection = projectReview(observation, conclusions, manifest.global);
   assertReviewProjectionMatches(projection, manifest);
   return projection;

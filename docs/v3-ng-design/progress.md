@@ -2413,3 +2413,9 @@ Linux 无本机环境时：以现有 `ubuntu-latest` CI（`npm ci` → typecheck
 - 验证：`npm run typecheck`、`npm run lint` exit 0；定向回归 4/4（K0 requires binding、mixed K1 structure、projected K1 navigation、既有 structure gate）通过；默认 `npm test` 为 12 files / 99 tests，加 seal smoke 1/1，exit 0。
 - 冻结代码后的最终 `npm run test:integration`：27/27 files、267/267 tests，Duration 1646.33s（tests 1636.32s），exit 0。新增的 mixed-snapshot structure、projected navigation 与 cwd-independent rebase 用例均在完整套件中通过。
 - 本轮未 stage/commit/reset/push；`.codegraph/` 由用户在复核期间启用并通过既有 `.gitignore` 工作树改动排除，未纳入产品 diff。
+
+### Review contract 命名与文档精度 follow-up — 2026-09-14
+
+- architecture 将“任意 README 导航漂移都会 invalidated”校准为“reviewed documents 或 behaviorally relevant projection 变化才 invalidated”；README 机器区字节变化若不改变 projected candidate requires/write set，不使 review 失效。
+- `assertReviewObservationMatches()` 重命名为 `assertReviewedDocumentsMatch()`，明确它只比较 manifest 中持久化的 reviewed-document semantics；完整检查顺序保持 `assertReviewedDocumentsMatch()` → `projectReview()` → `assertReviewProjectionMatches()`。
+- 无行为变化。`npm run typecheck`、`npm run lint`、architecture Markdown parse 均 exit 0；confirm/seal 两个调用面的 focused tests 2/2 通过，Duration 59.51s。

@@ -165,7 +165,7 @@ Review 的最终状态必须按完整批次投影，不能为单篇文档重新�
 2. 用 proposed conclusions 计算新的 provisional projection，只比较 projection 输出：每篇文档的 `candidateRequires` 按 ID 到 digest 的映射相等；`writeSet` 的五个数组按集合相等，`meta` 按标量相等。不比较 conclusion，因为未确认 manifest 的 conclusion 必须为 `null`。
 3. 上述比较通过后，才应用用户 conclusions 生成 confirmed projection。按 conclusion 从 K0 或 worktree 选取实际会进入 K1 的文档版本，并用现有 canonical model validator 检查这一混合快照；即使 K0 与 worktree 各自合法，混合后出现缺失链接/关系、目标类型错误或环也必须拒绝。通过后才写入非空 conclusion、confirmed candidate requires 与 confirmed write set。这是需要 repository observation 的 projection 校验，不进入 manifest validator。
 
-这使 worktree 文档、requires 拓扑、candidate/inbox 和 README 导航在 generate 与 confirm 之间的漂移立即返回 `E_REVIEW_INVALIDATED`，而不是拖到 seal 才发现。comparator 只有在 validator 已拒绝重复项之后才能构造 Set/Map；不得用 `new Set()`/`new Map()` 静默正规化不可信输入。
+这使 reviewed documents 或 behaviorally relevant projection 在 generate 与 confirm 之间发生变化时立即返回 `E_REVIEW_INVALIDATED`，而不是拖到 seal 才发现。README 机器区等隐藏 observation 输入只有在改变 projected candidate requires 或 write set 时才使 review 失效；不影响 projection 的字节变化不应被拒绝。comparator 只有在 validator 已拒绝重复项之后才能构造 Set/Map；不得用 `new Set()`/`new Map()` 静默正规化不可信输入。
 
 manifest validator 只回答“该 JSON 是否可能表示合法协议状态”，检查类型、规范路径、唯一性和只依赖 manifest 自身的局部跨字段约束；任何需要重新观察仓库、判断 conclusion 应产生何种写集或 README 是否应生成的规则，必须留给 projection 与 comparator。validator 不 canonicalize 非规范输入，以下情况直接报 `E_REVIEW_INVALID`：
 

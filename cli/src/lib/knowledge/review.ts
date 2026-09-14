@@ -891,7 +891,7 @@ function invalidManifest(message: string, label: string): KnowledgeError {
  * id→digest map. The manifest must have passed the validator, so duplicate entries cannot
  * silently normalize here.
  */
-export function assertReviewObservationMatches(observation: ReviewObservation, manifest: ReviewManifest): void {
+export function assertReviewedDocumentsMatch(observation: ReviewObservation, manifest: ReviewManifest): void {
   const observedById = new Map(observation.documents.map((item) => [item.id, item]));
   const manifestById = new Map(manifest.documents.map((item) => [item.id, item]));
   for (const item of observation.documents) {
@@ -1009,11 +1009,11 @@ export function confirmReviewManifest(
     }
   }
   const observation = observeReview(context);
-  assertReviewObservationMatches(observation, manifest);
+  assertReviewedDocumentsMatch(observation, manifest);
   // An unconfirmed manifest stores the provisional projection; an already confirmed
   // manifest stores its declared conclusions. Recompute exactly that state and compare
-  // before accepting any new user conclusions, so worktree/requires/inbox/README drift
-  // since generation is rejected at confirmation instead of at seal.
+  // before accepting any new user conclusions, so reviewed-document or behaviorally
+  // relevant projection drift is rejected at confirmation instead of at seal.
   const previous = new Map(manifest.documents.map((item) => [item.id, item.conclusion ?? item.proposedConclusion]));
   assertReviewProjectionMatches(projectReview(observation, previous, manifest.global), manifest);
 
