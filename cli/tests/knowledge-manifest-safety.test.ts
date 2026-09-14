@@ -13,7 +13,7 @@ import {
 } from "../src/lib/knowledge/review.js";
 import { KnowledgeError } from "../src/lib/knowledge/errors.js";
 import { resolveKnowledgeWriteContext } from "../src/lib/knowledge/write-context.js";
-import { createKnowledgeFixture, knowledgeDoc, makeTempDir, type KnowledgeFixture } from "./knowledge-helpers.js";
+import { createKnowledgeFixture, knowledgeDoc, makeTempDir, writeFile, type KnowledgeFixture } from "./knowledge-helpers.js";
 
 const createdDirs: string[] = [];
 
@@ -150,6 +150,165 @@ describe("review manifest safety", () => {
     ]) {
       fs.writeFileSync(target, `${JSON.stringify(bad)}\n`);
       await expectReviewInvalid(() => loadReviewManifest(fixture.knowledgeRoot, id));
+    }
+  });
+
+  it("rejects duplicates, write set inconsistencies and lifecycle contradictions instead of normalizing them", async () => {
+    const fixture = await makeFixture("llmdoc-manifest-invariants-");
+    writeFile(fixture.knowledgeRoot, "docs/a.md", knowledgeDoc("guide", "A", { paths: ["src/a.ts"], body: "# A\n\nchanged\n" }));
+    const manifest = await writeFreshManifest(fixture);
+    const digest = "sha256:" + "1".repeat(64);
+    const oid = "a".repeat(40);
+    const now = new Date().toISOString();
+
+    const cases: Array<[string, (copy: ReviewManifest) => void]> = [
+      ["duplicate document id", (copy) => copy.documents.push({ ...copy.documents[0]! })],
+      [
+        "duplicate candidateRequires id",
+        (copy) => {
+          copy.documents[0]!.candidateRequires = [
+            { id: "b.md", digest },
+            { id: "b.md", digest }
+          ];
+        }
+      ],
+      ["duplicate oldScope entry", (copy) => copy.documents[0]!.oldScope.push(copy.documents[0]!.oldScope[0]!)],
+      ["duplicate reason", (copy) => copy.documents[0]!.reasons.push(copy.documents[0]!.reasons[0]!)],
+      ["duplicate writeSet.documents entry", (copy) => copy.writeSet.documents.push(copy.writeSet.documents[0]!)],
+      [
+        "duplicate writeSet.refresh entry",
+        (copy) => {
+          copy.writeSet.documents = [];
+          copy.writeSet.refresh = ["a.md", "a.md"];
+        }
+      ],
+      [
+        "duplicate writeSet.deletions entry",
+        (copy) => {
+          copy.writeSet.documents = [];
+          copy.writeSet.deletions = ["a.md", "a.md"];
+        }
+      ],
+      [
+        "duplicate writeSet.candidates entry",
+        (copy) => {
+          copy.writeSet.candidates = ["candidate.md", "candidate.md"];
+        }
+      ],
+      [
+        "duplicate writeSet.generated entry",
+        (copy) => {
+          copy.writeSet.generated = [".llmdoc/meta.json", ".llmdoc/meta.json"];
+        }
+      ],
+      [
+        "writeSet documents and refresh overlap",
+        (copy) => {
+          copy.writeSet.refresh = [...copy.writeSet.documents];
+        }
+      ],
+      [
+        "writeSet refresh and deletions overlap",
+        (copy) => {
+          copy.writeSet.documents = [];
+          copy.writeSet.refresh = ["a.md"];
+          copy.writeSet.deletions = ["a.md"];
+        }
+      ],
+      [
+        "writeSet documents and deletions overlap",
+        (copy) => {
+          copy.writeSet.deletions = [...copy.writeSet.documents];
+        }
+      ],
+      [
+        "writeSet references an undeclared document",
+        (copy) => {
+          copy.writeSet.documents = ["zzz.md"];
+        }
+      ],
+      [
+        "generated contains an unknown path",
+        (copy) => {
+          copy.writeSet.generated = [".llmdoc/meta.json", "docs/a.md"];
+        }
+      ],
+      [
+        "meta=false with generated files",
+        (copy) => {
+          copy.writeSet.meta = false;
+          copy.writeSet.generated = [".llmdoc/meta.json"];
+        }
+      ],
+      [
+        "meta=true without the meta file",
+        (copy) => {
+          copy.writeSet.meta = true;
+          copy.writeSet.generated = ["README.md"];
+        }
+      ],
+      [
+        "unconfirmed manifest with a conclusion",
+        (copy) => {
+          copy.documents[0]!.conclusion = "changed";
+        }
+      ],
+      [
+        "confirmed manifest without conclusions",
+        (copy) => {
+          copy.confirmed = true;
+          copy.confirmedAt = now;
+        }
+      ],
+      [
+        "confirmed manifest without confirmedAt",
+        (copy) => {
+          copy.confirmed = true;
+          for (const item of copy.documents) {
+            item.conclusion = item.proposedConclusion;
+          }
+        }
+      ],
+      [
+        "unconfirmed manifest with confirmedAt",
+        (copy) => {
+          copy.confirmedAt = now;
+        }
+      ],
+      [
+        "consumed manifest that is not confirmed",
+        (copy) => {
+          copy.consumed = true;
+          copy.consumedAt = now;
+          copy.knowledgeRevision = oid;
+        }
+      ],
+      [
+        "unconsumed manifest with consumedAt",
+        (copy) => {
+          copy.consumedAt = now;
+        }
+      ],
+      [
+        "unconsumed manifest with knowledgeRevision",
+        (copy) => {
+          copy.knowledgeRevision = oid;
+        }
+      ],
+      [
+        "v1 global and advanceGlobalReview disagree",
+        (copy) => {
+          copy.global = !copy.global;
+        }
+      ]
+    ];
+
+    for (const [name, mutate] of cases) {
+      const copy = JSON.parse(JSON.stringify(manifest)) as ReviewManifest;
+      mutate(copy);
+      fs.writeFileSync(reviewFilePath(fixture.knowledgeRoot, manifest.reviewId), `${JSON.stringify(copy, null, 2)}\n`);
+      const error = await expectReviewInvalid(() => loadReviewManifest(fixture.knowledgeRoot, manifest.reviewId));
+      expect(error.message, name).not.toHaveLength(0);
     }
   });
 });

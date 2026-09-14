@@ -5,10 +5,13 @@ import { spawnSync } from "node:child_process";
 import { afterAll, describe, expect, it } from "vitest";
 
 import { contentDigest } from "../src/lib/knowledge/document.js";
+import { buildKnowledgeModel } from "../src/lib/knowledge/knowledge-model.js";
+import { renderNavigation, replaceNavigationRegion } from "../src/lib/knowledge/navigation.js";
 import {
   buildReviewManifest,
   confirmReviewManifest,
   loadReviewManifest,
+  reviewFilePath,
   writeReviewManifest,
   type ReviewConclusion,
   type ReviewManifest
@@ -540,7 +543,7 @@ describe("review manifest and seal transaction", () => {
       { id: "literal.md", content: knowledgeDoc("guide", "Literal", { paths: ["src/nope.ts"] }), scope: ["src/nope.ts"] },
       { id: "glob.md", content: knowledgeDoc("guide", "Glob", { paths: ["src/*.tsx"] }), scope: ["src/*.tsx"] }
     ]);
-    await expectStructureBlocked(evidenceFixture);
+    await expectStructureBlocked(evidenceFixture, false);
   });
 
   it("consumes a confirmed manifest even when there is nothing to publish", async () => {
@@ -684,6 +687,225 @@ describe("review manifest and seal transaction", () => {
     expect(git(fixture.knowledgeRoot, ["ls-tree", "-r", "--name-only", "HEAD"])).not.toContain(`inbox/${candidateId}`);
     expect(result.sync.errors.some((error) => error.includes(candidateId))).toBe(true);
   });
+
+  it("keeps a dependent bound to K0 when its requires target is not advanced in the batch", async () => {
+    const b0 = docB();
+    const a0 = knowledgeDoc("guide", "Document A", { paths: ["src/a.ts"], requires: ["b.md"], body: "# A\n" });
+    const fixture = await makeFixture("llmdoc-seal-requires-insufficient-", [
+      { id: "a.md", content: a0, scope: ["src/a.ts"], requires: ["b.md"] },
+      { id: "b.md", content: b0, scope: ["src/b.ts"] }
+    ]);
+    writeFile(fixture.knowledgeRoot, "docs/b.md", docB("# B\n\nv2\n"));
+
+    const manifest = await generate(fixture);
+    const aItem = manifest.documents.find((item) => item.id === "a.md");
+    expect(aItem?.action).toBe("refresh");
+    expect(aItem?.proposedConclusion).toBe("unchanged");
+    const confirmed = await confirm(fixture, manifest, { "b.md": "insufficient" });
+    expect(confirmed.documents.find((item) => item.id === "a.md")?.candidateRequires).toEqual([
+      { id: "b.md", digest: contentDigest(b0) }
+    ]);
+
+    const result = await seal(fixture, manifest.reviewId);
+    expect(result.status).toBe("success");
+    expect(result.changedDocuments).toEqual([]);
+    expect(result.refreshedDocuments).toEqual(["a.md"]);
+    const meta = readMeta(fixture);
+    expect(meta.documents["a.md"]!.validatedRequires["b.md"]).toBe(contentDigest(b0));
+    expect(meta.documents["b.md"]!.validatedContentDigest).toBe(contentDigest(b0));
+    // The unadvanced B draft remains an uncommitted worktree edit.
+    expect(fs.readFileSync(path.join(fixture.knowledgeRoot, "docs", "b.md"), "utf8")).toBe(docB("# B\n\nv2\n"));
+  });
+
+  it("binds a refreshed dependent to the accepted same-batch digest of its requires target", async () => {
+    const a0 = knowledgeDoc("guide", "Document A", { paths: ["src/a.ts"], requires: ["b.md"], body: "# A\n" });
+    const fixture = await makeFixture("llmdoc-seal-requires-accepted-", [
+      { id: "a.md", content: a0, scope: ["src/a.ts"], requires: ["b.md"] },
+      { id: "b.md", content: docB(), scope: ["src/b.ts"] }
+    ]);
+    const b1 = docB("# B\n\nv2\n");
+    writeFile(fixture.knowledgeRoot, "docs/b.md", b1);
+
+    const manifest = await generate(fixture);
+    const confirmed = await confirm(fixture, manifest);
+    expect(confirmed.documents.find((item) => item.id === "a.md")?.candidateRequires).toEqual([
+      { id: "b.md", digest: contentDigest(b1) }
+    ]);
+
+    const result = await seal(fixture, manifest.reviewId);
+    expect(result.changedDocuments).toEqual(["b.md"]);
+    expect(result.refreshedDocuments).toEqual(["a.md"]);
+    expect(readMeta(fixture).documents["a.md"]!.validatedRequires["b.md"]).toBe(contentDigest(b1));
+  });
+
+  it("rejects conclusions that would publish a structurally invalid mixed snapshot", async () => {
+    const fixture = await makeFixture("llmdoc-confirm-projected-structure-", [
+      { id: "a.md", content: docA(), scope: ["src/a.ts"] }
+    ]);
+    writeFile(
+      fixture.knowledgeRoot,
+      "docs/a.md",
+      knowledgeDoc("guide", "Document A", { paths: ["src/a.ts"], requires: ["b.md"], body: "# A\n" })
+    );
+    writeFile(fixture.knowledgeRoot, "docs/b.md", docB());
+
+    const manifest = await generate(fixture);
+    expect(manifest.documents.find((item) => item.id === "a.md")?.action).toBe("update");
+    expect(manifest.documents.find((item) => item.id === "b.md")?.action).toBe("add");
+    await expectKnowledgeError(() => confirm(fixture, manifest, { "b.md": "insufficient" }), "E_STRUCTURE_INVALID", 2);
+  });
+
+  it("renders navigation from the projected K1 tree instead of the live worktree model", async () => {
+    const fixture = await makeFixture("llmdoc-seal-projected-navigation-", [
+      { id: "a.md", content: docA(), scope: ["src/a.ts"] }
+    ]);
+    writeFile(
+      fixture.knowledgeRoot,
+      "docs/a.md",
+      knowledgeDoc("guide", "Document A updated", { paths: ["src/a.ts"], body: "# A\n\nv2\n" })
+    );
+    writeFile(fixture.knowledgeRoot, "docs/b.md", docB());
+
+    const manifest = await generate(fixture);
+    const confirmed = await confirm(fixture, manifest, { "b.md": "insufficient" });
+    expect(confirmed.writeSet.generated).toEqual([".llmdoc/meta.json", "README.md"]);
+    await seal(fixture, manifest.reviewId);
+
+    const readme = fs.readFileSync(path.join(fixture.knowledgeRoot, "README.md"), "utf8");
+    expect(readme).toContain("Document A updated");
+    expect(readme).not.toContain("docs/b.md");
+    expect(git(fixture.knowledgeRoot, ["ls-tree", "-r", "--name-only", "HEAD"])).not.toContain("docs/b.md");
+  });
+
+  it("invalidates at confirmation when content, candidate set, inbox or navigation drifted after generation", async () => {
+    const bodyFixture = await makeFixture("llmdoc-confirm-drift-body-", [{ id: "a.md", content: docA(), scope: ["src/a.ts"] }]);
+    writeFile(bodyFixture.knowledgeRoot, "docs/a.md", docA("# A\n\nv2\n"));
+    const bodyManifest = await generate(bodyFixture);
+    writeFile(bodyFixture.knowledgeRoot, "docs/a.md", docA("# A\n\nv3\n"));
+    await expectKnowledgeError(() => confirm(bodyFixture, bodyManifest), "E_REVIEW_INVALIDATED", 3);
+
+    const addFixture = await makeFixture("llmdoc-confirm-drift-add-", [{ id: "a.md", content: docA(), scope: ["src/a.ts"] }]);
+    writeFile(addFixture.knowledgeRoot, "docs/a.md", docA("# A\n\nv2\n"));
+    const addManifest = await generate(addFixture);
+    writeFile(addFixture.knowledgeRoot, "docs/new.md", knowledgeDoc("guide", "New", { paths: ["src/a.ts"], body: "# New\n" }));
+    await expectKnowledgeError(() => confirm(addFixture, addManifest), "E_REVIEW_INVALIDATED", 3);
+
+    const deleteFixture = await makeFixture("llmdoc-confirm-drift-delete-", [{ id: "a.md", content: docA(), scope: ["src/a.ts"] }]);
+    writeFile(deleteFixture.knowledgeRoot, "docs/a.md", docA("# A\n\nv2\n"));
+    const deleteManifest = await generate(deleteFixture);
+    fs.rmSync(path.join(deleteFixture.knowledgeRoot, "docs", "a.md"));
+    await expectKnowledgeError(() => confirm(deleteFixture, deleteManifest), "E_REVIEW_INVALIDATED", 3);
+
+    const inboxFixture = await makeFixture("llmdoc-confirm-drift-inbox-", [{ id: "a.md", content: docA(), scope: ["src/a.ts"] }]);
+    const { captureCandidate } = await import("../src/lib/knowledge/capture.js");
+    const captured = await captureCandidate({
+      sourceInput: inboxFixture.source,
+      registryDir: inboxFixture.registryDir,
+      title: "inbox drift",
+      body: "# candidate\n"
+    });
+    const inboxManifest = await generate(inboxFixture);
+    expect(inboxManifest.writeSet.candidates).toEqual([]);
+    fs.rmSync(path.join(inboxFixture.knowledgeRoot, "inbox", captured.candidateId));
+    await expectKnowledgeError(() => confirm(inboxFixture, inboxManifest), "E_REVIEW_INVALIDATED", 3);
+
+    const readmeFixture = await makeFixture("llmdoc-confirm-drift-readme-", [{ id: "a.md", content: docA(), scope: ["src/a.ts"] }]);
+    writeFile(readmeFixture.knowledgeRoot, "docs/a.md", docA("# A\n\nv2\n"));
+    const readmeManifest = await generate(readmeFixture);
+    expect(readmeManifest.writeSet.generated).toContain("README.md");
+    const readmePath = path.join(readmeFixture.knowledgeRoot, "README.md");
+    const existing = fs.readFileSync(readmePath, "utf8");
+    const model = buildKnowledgeModel(path.join(readmeFixture.knowledgeRoot, "docs"));
+    writeFile(readmeFixture.knowledgeRoot, "README.md", replaceNavigationRegion(existing, renderNavigation(model)).content);
+    await expectKnowledgeError(() => confirm(readmeFixture, readmeManifest), "E_REVIEW_INVALIDATED", 3);
+  });
+
+  it("accepts reordered sets but rejects real member, digest or write set changes at confirmation", async () => {
+    const docAWithRequires = (body: string, paths: string[]) =>
+      knowledgeDoc("guide", "Document A", { paths, requires: ["b.md", "c.md"], body });
+    const fixture = await makeFixture("llmdoc-confirm-reorder-", [
+      {
+        id: "a.md",
+        content: docAWithRequires("# A\n", ["src/a.ts", "src/b.ts"]),
+        scope: ["src/a.ts", "src/b.ts"],
+        requires: ["b.md", "c.md"]
+      },
+      { id: "b.md", content: docB(), scope: ["src/b.ts"] },
+      { id: "c.md", content: knowledgeDoc("guide", "Document C", { paths: ["pkg/lease/x.ts"], body: "# C\n" }), scope: ["pkg/lease/x.ts"] }
+    ]);
+    writeFile(fixture.knowledgeRoot, "docs/a.md", docAWithRequires("# A\n\nv2\n", ["src/a.ts"]));
+    writeFile(fixture.knowledgeRoot, "docs/b.md", docB("# B\n\nv2\n"));
+    writeFile(
+      fixture.knowledgeRoot,
+      "docs/c.md",
+      knowledgeDoc("guide", "Document C", { paths: ["pkg/lease/x.ts"], body: "# C\n\nv2\n" })
+    );
+
+    const manifest = await generate(fixture);
+    const raw = JSON.parse(fs.readFileSync(reviewFilePath(fixture.knowledgeRoot, manifest.reviewId), "utf8")) as ReviewManifest;
+    raw.documents.reverse();
+    for (const item of raw.documents) {
+      item.oldScope.reverse();
+      item.newScope.reverse();
+      item.removedScope.reverse();
+      item.reasons.reverse();
+      item.candidateRequires.reverse();
+    }
+    raw.writeSet.documents.reverse();
+    fs.writeFileSync(reviewFilePath(fixture.knowledgeRoot, manifest.reviewId), `${JSON.stringify(raw, null, 2)}\n`);
+    await confirm(fixture, manifest);
+
+    const mutations: Array<[string, (copy: ReviewManifest) => void]> = [
+      ["scope member", (copy) => copy.documents[0]!.oldScope.push("pkg/lease/x.ts")],
+      ["reason member", (copy) => copy.documents[0]!.reasons.push("bogus additional reason")],
+      [
+        "requires digest",
+        (copy) => {
+          copy.documents[0]!.candidateRequires[0]!.digest = "sha256:" + "0".repeat(64);
+        }
+      ],
+      [
+        "write set member",
+        (copy) => {
+          copy.writeSet.documents.pop();
+        }
+      ]
+    ];
+    for (const [name, mutate] of mutations) {
+      const fresh = await generate(fixture);
+      const copy = JSON.parse(fs.readFileSync(reviewFilePath(fixture.knowledgeRoot, fresh.reviewId), "utf8")) as ReviewManifest;
+      mutate(copy);
+      fs.writeFileSync(reviewFilePath(fixture.knowledgeRoot, fresh.reviewId), `${JSON.stringify(copy, null, 2)}\n`);
+      const error = await expectKnowledgeError(() => confirm(fixture, fresh), "E_REVIEW_INVALIDATED", 3);
+      expect(error.message, name).not.toHaveLength(0);
+    }
+  });
+
+  it("detects an in-progress rebase from the state directory even when the process cwd is elsewhere", async () => {
+    const fixture = await makeFixture("llmdoc-seal-rebase-path-", [{ id: "a.md", content: docA(), scope: ["src/a.ts"] }]);
+    const rebaseDir = path.join(fixture.knowledgeRoot, ".git", "rebase-merge");
+    fs.mkdirSync(rebaseDir, { recursive: true });
+    try {
+      // HEAD stays on the branch, so only the absolute rebase-directory probe can block.
+      expect(realPath(process.cwd())).not.toBe(realPath(fixture.knowledgeRoot));
+      const context = await resolveKnowledgeWriteContext(fixtureOptions(fixture));
+      expect(context.knowledgeHeadState.detached).toBe(false);
+      expect(context.knowledgeOperation).toBe("rebase");
+      await expectKnowledgeError(
+        () =>
+          runReview({
+            cwd: fixture.source,
+            source: fixture.source,
+            knowledge: fixture.knowledgeRoot,
+            registryDir: fixture.registryDir
+          }),
+        "E_KNOWLEDGE_NOT_ON_BRANCH",
+        3
+      );
+    } finally {
+      fs.rmSync(rebaseDir, { recursive: true, force: true });
+    }
+  });
 });
 
 function committedDigest(fixture: KnowledgeFixture, id: string): string {
@@ -700,6 +922,14 @@ function metaOf(fixture: KnowledgeFixture): { documents: Record<string, { valida
   };
 }
 
+function readMeta(fixture: KnowledgeFixture): {
+  documents: Record<string, { validatedContentDigest: string; validatedRequires: Record<string, string> }>;
+} {
+  return JSON.parse(fs.readFileSync(path.join(fixture.knowledgeRoot, ".llmdoc", "meta.json"), "utf8")) as {
+    documents: Record<string, { validatedContentDigest: string; validatedRequires: Record<string, string> }>;
+  };
+}
+
 function manifestConsumed(fixture: KnowledgeFixture, id: string): boolean {
   const raw = JSON.parse(
     fs.readFileSync(path.join(fixture.knowledgeRoot, ".llmdoc-cache", "reviews", `${id}.json`), "utf8")
@@ -712,12 +942,16 @@ async function validityStatus(fixture: KnowledgeFixture, id: string): Promise<st
   return context.validity.byId.get(id)?.status;
 }
 
-async function expectStructureBlocked(fixture: KnowledgeFixture): Promise<void> {
+async function expectStructureBlocked(fixture: KnowledgeFixture, projectedStructureInvalid = true): Promise<void> {
   await expectKnowledgeError(
     () => runReview({ cwd: fixture.source, source: fixture.source, knowledge: fixture.knowledgeRoot, registryDir: fixture.registryDir }),
     "E_STRUCTURE_INVALID",
     2
   );
+  if (projectedStructureInvalid) {
+    await expectKnowledgeError(() => generate(fixture), "E_STRUCTURE_INVALID", 2);
+    return;
+  }
   const manifest = await generate(fixture);
   await confirm(fixture, manifest);
   await expectKnowledgeError(() => seal(fixture, manifest.reviewId), "E_STRUCTURE_INVALID", 2);

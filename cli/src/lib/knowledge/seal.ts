@@ -7,18 +7,18 @@ import { readGitBlobs, runGit } from "./git-core.js";
 import { addBlobToIndex, hashBlob, removeIndexPath } from "./git-write.js";
 import { withKnowledgeLock } from "./lock.js";
 import type { KnowledgeMeta, ValidatedEvidence } from "./meta.js";
-import { renderNavigation, replaceNavigationRegion } from "./navigation.js";
+import { replaceNavigationRegion } from "./navigation.js";
 import {
-  attachCandidateRequires,
-  buildReviewItems,
-  deriveWriteSet,
+  assertReviewObservationMatches,
+  assertReviewProjectionMatches,
   loadReviewManifest,
   markReviewConsumed,
-  sameList,
+  observeReview,
+  projectReview,
   writeReviewManifest,
   type ReviewConclusion,
-  type ReviewDocumentItem,
-  type ReviewManifest
+  type ReviewManifest,
+  type ReviewProjection
 } from "./review.js";
 import { resolveWriteBinding } from "./binding.js";
 import {
@@ -124,13 +124,17 @@ async function sealLocked(context: KnowledgeWriteContext, options: SealReviewOpt
     });
   }
 
-  const conclusions = new Map(manifest.documents.map((item) => [item.id, (item.conclusion ?? "insufficient") as ReviewConclusion]));
-  verifyManifestAgainstWorktree(context, manifest, conclusions);
+  // loadReviewManifest validated that every confirmed document has a conclusion.
+  const conclusions = new Map<string, ReviewConclusion>(
+    manifest.documents.map((item) => [item.id, item.conclusion!])
+  );
+  const projection = verifyManifestAgainstWorktree(context, manifest, conclusions);
+  const writeSet = projection.writeSet;
 
   const k0MetaRaw = (await readGitBlobs(context.knowledgeGit, knowledgeBaseRevision, [META_REPO_PATH])).get(META_REPO_PATH) ?? null;
   const metaPath = context.knowledge.metaPath;
   const metaObservation = fs.existsSync(metaPath) ? fs.readFileSync(metaPath) : null;
-  if (manifest.writeSet.meta) {
+  if (writeSet.meta) {
     if (metaObservation === null || k0MetaRaw === null || !metaObservation.equals(Buffer.from(k0MetaRaw, "utf8"))) {
       throw new KnowledgeError("E_KNOWLEDGE_META_DIRTY", "The knowledge meta ledger has uncommitted edits that are not part of this review", {
         exitCode: 3,
@@ -140,10 +144,10 @@ async function sealLocked(context: KnowledgeWriteContext, options: SealReviewOpt
     }
   }
 
-  const newMeta = buildNextMeta(context, manifest, conclusions, sourceRevision);
+  const newMeta = buildNextMeta(context, projection, sourceRevision, manifest.global);
   const metaBytes = `${JSON.stringify(newMeta, null, 2)}\n`;
 
-  if (!manifest.writeSet.meta) {
+  if (!writeSet.meta) {
     return consumeNoChange(context, manifest, conclusions, sourceRevision, knowledgeBaseRevision, newMeta.source.lastGlobalReviewRevision, options.testHooks);
   }
 
@@ -151,12 +155,12 @@ async function sealLocked(context: KnowledgeWriteContext, options: SealReviewOpt
     { repoPath: META_REPO_PATH, absolutePath: metaPath, observation: metaObservation, next: metaBytes }
   ];
   let readmePlan: GeneratedFilePlan | null = null;
-  if (manifest.writeSet.generated.includes("README.md")) {
+  if (writeSet.generated.includes("README.md")) {
     const readmePath = path.join(context.knowledge.worktreeRoot, "README.md");
     const readmeObservation = fs.existsSync(readmePath) ? fs.readFileSync(readmePath) : null;
     const nextReadme = replaceNavigationRegion(
       readmeObservation === null ? null : readmeObservation.toString("utf8"),
-      renderNavigation(context.worktreeModel)
+      projection.renderedNavigation
     ).content;
     readmePlan = { repoPath: "README.md", absolutePath: readmePath, observation: readmeObservation, next: nextReadme };
     generatedFiles.push(readmePlan);
@@ -166,12 +170,12 @@ async function sealLocked(context: KnowledgeWriteContext, options: SealReviewOpt
   // may recreate the same inbox draft after the final verification. Deleting it must be
   // conditional on the seal-time observation, otherwise the new draft is either silently
   // lost or left untracked with cleanupRequired=false.
-  for (const candidate of manifest.writeSet.candidates) {
+  for (const candidate of writeSet.candidates) {
     const candidatePath = path.join(context.knowledge.worktreeRoot, "inbox", candidate);
     const observation = fs.existsSync(candidatePath) ? fs.readFileSync(candidatePath) : null;
     generatedFiles.push({ repoPath: `inbox/${candidate}`, absolutePath: candidatePath, observation, remove: true });
   }
-  const commitMessage = buildCommitMessage(context, manifest, sourceRevision);
+  const commitMessage = buildCommitMessage(projection, manifest.reviewId, sourceRevision);
 
   const result = await publishKnowledgeCommit({
     context,
@@ -197,9 +201,8 @@ async function sealLocked(context: KnowledgeWriteContext, options: SealReviewOpt
       assertGeneratedFilesUnchanged(generatedFiles);
     },
     buildIndex: async (tempIndex) => {
-      for (const item of manifest.documents) {
-        const conclusion = conclusions.get(item.id);
-        if (conclusion === "insufficient") {
+      for (const item of projection.documents) {
+        if (item.conclusion === "insufficient") {
           continue;
         }
         // Physical action, not the semantic label, decides the tree: add/update write the
@@ -225,7 +228,7 @@ async function sealLocked(context: KnowledgeWriteContext, options: SealReviewOpt
           await addBlobToIndex(context.knowledgeGit, tempIndex, `docs/${item.id}`, blob);
         }
       }
-      for (const candidate of manifest.writeSet.candidates) {
+      for (const candidate of writeSet.candidates) {
         await removeIndexPath(context.knowledgeGit, tempIndex, `inbox/${candidate}`);
       }
       const metaBlob = await hashBlob(context.knowledgeGit, metaBytes);
@@ -256,11 +259,11 @@ async function sealLocked(context: KnowledgeWriteContext, options: SealReviewOpt
     knowledgeBaseRevision,
     knowledgeRevision: result.knowledgeRevision,
     branch: result.branch,
-    metaOnly: manifest.writeSet.documents.length === 0 && manifest.writeSet.deletions.length === 0,
-    changedDocuments: manifest.writeSet.documents,
-    refreshedDocuments: manifest.writeSet.refresh,
-    deletedDocuments: manifest.writeSet.deletions,
-    removedCandidates: manifest.writeSet.candidates,
+    metaOnly: writeSet.documents.length === 0 && writeSet.deletions.length === 0,
+    changedDocuments: writeSet.documents,
+    refreshedDocuments: writeSet.refresh,
+    deletedDocuments: writeSet.deletions,
+    removedCandidates: writeSet.candidates,
     lastGlobalReviewRevision: newMeta.source.lastGlobalReviewRevision,
     cleanupRequired: result.cleanupRequired,
     sync: result.sync
@@ -365,61 +368,29 @@ function assertManifestBinding(context: KnowledgeWriteContext, manifest: ReviewM
   }
 }
 
+/**
+ * Re-runs the full-batch protocol check at a seal checkpoint: one fresh observation, one
+ * confirmed projection, then the same comparators used at confirmation. It never degenerates
+ * into per-document recalculation, which is how a legitimate manifest could otherwise be
+ * rejected when a same-batch dependency is not advanced.
+ */
 function verifyManifestAgainstWorktree(
   context: KnowledgeWriteContext,
   manifest: ReviewManifest,
   conclusions: Map<string, ReviewConclusion>
-): void {
-  const fresh = buildReviewItems(context, {});
-  const freshById = new Map(fresh.map((item) => [item.id, item]));
-  for (const item of fresh) {
-    if (!manifest.documents.some((candidate) => candidate.id === item.id)) {
-      throw invalidated(`Unreviewed knowledge content appeared after the review: ${item.id}`, [item.id]);
-    }
-  }
-  for (const item of manifest.documents) {
-    const current = freshById.get(item.id);
-    if (current === undefined) {
-      throw invalidated(`Reviewed document no longer matches the review candidate set: ${item.id}`, [item.id]);
-    }
-    if (
-      current.action !== item.action ||
-      current.oldDigest !== item.oldDigest ||
-      current.candidateDigest !== item.candidateDigest ||
-      !sameList(sorted(current.oldScope), sorted(item.oldScope)) ||
-      !sameList(sorted(current.newScope), sorted(item.newScope)) ||
-      JSON.stringify(current.oldValidatedRequires) !== JSON.stringify(item.oldValidatedRequires)
-    ) {
-      throw invalidated(`Reviewed document drifted after confirmation: ${item.id}`, [item.id]);
-    }
-  }
-  const withRequires = attachCandidateRequires(context, manifest.documents, conclusions);
-  const freshWriteSet = deriveWriteSet(withRequires, conclusions, manifest.advanceGlobalReview, context);
-  if (JSON.stringify(freshWriteSet) !== JSON.stringify(manifest.writeSet)) {
-    throw invalidated("The review write set drifted after confirmation", manifest.writeSet.documents);
-  }
-  for (const item of withRequires) {
-    const currentRequires = currentCandidateRequires(context, item, conclusions);
-    if (JSON.stringify(currentRequires) !== JSON.stringify(item.candidateRequires)) {
-      throw invalidated(`Dependency digests drifted for ${item.id}`, [item.id]);
-    }
-  }
-}
-
-function currentCandidateRequires(
-  context: KnowledgeWriteContext,
-  item: ReviewDocumentItem,
-  conclusions: Map<string, ReviewConclusion>
-): Array<{ id: string; digest: string }> {
-  const withRequires = attachCandidateRequires(context, [item], conclusions)[0]!;
-  return withRequires.candidateRequires;
+): ReviewProjection {
+  const observation = observeReview(context);
+  assertReviewObservationMatches(observation, manifest);
+  const projection = projectReview(observation, conclusions, manifest.global);
+  assertReviewProjectionMatches(projection, manifest);
+  return projection;
 }
 
 function buildNextMeta(
   context: KnowledgeWriteContext,
-  manifest: ReviewManifest,
-  conclusions: Map<string, ReviewConclusion>,
-  sourceRevision: string
+  projection: ReviewProjection,
+  sourceRevision: string,
+  global: boolean
 ): KnowledgeMeta {
   const documents: Record<string, ValidatedEvidence> = {};
   for (const [id, evidence] of Object.entries(context.k0.meta?.documents ?? {})) {
@@ -430,10 +401,8 @@ function buildNextMeta(
       validatedRequires: { ...evidence.validatedRequires }
     };
   }
-  const withRequires = attachCandidateRequires(context, manifest.documents, conclusions);
-  for (const item of withRequires) {
-    const conclusion = conclusions.get(item.id) ?? "insufficient";
-    if (conclusion === "insufficient") {
+  for (const item of projection.documents) {
+    if (item.conclusion === "insufficient") {
       continue;
     }
     if (item.action === "delete") {
@@ -455,7 +424,7 @@ function buildNextMeta(
     schema: "llmdoc.meta/v3-ng",
     source: {
       repositoryId: context.entry.repositoryId,
-      lastGlobalReviewRevision: manifest.advanceGlobalReview
+      lastGlobalReviewRevision: global
         ? sourceRevision
         : (context.k0.meta?.source.lastGlobalReviewRevision ?? null)
     },
@@ -492,11 +461,10 @@ async function reassertPublishPreconditions(
   }
 }
 
-function buildCommitMessage(context: KnowledgeWriteContext, manifest: ReviewManifest, sourceRevision: string): string {
+function buildCommitMessage(projection: ReviewProjection, reviewId: string, sourceRevision: string): string {
   const scope = new Set<string>();
-  for (const item of manifest.documents) {
-    const conclusion = item.conclusion ?? "insufficient";
-    if (conclusion === "insufficient") {
+  for (const item of projection.documents) {
+    if (item.conclusion === "insufficient") {
       continue;
     }
     for (const entry of item.newScope) {
@@ -508,11 +476,11 @@ function buildCommitMessage(context: KnowledgeWriteContext, manifest: ReviewMani
   }
   const verifiedScope = [...scope].sort().join(", ") || "(none)";
   return [
-    `llmdoc: seal review ${manifest.reviewId.slice(0, 12)}`,
+    `llmdoc: seal review ${reviewId.slice(0, 12)}`,
     "",
     `llmdoc-source-revision: ${sourceRevision}`,
     `llmdoc-verified-scope: ${verifiedScope}`,
-    `llmdoc-review-id: ${manifest.reviewId}`
+    `llmdoc-review-id: ${reviewId}`
   ].join("\n");
 }
 

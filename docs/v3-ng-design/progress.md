@@ -1,6 +1,6 @@
 # v3-ng 实施进度与续接记录
 
-最后更新：2026-09-12（M1–M5 与收口修复均已通过 Codex review；提交身份 `vegetable6 <xukun6cai@gmail.com>`；默认 quick 与完整 integration 均通过；临时文件已清理）。
+最后更新：2026-09-14（review projection、manifest 状态机、rebase Context 与最终 K1 结构/导航修复已完成 Codex review；默认 quick 与完整 integration 均通过；改动未提交）。
 
 ## 文档状态收口计划 — 2026-09-12
 
@@ -2303,3 +2303,113 @@ Linux 无本机环境时：以现有 `ubuntu-latest` CI（`npm ci` → typecheck
 完成与验证：四份 README 已整理，中英文首页章节同构；七项原则、八条硬边界逐字保留并以断言核对。日常主线为首次建立、按任务检索、Agent 自主维护；capture、prune、migrate、viewer、hooks 改为按需入口。候选示例改用 CLI 返回的 inbox-relative ID，修正原先带 inbox/ 前缀且假定固定文件名的问题。完整 meta JSON 与重复命令清单从首页移除，协议细节指向现有 architecture；当前设计入口删除重复边界及失效 workspace.ts 链接；旧 V3 仅增加历史归档导航，不改历史设计。
 
 实际检查：用现有 marked 解析四份 README，代码围栏配对、45 个本地链接/锚点、中英文标题层级及原则/边界原文一致性全部通过；本地 CLI 的 help update / help review 核对参数通过；git diff --check 通过（仅 LF→CRLF 提示）。仅文档变更，未执行运行时测试，未 stage/commit/push。整理完成，可评审 diff。
+
+## Review projection、manifest 状态机与 rebase Context 修复设计 — 2026-09-14
+
+状态：设计已确认，尚未实施。本轮只把协议边界、实施顺序和测试矩阵写入 `architecture.md`/`progress.md`；不修改产品代码、测试或 CI，不 stage/commit/push。
+
+### 已确认问题
+
+1. confirm 对完整 batch 计算 candidate requires，seal 的 `currentCandidateRequires()` 却只传单篇文档。`computeFinalDigests()` 会以全部 worktree candidate digest 初始化、但只对传入 items 应用 conclusion，因此 `A requires B`、`B update -> insufficient`、`A refresh -> unchanged` 会在 confirm 得到 A→B0，在 seal 单项重算成 A→B1，合法 manifest 被误报 `E_REVIEW_INVALIDATED`。fail-closed 阻止了错误发布，但合法流程无法 seal。
+2. confirm 当前只复核 binding/S/K0，随后把 manifest 中旧的文档观察与当前 worktree 的依赖拓扑、candidate、README 状态混合计算。generate 到 confirm 之间的漂移可能被写进“已确认”manifest，直到 seal 才拒绝，确认边界不完整。
+3. rebase 探测使用 `git rev-parse --git-path <directory>` 后直接 `existsSync()`；Git 可返回相对路径，Node 会按进程 cwd 而非 Knowledge worktree 解析。`REBASE_HEAD` 只能覆盖停在 conflict/edit 的部分状态，不能替代状态目录检测。
+4. manifest validator 目前缺少多处唯一性与局部跨字段约束；comparator 若直接转 Set/Map 会把重复项静默正规化。v1 同时持久化 `global` 与 `advanceGlobalReview`，但没有明确要求相等。
+5. 默认 `npm test` 是合理的快速开发门禁；仓库 CI 已另跑完整 integration，但 release workflow 当前只跑 `npm test`。发布门禁仍需显式加入 `npm run test:integration`；main 合并是否强制该 job 属于仓库外 branch protection，当前未验证。
+
+### 冻结设计
+
+- 四层职责固定为 `KnowledgeWriteContext/I/O -> observeReview -> projectReview -> manifest/publication materialization`。observation 只携带投影所需的 digest、K0/worktree raw document snapshot、candidate ID 和 README 受管区，不直接塞整个 `KnowledgeModel`；projection 是无 I/O 的纯函数并且永远按完整 batch 计算。
+- 一次 projection 只计算一份 `finalDigests`，供 candidate requires 和 write set 共用；`finalDigests` 不作为公开结果。materialization 与 `buildNextMeta()` 只消费 projected documents，不重新推导依赖。
+- generate 以 proposed conclusions 生成 provisional projection，但持久化 `conclusion=null`；confirm 先重新 observation，比较文档语义，再重算并比较 provisional candidate requires/write set，通过后才应用用户 conclusions 生成 confirmed projection；seal 在初检和 pre-CAS 各做一次 fresh observation + confirmed projection + comparison。
+- comparator 对 scope/reasons 和 writeSet 数组用集合相等，对 validated/candidate requires 用 ID→digest 映射相等，对 action/digest/source revision/proposed conclusion/writeSet.meta 用标量相等。validator 必须先拒绝重复，comparator 无权清洗输入。
+- validator 只检查 manifest 内可判断的类型、规范路径、唯一性、写集互斥/引用完整性、generated/meta 对应、生命周期状态，以及 v1 `global === advanceGlobalReview`。README 是否应生成、conclusion 应产生何种 write set 等需要仓库 observation 的规则不进入 validator。
+- `global` 保留为领域字段。v1 暂保留 `advanceGlobalReview` 并强制两者相等；v2 删除后者。不得在 schema 仍为 v1 时静默改变字段形态。
+- rebase 状态目录统一用 `git rev-parse --path-format=absolute --git-path <directory>`，不手工用 worktree root 拼路径，以保留 linked worktree/common dir 语义。
+
+### 实施顺序
+
+1. 收紧 manifest validator 与 v1 生命周期/局部 invariant，并补非法 manifest 测试。
+2. 修正 rebase 绝对路径探测，补 process cwd 不同于 Knowledge root 的定向测试。
+3. 引入最小 `ReviewObservation`、`ReviewProjection` 与纯 `projectReview()`，让 requires 和 write set 共享一次完整批次投影。
+4. 改造 generate/confirm：先做 reviewed-document drift 比较和 provisional projection 比较，再写 confirmed projection。
+5. 改造 seal 初检与 pre-CAS 复核，删除 `currentCandidateRequires()` 单项重算路径。
+6. 让 `buildNextMeta()` 和发布 materialization 只消费 confirmed projected documents，不再拼装第二套规则。
+7. 在 release workflow 加完整 integration 门禁；保留 `npm test` 作为快速开发 gate，并核对 main branch protection 是否要求 integration job。
+8. 依次运行 typecheck、lint、focused tests、默认 quick；冻结代码后只跑一次完整 integration，并把实际 files/tests/耗时写回本文件。
+
+### 必须覆盖的回归矩阵
+
+- `A requires B`，B update→insufficient，A refresh→unchanged：final(B)=B0、A binds B0，seal 成功；B 被接受更新时 A binds B1。
+- generate→confirm 期间正文/front matter/requires/source scope/reasons/proposed action 漂移，或 candidate 新增/删除、inbox removal、README projection 改变：confirm 立即 invalidated。
+- scope/reasons/requires 仅重排：比较通过；成员、digest 或 reason 实际改变：拒绝。
+- duplicates：文档 ID、candidateRequires ID、各 scope/reasons、各 writeSet 数组均拒绝；writeSet 三类文档重叠、引用未知文档 ID、未知 generated path、meta/generated 矛盾、生命周期矛盾、v1 global 字段不等均拒绝。
+- `process.cwd !== knowledgeRoot` 且知识仓处于 rebase：必须由 rebase 状态检测明确拒绝，测试不能因 detached HEAD 等旁路条件偶然通过。
+- 现有 seal 初检漂移、pre-CAS 漂移、故障注入与 cleanup/CAS 用例继续保留。
+
+### 当前验证与下一步
+
+本节依据当前代码调用链、现有 CI/release 配置和最近一次完整 integration 记录（27 files / 259 tests）落稿；未把旧 review 中的 31/282 当作当前事实。设计文档落稿后只做 Markdown/diff 检查，不重复运行产品测试。下一步从 validator 开始逐块实施，每块先完成 focused regression，再进入下一层，避免一次大改后无法定位语义漂移。
+
+## Review projection、manifest 状态机与 rebase Context 修复实施 — 2026-09-14
+
+状态：按上文冻结设计实施完成；typecheck、lint、focused、默认 quick 与一次完整 integration 全部通过。未 stage/commit/push。
+
+### 实施记录（对应设计实施顺序 1–7）
+
+1. **validator 收紧**（`cli/src/lib/knowledge/review.ts`）：`validateReviewManifest` 增加文档 ID 唯一性、confirmed/unconfirmed 与 `confirmedAt`/conclusion 的生命周期互斥、consumed 必须 confirmed 且带 `consumedAt`/`knowledgeRevision`、unconsumed 不得带这些字段、v1 `global === advanceGlobalReview`；`validateManifestItem` 增加 oldScope/newScope/removedScope/reasons/candidateRequires ID 的内部唯一性；`validateWriteSet` 增加各数组唯一性、documents/refresh/deletions 两两互斥、写集只能引用已声明文档、generated 仅允许 `.llmdoc/meta.json`/`README.md`、`meta=false` 禁止 generated、`meta=true` 必须含 meta。
+2. **rebase 绝对路径**（`cli/src/lib/knowledge/write-context.ts`）：状态目录探测改为 `git rev-parse --path-format=absolute --git-path <directory>`，不再让相对路径落回 Node 进程 cwd。
+3. **observation/projection 分层**：新增 `ReviewObservedDocument`、`ReviewObservation`、`ReviewProjectedDocument`、`ReviewProjection`、`observeReview()`、纯 `projectReview()`；`computeFinalDigests()` 与 `deriveWriteSet()` 改为模块私有、只接受 observation/projected documents。`buildReviewManifest()` 用 proposed conclusions 生成 provisional projection，持久化 `conclusion=null`，candidateRequires/writeSet 来自该 projection。
+4. **confirm 边界**（`confirmReviewManifest()`）：入口先 validate；fresh observation 后按 ID 比较文档语义（标量精确、scope/reasons 集合、validatedRequires ID→digest 映射），再用 previous conclusions（unconfirmed 用 proposed，已 confirmed 用存储 conclusion）重算 projection 并比较 candidateRequires/writeSet，通过后才应用用户 conclusions 写入 confirmed projection。
+5. **seal 复核**（`cli/src/lib/knowledge/seal.ts`）：`verifyManifestAgainstWorktree()` 改为 observation + confirmed projection + comparator，返回 projection 供 materialization 使用；初检与 pre-CAS 各执行一次；删除 `currentCandidateRequires()` 单项重算路径。
+6. **materialization 只消费 projection**：seal 的临时 index 写集、commit message scope 与 `buildNextMeta()`（不再计算 candidate requires）全部改用 projected documents。
+7. **发布门禁**（`.github/workflows/release.yml`）：verify 步骤在 `npm test` 后新增 `npm run test:integration`；job `timeout-minutes` 由 10 调整为 45。main branch protection 是否要求 integration job：本机无 `gh` CLI，未验证，留待仓库外配置确认。
+
+### 新增测试
+
+- `cli/tests/knowledge-manifest-safety.test.ts`：表驱动非法 manifest 用例 24 组（文档 ID/candidateRequires/scope/reasons/writeSet 五个数组重复、documents∩refresh、refresh∩deletions、documents∩deletions、引用未声明文档、未知 generated、meta/generated 矛盾、confirmed/unconfirmed/consumed 生命周期矛盾、v1 global 不等）。
+- `cli/tests/knowledge-review-seal.test.ts`（30 → 35）：B update→insufficient 且 A refresh→unchanged 时 A bind B0 且 seal 成功（原确认/seal 误判回归）；B 被接受时 A bind B1；generate→confirm 期间正文/candidate 新增/candidate 删除/inbox removal/README navigation 漂移分别 invalidated；数组仅重排通过、成员/digest/写集实际改变拒绝；`process.cwd !== knowledgeRoot` 且 `.git/rebase-merge` 存在、HEAD 仍在分支时由 rebase 探测明确拒绝。
+
+### 验证证据
+
+- `npm run typecheck` exit 0；`npm run lint` exit 0。
+- focused：`knowledge-review-seal` 35/35、`knowledge-manifest-safety` 5/5、`knowledge-cli-commit` 3/3、`knowledge-update-prune` + `knowledge-status-delta` + `knowledge-maintenance-cli` + `knowledge-capture` 35/35。
+- 默认 quick gate（根 `npm test`）：12 files / 99 tests + 定向 seal 1/1 通过。
+- 完整 integration（冻结代码后只跑一次，日志置于仓库外并已删除）：27 files / 265 tests 全部通过，duration 975.44s，exit 0。
+
+### 环境核对
+
+- 分支 `v3-ng`；`git diff --cached` 为空（index 无 staged）；未 stage/commit/reset/push。
+- 真实 `%APPDATA%\llmdoc\bindings.json` 为 2026-09-12 既有文件（非本轮生成），未读写。
+- 本轮只修改 `cli/src/lib/knowledge/{review,seal,write-context}.ts`、对应两个测试、`.github/workflows/release.yml` 与本设计/进度文档；未纳入 `.codegraph/`（不存在）或临时日志。
+
+下一步入口：按评审流程 review 本轮 diff（投影分层、validator 生命周期、rebase 探测与新增回归），通过后再提交。
+
+### 独立 review 结论 — 2026-09-14
+
+本轮由独立 review subagent 对照冻结设计逐条核对工作树 diff，并自行运行 typecheck/lint 与触及面 focused suites。结论：无 blocker、无 major；实现与冻结设计一致（四层分层、confirm/seal 比较顺序、validator bullet list、rebase 探测、single finalDigests、materialization 只消费 projection 均已核对）。
+
+已处理：
+
+- `git diff --check` 的 progress.md EOF 空行已修复（现 exit 0）。
+- validator 用例按设计矩阵补齐 `writeSet.refresh/deletions/candidates/generated` 重复与 `documents∩deletions`、`refresh∩deletions`（18 → 24 组），用 focused run 复验（`knowledge-manifest-safety` 5/5 通过）。
+
+记录为已知边界（非本轮引入，需下轮设计决策）：
+
+- ~~「新增 requires 目标被标 insufficient、依赖方被接受」仅会让依赖方 needs_review。~~ 当前 review 复核确认该判断不成立：它会让 K1 含指向未写入目标的正式文档，属于结构非法发布；K0/worktree 的其他混合还可能产生缺失链接、目标类型错误或环，已在本轮按下述方式修复。
+- rebase 目录探测依赖 `git rev-parse --path-format=absolute`（Git ≥ 2.31）；更旧 Git 在 `allowMissing` 下会退化为探测不到（fail-open）。CI ubuntu-latest 与本机 Git 均高于此版本。
+- comparator 的「调用前必须已 validate」目前由注释与所有调用点保证（confirm 先 validate、seal 经 `loadReviewManifest`），未在函数内重复校验；diagnostic path/message 与 seal 从 manifest 读取三个等价 writeSet 字段属可读性 nit。
+- release workflow 的 45 分钟 job 预算覆盖 `npm test` + integration + build/dogfood/prompts；main branch protection 是否要求 `integration` job 因本机无 `gh` CLI 仍未验证。
+
+说明：上述 validator 用例补充为评审后 test-only 变更，产品代码在唯一一次完整 integration 运行前已冻结；补充用例以 focused run 复验，不影响该次 27 files / 265 tests 的产品代码证据。
+
+### 当前 review 修正 — 2026-09-14
+
+- 内部 projection 与 meta materialization 统一只消费领域字段 `global`；`advanceGlobalReview` 仅作为 `llmdoc.review/v1` 的兼容持久化字段并由 validator 强制与 `global` 相等。
+- seal 在 projection comparator 通过后统一使用 `projection.writeSet` 驱动 meta、README、candidate 删除、临时 index 和结果 DTO，不再从 manifest 读取一份语义等价但独立的写集。
+- 删除 seal 的 `conclusion ?? "insufficient"` 容错；confirmed manifest 的 conclusion 非空由 validator 保证，materialization 不再掩盖生命周期违规。
+- projected structure gate 收拢进纯 `projectReview()`：按 conclusions 从 observation 的 K0/worktree raw snapshot 选出实际 K1 文档版本，复用 canonical `buildKnowledgeModelFromRaw()` 检查完整最终快照；confirm、seal 初检与 pre-CAS 自然共享。新增 B 被判 insufficient 而 A 仍 requires B 的组合现在以 `E_STRUCTURE_INVALID` 拒绝。
+- README 导航也由同一 projected final model 生成；observation 只保存当前机器受管导航区，projection 返回最终导航文本并决定 generated write set，seal 不再从 live `worktreeModel` 重算。新增/删除文档被判 insufficient、同批另有内容更新时，不会再把未进入 K1 的路径写进 README 或漏掉被保留路径。
+- CodeGraph 最终调用链复核确认：`projectReview()` 只有 generate/confirm/seal 的完整批次调用；seal 的 README、meta、candidate removal、temporary index、commit message 与结果 DTO 均消费同一 projection，不再从 `manifest.writeSet` 或 live `worktreeModel` 重新投影。
+- 验证：`npm run typecheck`、`npm run lint` exit 0；定向回归 4/4（K0 requires binding、mixed K1 structure、projected K1 navigation、既有 structure gate）通过；默认 `npm test` 为 12 files / 99 tests，加 seal smoke 1/1，exit 0。
+- 冻结代码后的最终 `npm run test:integration`：27/27 files、267/267 tests，Duration 1646.33s（tests 1636.32s），exit 0。新增的 mixed-snapshot structure、projected navigation 与 cwd-independent rebase 用例均在完整套件中通过。
+- 本轮未 stage/commit/reset/push；`.codegraph/` 由用户在复核期间启用并通过既有 `.gitignore` 工作树改动排除，未纳入产品 diff。

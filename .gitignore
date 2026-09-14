@@ -4,3 +4,4 @@ cli/dist/
 cli/coverage/
 cli/*.tgz
 *.tsbuildinfo
+.codegraph/

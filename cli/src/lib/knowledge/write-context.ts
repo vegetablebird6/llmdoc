@@ -153,7 +153,12 @@ export async function detectKnowledgeOperation(layout: GitRepoLayout): Promise<K
     }
   }
   for (const directory of ["rebase-merge", "rebase-apply"]) {
-    const present = await runGit(layout, ["rev-parse", "--git-path", directory], { allowMissing: true });
+    // `--path-format=absolute` keeps linked-worktree/common-dir semantics and prevents a
+    // relative Git answer from being resolved against the Node process cwd instead of the
+    // knowledge worktree.
+    const present = await runGit(layout, ["rev-parse", "--path-format=absolute", "--git-path", directory], {
+      allowMissing: true
+    });
     if (present !== null && present.length > 0) {
       if (existsSync(present)) {
         return "rebase";

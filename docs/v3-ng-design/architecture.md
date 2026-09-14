@@ -148,7 +148,40 @@ init/update/prune 是工作流入口；实际编排可由现有 skill 完成，�
 
 Review Manifest 存在知识仓可重建缓存中，不提交 Git。包含 schema、随机 reviewId、repositoryId、精确绑定、sourceRevision S、knowledgeBaseRevision K0、每篇文档 ID/digest/旧新 source scope/结论、旧 validatedRequires 与候选依赖 digest，以及完整写集（含删除、晋升和关系修改）。旧证据来自 K0 的 meta，commit 不信任 manifest 自行改写旧证据；新证据由已审查候选计算。review 先准备 manifest；Agent 显式确认每项语义结论后才可消费，人对结果的纠正重新进入 Agent 流程。任何编辑发生在确认之后，都必须重新 review；CLI 不因生成 manifest 自动认定语义成立。
 
-seal 重算文档和依赖 digest、scope、写集，确认与 manifest 完全一致，并要求知识 HEAD=K0、source HEAD=S 且 clean；不一致报 `E_REVIEW_INVALIDATED`。manifest 不允许新增未审查路径；meta-only 也需绑定已复核的文档 digest。成功后标记消费；即使消费标记丢失，K0 的 CAS 也阻止重复发布。manifest 是 Agent 维护流程使用的本地验证声明；人工审阅其结论并将纠正反馈给 Agent，它不是对恶意篡改的认证机制。
+Review 的最终状态必须按完整批次投影，不能为单篇文档重新推导依赖。职责固定为四层：
+
+1. `KnowledgeWriteContext` 只提供受控文件系统与 Git I/O。
+2. `observeReview(context): ReviewObservation` 一次读取当前知识状态，产出投影所需的最小数据：review 文档、全部正式文档 digest、K0/worktree 的不可执行 raw document snapshot、待移除 candidate ID，以及 README 当前的机器受管导航区。它不携带能力更宽的 `KnowledgeModel`，不携带 README 人工区或 inbox candidate 正文。
+3. `projectReview(observation, conclusions, global): ReviewProjection` 是无 I/O 的纯函数，按 conclusions 选择实际 K1 文档版本并复用 canonical model builder，一次计算整批 resolved conclusions、最终结构模型、`finalDigests`、最终 `candidateRequires`、导航文本和 `writeSet`。`finalDigests` 与中间模型只供投影内部使用；依赖绑定、导航与写集必须消费同一次计算结果，低层 helper 不得各自重算。
+4. manifest 与发布物 materialization 只消费 projection，不重新实现 projection 规则；`buildNextMeta()` 不得再次计算 candidate requires，README 不得从 live `worktreeModel` 重新渲染。
+
+`ReviewObservation` 中的 map/array 以只读类型暴露并由 observation 层复制；这里的目标是避免修改 Context 自有状态，不要求运行时 deep-freeze。README 只观察机器受管导航区：projection 将它与最终结构模型渲染出的导航比较；完整 README 字节仍只在发布阶段观察并由 CAS 保护。不能预先保存“worktree 导航是否变化”的单一布尔值，因为 insufficient conclusions 会使最终 K1 模型不同于 worktree。candidate 投影只需要被移除的 ID，不读取其正文。
+
+`ReviewProjection.documents` 中 conclusion 必须非空。生成 manifest 时，用 proposed conclusions 做 provisional projection，再把持久化文档的 conclusion 清为 `null`；确认时先重建并比较 provisional projection，确认输入成立后才用用户结论生成 confirmed projection 并持久化非空 conclusion。这样 provisional 与 confirmed 状态共享一套投影规则，但不混淆生命周期。
+
+确认流程按以下顺序执行：
+
+1. 对当前 worktree 重新 observation，并按唯一文档 ID 比较 review 时观察到的文档语义。标量 `action`、digest、source revision、proposed conclusion 精确相等；`oldScope/newScope/removedScope/reasons` 按集合相等；`oldValidatedRequires` 按 ID 到 digest 的映射相等。
+2. 用 proposed conclusions 计算新的 provisional projection，只比较 projection 输出：每篇文档的 `candidateRequires` 按 ID 到 digest 的映射相等；`writeSet` 的五个数组按集合相等，`meta` 按标量相等。不比较 conclusion，因为未确认 manifest 的 conclusion 必须为 `null`。
+3. 上述比较通过后，才应用用户 conclusions 生成 confirmed projection。按 conclusion 从 K0 或 worktree 选取实际会进入 K1 的文档版本，并用现有 canonical model validator 检查这一混合快照；即使 K0 与 worktree 各自合法，混合后出现缺失链接/关系、目标类型错误或环也必须拒绝。通过后才写入非空 conclusion、confirmed candidate requires 与 confirmed write set。这是需要 repository observation 的 projection 校验，不进入 manifest validator。
+
+这使 worktree 文档、requires 拓扑、candidate/inbox 和 README 导航在 generate 与 confirm 之间的漂移立即返回 `E_REVIEW_INVALIDATED`，而不是拖到 seal 才发现。comparator 只有在 validator 已拒绝重复项之后才能构造 Set/Map；不得用 `new Set()`/`new Map()` 静默正规化不可信输入。
+
+manifest validator 只回答“该 JSON 是否可能表示合法协议状态”，检查类型、规范路径、唯一性和只依赖 manifest 自身的局部跨字段约束；任何需要重新观察仓库、判断 conclusion 应产生何种写集或 README 是否应生成的规则，必须留给 projection 与 comparator。validator 不 canonicalize 非规范输入，以下情况直接报 `E_REVIEW_INVALID`：
+
+- `documents[].id` 重复，或单篇 `candidateRequires[].id` 重复；
+- `oldScope/newScope/removedScope/reasons` 内部重复；
+- `writeSet.documents/refresh/deletions/candidates/generated` 各自内部重复；
+- `documents/refresh/deletions` 彼此相交，或三者包含 manifest 未声明的文档 ID；`insufficient` 文档不进入写集，因此不要求反向集合相等；
+- `generated` 含 `.llmdoc/meta.json`、`README.md` 之外的路径；
+- `meta=false` 但 `generated` 非空，`meta=true` 但缺少 `.llmdoc/meta.json`，或 `README.md` 出现而 `meta=false`。合法生成集合只有空集、仅 meta、meta 加 README，顺序没有协议语义；
+- unconfirmed manifest 的 `confirmedAt` 或任一 conclusion 非空；confirmed manifest 的 `confirmedAt` 或任一 conclusion 为空；
+- unconsumed manifest 的 `consumedAt/knowledgeRevision` 非空，或 consumed manifest 未 confirmed、缺 `consumedAt`/`knowledgeRevision`；
+- `llmdoc.review/v1` 的 `global !== advanceGlobalReview`。
+
+`global` 是用户领域概念；`advanceGlobalReview` 只是实现效果。为保持明确的 schema 版本语义，v1 暂保留两个字段并要求相等；后续 `llmdoc.review/v2` 只保留 `global`。不得在仍写 v1 的同时偷偷删字段或兼容归一化两种形态；若确认无需保留任何 v1 manifest，则只能以显式 breaking change 直接升 v2。
+
+seal 在开始和发布前 CAS 两个检查点都重新执行完整批次的 observation、confirmed projection、最终混合快照结构校验与 projection comparison，要求知识 HEAD=K0、source HEAD=S 且 clean；任何观察漂移报 `E_REVIEW_INVALIDATED`，任何不可能形成合法 K1 的 conclusion 组合报 `E_STRUCTURE_INVALID`。不得保留单文档 `currentCandidateRequires()` 一类重算入口。manifest 不允许新增未审查路径；meta-only 也需绑定已复核的文档 digest。成功后标记消费；即使消费标记丢失，K0 的 CAS 也阻止重复发布。manifest 是 Agent 维护流程使用的本地验证声明；人工审阅其结论并将纠正反馈给 Agent，它不是对恶意篡改的认证机制。
 
 结构错误建议退出码 2；状态阻断 3；事务/IO 错误 70；成功 0。JSON 错误统一含 code、message、paths 和 remediation；最终输出 schema 与 CLI 实现同步评审。
 
@@ -160,11 +193,11 @@ Agent 的受控写会话在编辑前获取锁，持有到 commit 或 abort。人
 
 Seal 步骤：
 
-1. 获取知识锁，检查精确绑定、source 有效 HEAD=S 且全仓 clean；检查目标知识分支 HEAD=manifest.K0。首版要求知识仓已有初始 commit 且处于分支上，无 merge/rebase 或未解决冲突；init 负责建立初始知识 commit。
-2. 检查 manifest 已确认，重算文档、依赖 digest、旧新 scope 和四项验证证据；校验完整写集。真实 index 必须与 K0 一致；记录 index 和生成文件的观察值。
+1. 获取知识锁，检查精确绑定、source 有效 HEAD=S 且全仓 clean；检查目标知识分支 HEAD=manifest.K0。首版要求知识仓已有初始 commit 且处于分支上，无 merge/rebase 或未解决冲突；init 负责建立初始知识 commit。所有 Git 路径探测必须由显式 Context 解析为绝对路径，例如 rebase 状态目录使用 `git rev-parse --path-format=absolute --git-path <directory>`；不得让 Git 返回的相对路径落回 Node 进程 cwd。
+2. 检查 manifest 已确认，对当前 worktree 建立完整 `ReviewObservation`，用 confirmed conclusions 做一次整批 `ReviewProjection`，比较文档语义、候选依赖和完整写集。真实 index 必须与 K0 一致；记录 index 和生成文件的观察值。
 3. 创建仅本次调用使用的临时 `GIT_INDEX_FILE`，通过 `read-tree K0` 初始化。将已审查的规范化文档 blob、新 meta、导航及删除/晋升路径写入临时 index；所有未选路径沿用 K0。
 4. 使用 `write-tree` 得到 tree，`commit-tree` 以 K0 为父创建 K1；写入 source revision、verified scope 和 reviewId trailer。这些命令不运行普通 commit hooks，不调用签名或其他外部辅助程序。
-5. 发布前再次检查 source HEAD=S 且全仓 clean、文档内容仍匹配、知识目标分支及 HEAD 绑定未变。取得真实 index 的标准 index.lock 并复核其未漂移且仍匹配 K0，持有到 index 同步完成，防止并发 git add 被覆盖。用 `update-ref <branch> K1 K0` CAS 发布；ref 更新显式禁用 reference-transaction 等 hooks。CAS 失败只留下未引用对象，不重置任何分支。
+5. 发布前再次检查 source HEAD=S 且全仓 clean、知识目标分支及 HEAD 绑定未变；重新 observation、整批 projection 和 comparison，不能复用初检的 repository observation，也不能退化成单文档重算。取得真实 index 的标准 index.lock 并复核其未漂移且仍匹配 K0，持有到 index 同步完成，防止并发 git add 被覆盖。用 `update-ref <branch> K1 K0` CAS 发布；ref 更新显式禁用 reference-transaction 等 hooks。CAS 失败只留下未引用对象，不重置任何分支。
 6. 发布成功后以已构建的 K1 index 原子替换真实 index，仅同步 index，不使用会覆盖整个工作树的 reset/checkout。对 llmdoc 生成的 meta 和 README 导航，仅在文件仍等于 seal 前观察值时条件更新（不存在也是观察值），否则保留外部修改并报告未同步路径。README 保留人工区；原本有未纳入写集的 meta/导航编辑时预检拒绝覆盖。
 7. 返回 K1/S 与同步结果，标记 manifest 已消费，清理临时资源并释放锁。正常无并发时已 seal 的文档、meta、导航 clean，范围外未提交草稿仍 dirty。
 

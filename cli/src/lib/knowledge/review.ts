@@ -3,9 +3,9 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { KnowledgeError, runFileSystemIo } from "./errors.js";
-import { relationsFor, type KnowledgeModel } from "./knowledge-model.js";
+import { buildKnowledgeModelFromRaw, relationsFor, type KnowledgeModel, type KnowledgeRawEntry } from "./knowledge-model.js";
 import { isInboxCandidateId, listWorktreeInboxIds } from "./inbox.js";
-import { navigationChanged } from "./navigation.js";
+import { readNavigationRegion, readReadme, renderNavigation } from "./navigation.js";
 import type { KnowledgeSnapshot } from "./read.js";
 import type { KnowledgeMeta, ValidatedEvidence } from "./meta.js";
 import { canonicalizeSourcePath, type KnowledgeDocument } from "./document.js";
@@ -41,7 +41,8 @@ export interface ReviewRequireBinding {
   digest: string;
 }
 
-export interface ReviewDocumentItem {
+/** The minimal per-document facts a full-batch projection needs; no candidate requires yet. */
+export interface ReviewObservedDocument {
   id: string;
   action: ReviewAction;
   oldDigest: string | null;
@@ -51,10 +52,44 @@ export interface ReviewDocumentItem {
   newScope: string[];
   removedScope: string[];
   oldValidatedRequires: Record<string, string>;
-  candidateRequires: ReviewRequireBinding[];
   reasons: string[];
   proposedConclusion: ReviewConclusion;
+}
+
+export interface ReviewDocumentItem extends ReviewObservedDocument {
+  candidateRequires: ReviewRequireBinding[];
   conclusion: ReviewConclusion | null;
+}
+
+/**
+ * One read of the current knowledge state, carrying only what projection needs. The maps
+ * are freshly built here and exposed through read-only types, so projection cannot mutate
+ * context-owned state; no README or inbox candidate body content enters the projection.
+ */
+export interface ReviewObservation {
+  documents: readonly ReviewObservedDocument[];
+  docsRoot: string;
+  /** Candidate digest of every formal worktree document, keyed by id. */
+  worktreeDigests: ReadonlyMap<string, string>;
+  /** Immutable-by-convention raw snapshots used to select and validate the exact K1 tree. */
+  k0Documents: readonly KnowledgeRawEntry[];
+  worktreeDocuments: readonly KnowledgeRawEntry[];
+  /** Committed inbox candidates consumed by this batch (promotion or rejection). */
+  removedCandidates: readonly string[];
+  /** Only the machine-managed README region; human-owned bytes stay outside projection. */
+  navigationRegion: string | null;
+}
+
+export interface ReviewProjectedDocument extends ReviewObservedDocument {
+  conclusion: ReviewConclusion;
+  candidateRequires: ReviewRequireBinding[];
+}
+
+/** The final full-batch projection shared by manifests and publication materialization. */
+export interface ReviewProjection {
+  documents: ReviewProjectedDocument[];
+  writeSet: ReviewWriteSet;
+  renderedNavigation: string;
 }
 
 export interface ReviewWriteSet {
@@ -121,10 +156,9 @@ export function buildReviewManifest(context: KnowledgeWriteContext, options: Bui
       paths: [context.source.worktreeRoot, context.knowledge.worktreeRoot]
     });
   }
-  const items = buildReviewItems(context, {});
-  const conclusions = new Map(items.map((item) => [item.id, item.proposedConclusion]));
-  const withRequires = attachCandidateRequires(context, items, conclusions);
-  const writeSet = deriveWriteSet(withRequires, conclusions, options.global === true, context);
+  const observation = observeReview(context);
+  const proposed = new Map(observation.documents.map((item) => [item.id, item.proposedConclusion]));
+  const projection = projectReview(observation, proposed, options.global === true);
   return {
     schema: REVIEW_SCHEMA,
     reviewId: generateReviewId(),
@@ -137,8 +171,10 @@ export function buildReviewManifest(context: KnowledgeWriteContext, options: Bui
     global: options.global === true,
     advanceGlobalReview: options.global === true,
     notes: [],
-    documents: withRequires,
-    writeSet,
+    // The provisional projection drives the stored candidate requires and write set, but an
+    // unconfirmed manifest never persists a semantic conclusion.
+    documents: projection.documents.map((item) => ({ ...item, conclusion: null })),
+    writeSet: projection.writeSet,
     confirmed: false,
     confirmedAt: null,
     consumed: false,
@@ -295,76 +331,146 @@ function isCandidate(action: ReviewAction, oldDigest: string | null, candidateDi
 }
 
 /**
- * Fills each item's `candidateRequires` with the final digest of every direct requires
- * target under the given conclusions. A target sealed as `changed` binds its candidate
- * digest; every other target binds its K0 (committed) digest.
+ * Reads the current knowledge state once and returns only the facts a full-batch projection
+ * needs. The maps are freshly built here and exposed through read-only types so projection
+ * cannot mutate context-owned state.
  */
-export function attachCandidateRequires(
-  context: KnowledgeWriteContext,
-  items: ReviewDocumentItem[],
-  conclusions: Map<string, ReviewConclusion>
-): ReviewDocumentItem[] {
-  const finalDigest = computeFinalDigests(context, items, conclusions);
-  return items.map((item) => {
-    const document = context.worktreeModel.byId.get(item.id);
-    if (document === undefined) {
-      return { ...item, candidateRequires: [] };
-    }
-    const requires = relationsFor(context.worktreeModel, item.id).requires;
+export function observeReview(context: KnowledgeWriteContext): ReviewObservation {
+  const documents: ReviewObservedDocument[] = buildReviewItems(context, {}).map((item) => ({
+    id: item.id,
+    action: item.action,
+    oldDigest: item.oldDigest,
+    candidateDigest: item.candidateDigest,
+    oldSourceRevision: item.oldSourceRevision,
+    oldScope: [...item.oldScope],
+    newScope: [...item.newScope],
+    removedScope: [...item.removedScope],
+    oldValidatedRequires: { ...item.oldValidatedRequires },
+    reasons: [...item.reasons],
+    proposedConclusion: item.proposedConclusion
+  }));
+  const worktreeDigests = new Map<string, string>();
+  for (const document of context.worktreeModel.documents) {
+    worktreeDigests.set(document.id, document.contentDigest);
+  }
+  const readme = readReadme(context.knowledge.worktreeRoot);
+  return {
+    documents,
+    docsRoot: context.knowledge.docsRoot,
+    worktreeDigests,
+    k0Documents: context.k0.entries.map((entry) => ({ ...entry })),
+    worktreeDocuments: context.worktree.entries.map((entry) => ({ ...entry })),
+    removedCandidates: computeRemovedCandidates(context),
+    navigationRegion: readNavigationRegion(readme ?? "")
+  };
+}
+
+/**
+ * Pure, I/O-free full-batch projection. One `finalDigests` calculation feeds both the
+ * candidate requires bindings and the write set, so a per-document helper can never
+ * recompute a different answer than the batch it was confirmed in.
+ */
+export function projectReview(
+  observation: ReviewObservation,
+  conclusions: ReadonlyMap<string, ReviewConclusion>,
+  global: boolean
+): ReviewProjection {
+  const finalDigests = computeFinalDigests(observation, conclusions);
+  const documents = observation.documents.map((item): ReviewProjectedDocument => ({
+    ...item,
+    conclusion: conclusions.get(item.id) ?? item.proposedConclusion,
+    candidateRequires: []
+  }));
+  const finalModel = buildProjectedKnowledgeModel(observation, documents);
+  for (const item of documents) {
     const candidateRequires: ReviewRequireBinding[] = [];
-    for (const target of requires) {
-      const digest = finalDigest.get(target);
+    for (const target of relationsFor(finalModel, item.id).requires) {
+      const digest = finalDigests.get(target);
       if (digest !== undefined && digest !== null) {
         candidateRequires.push({ id: target, digest });
       }
     }
-    return { ...item, candidateRequires };
-  });
+    item.candidateRequires = candidateRequires;
+  }
+  const renderedNavigation = renderNavigation(finalModel);
+  const writeSet = deriveWriteSet(
+    documents,
+    observation,
+    global,
+    observation.navigationRegion !== renderedNavigation
+  );
+  return { documents, writeSet, renderedNavigation };
 }
 
-export function computeFinalDigests(
-  context: KnowledgeWriteContext,
-  items: ReviewDocumentItem[],
-  conclusions: Map<string, ReviewConclusion>
-): Map<string, string | null> {
-  const byId = new Map(items.map((item) => [item.id, item]));
-  const finalDigest = new Map<string, string | null>();
-  for (const document of context.worktreeModel.documents) {
-    finalDigest.set(document.id, document.contentDigest);
+function buildProjectedKnowledgeModel(
+  observation: ReviewObservation,
+  documents: readonly ReviewProjectedDocument[]
+): KnowledgeModel {
+  const projectedById = new Map(documents.map((item) => [item.id, item]));
+  const k0ById = new Map(observation.k0Documents.map((entry) => [entry.id, entry]));
+  const worktreeById = new Map(observation.worktreeDocuments.map((entry) => [entry.id, entry]));
+  const ids = new Set([...k0ById.keys(), ...worktreeById.keys()]);
+  const entries: KnowledgeRawEntry[] = [];
+  for (const id of [...ids].sort()) {
+    const item = projectedById.get(id);
+    const entry =
+      item?.conclusion === "insufficient"
+        ? k0ById.get(id)
+        : item?.action === "delete"
+          ? undefined
+          : worktreeById.get(id);
+    if (entry !== undefined) {
+      entries.push(entry);
+    }
   }
-  for (const item of items) {
+  const model = buildKnowledgeModelFromRaw(entries, observation.docsRoot);
+  const errors = model.issues.filter((issue) => issue.severity === "error");
+  if (errors.length > 0) {
+    const codes = [...new Set(errors.map((issue) => issue.code))];
+    throw new KnowledgeError(
+      "E_STRUCTURE_INVALID",
+      `The review conclusions would publish structurally invalid knowledge: ${codes.join(", ")}`,
+      {
+        exitCode: 2,
+        paths: [...new Set(errors.map((issue) => issue.path))],
+        remediation: "Change the review conclusions so the final document set has no missing links, invalid relations or cycles."
+      }
+    );
+  }
+  return model;
+}
+
+function computeFinalDigests(
+  observation: ReviewObservation,
+  conclusions: ReadonlyMap<string, ReviewConclusion>
+): Map<string, string | null> {
+  const finalDigests = new Map<string, string | null>(observation.worktreeDigests);
+  for (const item of observation.documents) {
     const conclusion = conclusions.get(item.id) ?? item.proposedConclusion;
     if (conclusion === "insufficient" || item.action === "refresh") {
       // Not advanced, or the body is byte-identical to K0: the committed digest stays K0's.
-      finalDigest.set(item.id, item.oldDigest);
+      finalDigests.set(item.id, item.oldDigest);
     } else if (item.action === "delete") {
-      finalDigest.set(item.id, null);
+      finalDigests.set(item.id, null);
     } else {
       // add/update: the candidate bytes are physically written to K1.
-      finalDigest.set(item.id, item.candidateDigest);
+      finalDigests.set(item.id, item.candidateDigest);
     }
   }
-  // Documents present only in K0 and deleted are no longer addressable as targets.
-  for (const id of context.k0Model.byId.keys()) {
-    if (!byId.has(id) && !context.worktreeModel.byId.has(id)) {
-      finalDigest.set(id, null);
-    }
-  }
-  return finalDigest;
+  return finalDigests;
 }
 
-export function deriveWriteSet(
-  items: ReviewDocumentItem[],
-  conclusions: Map<string, ReviewConclusion>,
-  advanceGlobalReview: boolean,
-  context?: KnowledgeWriteContext
+function deriveWriteSet(
+  documents: readonly ReviewProjectedDocument[],
+  observation: ReviewObservation,
+  global: boolean,
+  navigationChanged: boolean
 ): ReviewWriteSet {
-  const documents: string[] = [];
+  const written: string[] = [];
   const refresh: string[] = [];
   const deletions: string[] = [];
-  for (const item of items) {
-    const conclusion = conclusions.get(item.id) ?? item.proposedConclusion;
-    if (conclusion === "insufficient") {
+  for (const item of documents) {
+    if (item.conclusion === "insufficient") {
       continue;
     }
     // The physical write set is determined by the candidate's byte/path action relative
@@ -373,17 +479,17 @@ export function deriveWriteSet(
     if (item.action === "delete") {
       deletions.push(item.id);
     } else if (item.action === "add" || item.action === "update") {
-      documents.push(item.id);
+      written.push(item.id);
     } else {
       refresh.push(item.id);
     }
   }
-  const candidates = context ? computeRemovedCandidates(context) : [];
+  const candidates = [...observation.removedCandidates];
   // Navigation is only regenerated when the document set or bytes actually change; a
   // pure meta-only refresh or a global-review advance must not fabricate a README commit.
-  const contentChange = documents.length + deletions.length + candidates.length > 0;
-  const navigation = contentChange && context ? navigationChanged(context) : false;
-  const meta = documents.length + refresh.length + deletions.length + candidates.length > 0 || advanceGlobalReview;
+  const contentChange = written.length + deletions.length + candidates.length > 0;
+  const navigation = contentChange && navigationChanged;
+  const meta = written.length + refresh.length + deletions.length + candidates.length > 0 || global;
   const generated: string[] = [];
   if (meta) {
     generated.push(".llmdoc/meta.json");
@@ -392,7 +498,7 @@ export function deriveWriteSet(
     generated.push("README.md");
   }
   return {
-    documents: documents.sort(),
+    documents: written.sort(),
     refresh: refresh.sort(),
     deletions: deletions.sort(),
     candidates: candidates.sort(),
@@ -505,7 +611,43 @@ export function validateReviewManifest(parsed: unknown, label: string): ReviewMa
     throw invalidManifest("documents must be an array", label);
   }
   const documents = record.documents.map((item, index) => validateManifestItem(item, `${label}#documents[${index}]`));
-  const writeSet = validateWriteSet(record.writeSet, label);
+  assertUnique(
+    documents.map((item) => item.id),
+    "document ids must be unique",
+    label
+  );
+  const confirmed = record.confirmed as boolean;
+  const confirmedAt = (record.confirmedAt as string | null) ?? null;
+  const consumed = record.consumed as boolean;
+  const consumedAt = (record.consumedAt as string | null) ?? null;
+  const knowledgeRevision = (record.knowledgeRevision as string | null) ?? null;
+  for (const item of documents) {
+    if (confirmed && item.conclusion === null) {
+      throw invalidManifest("confirmed manifests must record a conclusion for every document", label);
+    }
+    if (!confirmed && item.conclusion !== null) {
+      throw invalidManifest("unconfirmed manifests must not record conclusions", label);
+    }
+  }
+  if (confirmed && confirmedAt === null) {
+    throw invalidManifest("confirmed manifests must record confirmedAt", label);
+  }
+  if (!confirmed && confirmedAt !== null) {
+    throw invalidManifest("unconfirmed manifests must not record confirmedAt", label);
+  }
+  if (consumed && !confirmed) {
+    throw invalidManifest("consumed manifests must be confirmed", label);
+  }
+  if (consumed && (consumedAt === null || knowledgeRevision === null)) {
+    throw invalidManifest("consumed manifests must record consumedAt and knowledgeRevision", label);
+  }
+  if (!consumed && (consumedAt !== null || knowledgeRevision !== null)) {
+    throw invalidManifest("unconsumed manifests must not record consumedAt or knowledgeRevision", label);
+  }
+  if (record.global !== record.advanceGlobalReview) {
+    throw invalidManifest(`llmdoc.review/v1 requires global and advanceGlobalReview to be equal`, label);
+  }
+  const writeSet = validateWriteSet(record.writeSet, label, new Set(documents.map((item) => item.id)));
   return {
     schema: REVIEW_SCHEMA,
     reviewId: record.reviewId,
@@ -520,11 +662,11 @@ export function validateReviewManifest(parsed: unknown, label: string): ReviewMa
     notes: [...(record.notes as string[])],
     documents,
     writeSet,
-    confirmed: record.confirmed as boolean,
-    confirmedAt: (record.confirmedAt as string | null) ?? null,
-    consumed: record.consumed as boolean,
-    consumedAt: (record.consumedAt as string | null) ?? null,
-    knowledgeRevision: (record.knowledgeRevision as string | null) ?? null
+    confirmed,
+    confirmedAt,
+    consumed,
+    consumedAt,
+    knowledgeRevision
   };
 }
 
@@ -551,11 +693,20 @@ function validateManifestItem(input: unknown, label: string): ReviewDocumentItem
   const oldScope = validateScopeArray(item.oldScope, `${label}.oldScope`);
   const newScope = validateScopeArray(item.newScope, `${label}.newScope`);
   const removedScope = validateScopeArray(item.removedScope, `${label}.removedScope`);
+  assertUnique(oldScope, "oldScope entries must be unique", label);
+  assertUnique(newScope, "newScope entries must be unique", label);
+  assertUnique(removedScope, "removedScope entries must be unique", label);
   const oldValidatedRequires = validateRequiresRecord(item.oldValidatedRequires, `${label}.oldValidatedRequires`);
   const candidateRequires = validateCandidateRequires(item.candidateRequires, `${label}.candidateRequires`);
+  assertUnique(
+    candidateRequires.map((binding) => binding.id),
+    "candidateRequires ids must be unique",
+    label
+  );
   if (!isStringArray(item.reasons)) {
     throw invalidManifest("reasons must be a string array", label);
   }
+  assertUnique(item.reasons as string[], "reasons must be unique", label);
   if (!CONCLUSIONS.includes(item.proposedConclusion as ReviewConclusion)) {
     throw invalidManifest("proposedConclusion must be changed | unchanged | insufficient", label);
   }
@@ -579,7 +730,7 @@ function validateManifestItem(input: unknown, label: string): ReviewDocumentItem
   };
 }
 
-function validateWriteSet(input: unknown, label: string): ReviewWriteSet {
+function validateWriteSet(input: unknown, label: string, declaredDocumentIds: ReadonlySet<string>): ReviewWriteSet {
   if (input === null || typeof input !== "object" || Array.isArray(input)) {
     throw invalidManifest("writeSet must be a mapping", label);
   }
@@ -588,13 +739,53 @@ function validateWriteSet(input: unknown, label: string): ReviewWriteSet {
   const refresh = validateDocIdArray(record.refresh, `${label}.writeSet.refresh`);
   const deletions = validateDocIdArray(record.deletions, `${label}.writeSet.deletions`);
   const candidates = validateCandidateIdArray(record.candidates, `${label}.writeSet.candidates`);
+  assertUnique(documents, "writeSet.documents must not contain duplicates", label);
+  assertUnique(refresh, "writeSet.refresh must not contain duplicates", label);
+  assertUnique(deletions, "writeSet.deletions must not contain duplicates", label);
+  assertUnique(candidates, "writeSet.candidates must not contain duplicates", label);
+  const written = new Set(documents);
+  for (const id of refresh) {
+    if (written.has(id)) {
+      throw invalidManifest("writeSet.documents and writeSet.refresh must be disjoint", label);
+    }
+  }
+  const refreshed = new Set(refresh);
+  for (const id of deletions) {
+    if (written.has(id) || refreshed.has(id)) {
+      throw invalidManifest("writeSet.deletions must be disjoint from the other document lists", label);
+    }
+  }
+  for (const id of [...documents, ...refresh, ...deletions]) {
+    if (!declaredDocumentIds.has(id)) {
+      throw invalidManifest(`write set references an undeclared document id: ${id}`, label);
+    }
+  }
   if (typeof record.meta !== "boolean") {
     throw invalidManifest("writeSet.meta must be a boolean", label);
   }
   if (!Array.isArray(record.generated) || record.generated.some((entry) => !isSafeRelativePath(entry))) {
     throw invalidManifest("writeSet.generated must be an array of safe repository-relative paths", label);
   }
-  return { documents, refresh, deletions, candidates, meta: record.meta, generated: [...(record.generated as string[])] };
+  const generated = [...(record.generated as string[])];
+  assertUnique(generated, "writeSet.generated must not contain duplicates", label);
+  for (const entry of generated) {
+    if (entry !== ".llmdoc/meta.json" && entry !== "README.md") {
+      throw invalidManifest("writeSet.generated may only contain .llmdoc/meta.json and README.md", label);
+    }
+  }
+  if (!record.meta && generated.length > 0) {
+    throw invalidManifest("writeSet.meta=false forbids generated files", label);
+  }
+  if (record.meta && !generated.includes(".llmdoc/meta.json")) {
+    throw invalidManifest("writeSet.meta=true requires .llmdoc/meta.json in generated", label);
+  }
+  return { documents, refresh, deletions, candidates, meta: record.meta, generated };
+}
+
+function assertUnique(values: readonly string[], message: string, label: string): void {
+  if (new Set(values).size !== values.length) {
+    throw invalidManifest(message, label);
+  }
 }
 
 function validateCandidateIdArray(input: unknown, label: string): string[] {
@@ -693,6 +884,105 @@ function invalidManifest(message: string, label: string): KnowledgeError {
   });
 }
 
+/**
+ * Compares a fresh observation against the stored manifest documents by unique document id.
+ * Both directions are exact: a candidate that appeared or disappeared since the manifest was
+ * generated invalidates it. Set-valued fields compare as sets and requires evidence as an
+ * id→digest map. The manifest must have passed the validator, so duplicate entries cannot
+ * silently normalize here.
+ */
+export function assertReviewObservationMatches(observation: ReviewObservation, manifest: ReviewManifest): void {
+  const observedById = new Map(observation.documents.map((item) => [item.id, item]));
+  const manifestById = new Map(manifest.documents.map((item) => [item.id, item]));
+  for (const item of observation.documents) {
+    if (!manifestById.has(item.id)) {
+      throw invalidated(`Unreviewed knowledge content appeared after the review: ${item.id}`, [item.id]);
+    }
+  }
+  for (const item of manifest.documents) {
+    const current = observedById.get(item.id);
+    if (current === undefined) {
+      throw invalidated(`Reviewed document no longer matches the review candidate set: ${item.id}`, [item.id]);
+    }
+    if (
+      current.action !== item.action ||
+      current.oldDigest !== item.oldDigest ||
+      current.candidateDigest !== item.candidateDigest ||
+      current.oldSourceRevision !== item.oldSourceRevision ||
+      current.proposedConclusion !== item.proposedConclusion ||
+      !sameStringSet(current.oldScope, item.oldScope) ||
+      !sameStringSet(current.newScope, item.newScope) ||
+      !sameStringSet(current.removedScope, item.removedScope) ||
+      !sameStringSet(current.reasons, item.reasons) ||
+      !sameDigestMap(current.oldValidatedRequires, item.oldValidatedRequires)
+    ) {
+      throw invalidated(`Reviewed document drifted after confirmation: ${item.id}`, [item.id]);
+    }
+  }
+}
+
+/**
+ * Compares a projected batch (candidate requires + write set) against the manifest.
+ * Ordering carries no protocol meaning: arrays compare as sets and bindings as id→digest
+ * maps, so only real membership, digest, reason or scalar changes invalidate.
+ */
+export function assertReviewProjectionMatches(projection: ReviewProjection, manifest: ReviewManifest): void {
+  const manifestById = new Map(manifest.documents.map((item) => [item.id, item]));
+  for (const item of projection.documents) {
+    const stored = manifestById.get(item.id);
+    if (stored === undefined) {
+      throw invalidated(`Projected document is missing from the manifest: ${item.id}`, [item.id]);
+    }
+    if (!sameDigestMap(bindingDigests(item.candidateRequires), bindingDigests(stored.candidateRequires))) {
+      throw invalidated(`Dependency digests drifted for ${item.id}`, [item.id]);
+    }
+  }
+  const projected = projection.writeSet;
+  const stored = manifest.writeSet;
+  if (
+    projected.meta !== stored.meta ||
+    !sameStringSet(projected.documents, stored.documents) ||
+    !sameStringSet(projected.refresh, stored.refresh) ||
+    !sameStringSet(projected.deletions, stored.deletions) ||
+    !sameStringSet(projected.candidates, stored.candidates) ||
+    !sameStringSet(projected.generated, stored.generated)
+  ) {
+    throw invalidated("The review write set drifted after confirmation", stored.documents);
+  }
+}
+
+function bindingDigests(bindings: readonly ReviewRequireBinding[]): Record<string, string> {
+  const digests: Record<string, string> = {};
+  for (const binding of bindings) {
+    digests[binding.id] = binding.digest;
+  }
+  return digests;
+}
+
+function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  const values = new Set(left);
+  return right.every((entry) => values.has(entry));
+}
+
+function sameDigestMap(left: Record<string, string>, right: Record<string, string>): boolean {
+  const leftKeys = Object.keys(left);
+  if (leftKeys.length !== Object.keys(right).length) {
+    return false;
+  }
+  return leftKeys.every((key) => right[key] === left[key]);
+}
+
+function invalidated(message: string, paths: string[]): KnowledgeError {
+  return new KnowledgeError("E_REVIEW_INVALIDATED", message, {
+    exitCode: 3,
+    paths,
+    remediation: "Re-run `llmdoc review` so the manifest matches the current knowledge and source state."
+  });
+}
+
 export interface ConfirmReviewOptions {
   overrides?: Record<string, ReviewConclusion>;
   now?: Date;
@@ -703,6 +993,9 @@ export function confirmReviewManifest(
   manifest: ReviewManifest,
   options: ConfirmReviewOptions = {}
 ): ReviewManifest {
+  // The comparator below indexes documents, requires and the write set, so the validator
+  // must reject duplicate or undeclared entries before any Set/Map is built from input.
+  validateReviewManifest(manifest, "(review manifest)");
   assertManifestMatchesContext(context, manifest);
   const overrides = options.overrides ?? {};
   for (const [id, conclusion] of Object.entries(overrides)) {
@@ -715,13 +1008,19 @@ export function confirmReviewManifest(
       throw new KnowledgeError("E_DOCUMENT_INVALID", `Cannot confirm ${id}: it is not a review candidate`, { paths: [id] });
     }
   }
-  const items = manifest.documents.map((item) => ({
-    ...item,
-    conclusion: overrides[item.id] ?? item.conclusion ?? item.proposedConclusion
-  }));
-  const conclusions = new Map(items.map((item) => [item.id, item.conclusion as ReviewConclusion]));
-  const withRequires = attachCandidateRequires(context, items, conclusions);
-  const writeSet = deriveWriteSet(withRequires, conclusions, manifest.advanceGlobalReview, context);
+  const observation = observeReview(context);
+  assertReviewObservationMatches(observation, manifest);
+  // An unconfirmed manifest stores the provisional projection; an already confirmed
+  // manifest stores its declared conclusions. Recompute exactly that state and compare
+  // before accepting any new user conclusions, so worktree/requires/inbox/README drift
+  // since generation is rejected at confirmation instead of at seal.
+  const previous = new Map(manifest.documents.map((item) => [item.id, item.conclusion ?? item.proposedConclusion]));
+  assertReviewProjectionMatches(projectReview(observation, previous, manifest.global), manifest);
+
+  const userConclusions = new Map(
+    manifest.documents.map((item) => [item.id, overrides[item.id] ?? item.conclusion ?? item.proposedConclusion])
+  );
+  const confirmedProjection = projectReview(observation, userConclusions, manifest.global);
   return {
     ...manifest,
     // Trust the freshly resolved binding/revisions, never the manifest cache values.
@@ -730,8 +1029,8 @@ export function confirmReviewManifest(
     knowledgeRoot: context.knowledge.worktreeRoot,
     sourceRevision: context.source.headRevision!,
     knowledgeBaseRevision: context.knowledgeHead!,
-    documents: withRequires,
-    writeSet,
+    documents: confirmedProjection.documents,
+    writeSet: confirmedProjection.writeSet,
     confirmed: true,
     confirmedAt: (options.now ?? new Date()).toISOString()
   };
