@@ -2419,3 +2419,10 @@ Linux 无本机环境时：以现有 `ubuntu-latest` CI（`npm ci` → typecheck
 - architecture 将“任意 README 导航漂移都会 invalidated”校准为“reviewed documents 或 behaviorally relevant projection 变化才 invalidated”；README 机器区字节变化若不改变 projected candidate requires/write set，不使 review 失效。
 - `assertReviewObservationMatches()` 重命名为 `assertReviewedDocumentsMatch()`，明确它只比较 manifest 中持久化的 reviewed-document semantics；完整检查顺序保持 `assertReviewedDocumentsMatch()` → `projectReview()` → `assertReviewProjectionMatches()`。
 - 无行为变化。`npm run typecheck`、`npm run lint`、architecture Markdown parse 均 exit 0；confirm/seal 两个调用面的 focused tests 2/2 通过，Duration 59.51s。
+
+## 3.6.1-ng 发布准备 — 2026-09-14
+
+- 版本边界：`v3.6.0-ng` 指向 2026-09-13 最后提交 `63b9261`；2026-09-14 的文档边界、review projection 与命名修正进入 `3.6.1-ng`。npm 已发布的 `3.6.0-ng` 保留，不 unpublish，也不尝试复用不可覆盖的 `name@version`。
+- 五个受 release gate 校验的版本面已统一为 `3.6.1-ng`：root package、CLI package、Claude plugin、Claude marketplace、Codex plugin；root/CLI lockfile 同步。
+- 首次误打在 HEAD 的 `v3.6.0-ng` workflow 在 publish 前失败，没有生成 npm 包或 GitHub Release。失败原因是 Ubuntu 执行了仅适用于 Windows 的大小写路径断言；该测试改用文件内已有 `itOnWindows`，产品代码不变。
+- 发布前验证：Codex surface、版本一致性、typecheck、lint、registry focused 8/8、默认 quick 12 files / 99 tests + seal smoke 1/1、`npm pack --dry-run` 均通过；tarball identity 为 `@vegetablebird6/llmdoc@3.6.1-ng`。

@@ -105,7 +105,7 @@ describe("registry document", () => {
     }
   });
 
-  it("matches bound paths case-insensitively on Windows", () => {
+  itOnWindows("matches bound paths case-insensitively on Windows", () => {
     const document = emptyRegistryDocument();
     insertBinding(document, {
       repositoryId: generateRepositoryId(),

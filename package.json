@@ -1,6 +1,6 @@
 {
   "name": "@vegetablebird6/llmdoc-repository",
-  "version": "3.6.0-ng",
+  "version": "3.6.1-ng",
   "private": true,
   "description": "Development workspace for the llmdoc dual-repository CLI and plugin surfaces",
   "scripts": {
