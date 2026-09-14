@@ -24,58 +24,53 @@ Agent 负责维护知识，人按需审阅结论，并将纠正反馈给 Agent�
 一个源码 worktree 通过用户级 registry 绑定到一个独立知识 worktree，默认外置存放。
 个人知识提交与业务代码协作分开管理。
 
-[设计原则](#设计原则) · [硬边界](#八条硬边界) · [安装](#安装) ·
+[设计原则](#设计原则) · [硬边界](#协议硬边界) · [安装](#安装) ·
 [日常使用](#日常使用) · [详细参考](#详细参考)
 
 ## 设计原则
 
+这些原则用于指导产品取舍：
+
 1. **事实与理解分离。** Source commit 是可追溯的事实基线；Knowledge commit 保存
    Agent 针对该事实基线形成并验证过的工程理解。源码回答“系统现在是什么”，llmdoc
    回答“为什么这样设计、哪些约束必须成立，以及未来修改时需要知道什么”。
-2. **只有一个持久写入边界。** Source Git 对 llmdoc 始终只读；llmdoc 不得修改、
-   stage 或 commit 业务仓。所有持久知识及其元数据只在独立的 Knowledge Git 中保存和
-   演进，且不得在 Knowledge Git 缺失时退回 Source Git。
-3. **只沉淀长期工程知识。** 只有同时具备未来决策价值、较高重建成本和跨多个 source
+2. **只沉淀长期工程知识。** 只有同时具备未来决策价值、较高重建成本和跨多个 source
    commit 稳定性的知识才进入正式知识库，包括架构意图、设计决策、约束、不变量、失败
    语义和跨模块契约。文件结构、符号关系、调用图等可从源码重新生成的信息属于索引或
    缓存，而不是持久知识。
-4. **源码变化只产生复核义务。** 代码变化意味着相关知识需要重新验证，而不意味着文档
+3. **源码变化只产生复核义务。** 代码变化意味着相关知识需要重新验证，而不意味着文档
    必须变化。语义复核可以得到三种结果：正文需要更新、正文不变但刷新验证基线，或确认
    变化与该知识无关。llmdoc 不根据代码 diff 自动生成知识变更日志。
-5. **知识有效性必须可验证。** 每份正式知识都应声明其 source scope、validated
+4. **知识有效性必须可验证。** 每份正式知识都应声明其 source scope、validated
    source revision 和必要的内容完整性信息，使 llmdoc 能明确区分 `current`、
    `needs_review`、`unverified` 三种状态。检索结果应同时返回知识内容和验证依据，
    而不是仅依赖文档更新时间判断可信度。
-6. **Agent 维护知识，人负责审阅结论。** 知识的发现、整理、修改、验证和 seal 由
+5. **Agent 维护知识，人负责审阅结论。** 知识的发现、整理、修改、验证和 seal 由
    Agent 驱动。人可以审阅 Agent 生成的结论并提出纠正、补充或质疑；这些反馈重新进入
    Agent 的知识更新流程，由 llmdoc 完成正式知识的修改和重新验证。人工审阅是可选的质量
    控制环节，而不是日常知识维护的前置条件。
-7. **知识与执行指令分离。** llmdoc 保存的是可阅读、可检索、可引用和可审计的
+6. **知识与执行指令分离。** llmdoc 保存的是可阅读、可检索、可引用和可审计的
    reference knowledge，不承担 rule、skill、prompt、hook 或其他执行指令的分发职责。
    知识内容不得依赖隐藏指令或运行时行为才能成立。
 
-## 八条硬边界
+## 协议硬边界
 
-1. **源码只读。** 知识工作流绝不修改源码仓库的文件、index、history 或配置。源码
-   开发是另一条工作流。
-2. **独立 Knowledge Git。** Knowledge Repository 必须是自己的 Git 仓库。默认外置；
-   嵌套独立 Git 仅在显式选择时支持。
-3. **禁止向上回退。** 持久知识写入绝不回退到 Source Git。没有绑定或没有独立 Git
-   时 CLI 明确失败。只读检索可以读取显式指定的无 Git 知识目录。
-4. **有效且 clean 的已提交 source 快照。** 只有 HEAD 有效且 worktree/index 全仓
-   clean 的 source commit 才算数。Source revision 是验证依据，Knowledge revision
-   是 Knowledge Git commit。
-5. **Review Manifest 搭配临时 index 与 CAS。** Review Manifest 绑定 source
+这些是强制执行的不变量：任一条件不成立时，受保护流程必须失败，不能猜测或降低协议要求。
+
+1. **Source Git 只读。** llmdoc 不得修改其文件、index、history 或配置。源码开发是
+   另一条工作流。
+2. **Knowledge Git 必须独立且禁止回退。** Knowledge Repository 必须是自己的 Git
+   仓库，默认外置，只有显式选择时才允许嵌套。缺少绑定或独立 Git 时持久写入必须失败；
+   只有显式只读检索可以使用无 Git 知识目录。
+3. **正式复核只接受有效且 clean 的已提交 source 快照。** 只有 HEAD 有效且
+   worktree/index 全仓 clean 的 source commit 才算数。Source revision 是验证依据，
+   Knowledge revision 是 Knowledge Git commit。
+4. **知识发布必须受保护且原子完成。** Review Manifest 绑定 source
    revision、内容 digest 与 scope。正文、关系与 meta 通过临时 index 和 ref 的
    compare-and-swap 一次发布；知识 index 不得有任何 staged 内容，成功后与
    llmdoc 自有生成文件一起同步。
-6. **Agent 负责语义维护。** 正式知识由 Agent 修改、验证和 seal；人审阅结论并把纠正
-   反馈给 Agent 流程。CLI 执行确定性的结构、范围与提交检查，`validate` 通过并不证明
-   知识正确。
-7. **可重建索引。** AST、符号与依赖图是可重建索引，不是可提交的代码百科。
-8. **使用可审阅的标准 Markdown。** Agent 通过受保护的验证与提交协议维护正式知识；
-   人审阅同一份纯 Markdown，并把纠正反馈给 Agent 流程。知识是 reference data，
-   不是可执行 rules/skills。
+5. **只有已提交的标准 Markdown 才是正式知识。** 正式文档只来自已提交的
+   `docs/**/*.md`；inbox 候选和可重建缓存不得进入正式知识面，也不得声称已验证状态。
 
 “唯一写入边界”指知识内容及其 Git。`bind` 可以写用户级 registry，临时文件和缓存
 写在知识目录或用户级缓存下。这些都是明确例外，且都不能写入源码仓库。嵌套模式只写
@@ -138,6 +133,26 @@ npx -y @vegetablebird6/llmdoc bind --source ./app --knowledge ../app-knowledge
 
 `init` 不覆盖非空目标。只有外层 Git 未跟踪知识子树时才显式选择 `--nested`；
 正式复核仍要求源码 worktree clean。
+
+### 迁移已有知识库
+
+本节只适用于原知识仓和新环境同为兼容的 v3-ng 双仓版本。
+移动完整且 clean 的 Knowledge Git worktree（包括 `.git/`），再把新绝对路径绑定到
+新的源码 clone。单纯移动目录不使用旧版格式的 `migrate` 命令；旧 V2/V3 知识转入
+v3-ng 属于格式迁移，必须改用显式迁移流程。
+
+```bash
+npx -y @vegetablebird6/llmdoc bind --source /path/to/new-source --knowledge /path/to/project-knowledge
+cd /path/to/new-source
+npx -y @vegetablebird6/llmdoc status
+npx -y @vegetablebird6/llmdoc validate
+npx -y @vegetablebird6/llmdoc delta
+```
+
+知识仓默认保持外置；只有放在源码 worktree 内时才使用 `--nested`。新 clone 必须包含
+知识台账记录的 source commit，当前 HEAD 最好等于或后继于这些提交。历史缺失或分叉时
+知识仍可读取，但会提示复核。若 `bind` 返回 `E_BINDING_CONFLICT`，只清理或更新用户级
+registry 中已经失效的路径记录；`bind` 不会自动覆盖旧绑定。
 
 ### 按任务检索上下文
 

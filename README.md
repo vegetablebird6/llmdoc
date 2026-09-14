@@ -28,76 +28,68 @@ One source worktree binds to one independent knowledge worktree through a
 user-level registry. External knowledge storage is the default, keeping personal
 knowledge commits separate from business-code collaboration.
 
-[Principles](#design-principles) · [Boundaries](#eight-hard-boundaries) ·
+[Principles](#design-principles) · [Boundaries](#protocol-boundaries) ·
 [Install](#install) · [Daily use](#daily-use) · [Reference](#reference)
 
 ## Design principles
+
+These principles guide product decisions and tradeoffs:
 
 1. **Separate facts from understanding.** Source commits are the traceable factual
    baseline; Knowledge commits preserve the engineering understanding that agents
    formed and verified against that baseline. Source answers "what the system is
    now"; llmdoc answers "why it is designed this way, which constraints must hold,
    and what future changes need to know."
-2. **Keep one durable write boundary.** Source Git stays read-only: llmdoc never
-   modifies, stages, or commits the business repository. All durable knowledge and
-   its metadata live and evolve only in an independent Knowledge Git, and llmdoc
-   never falls back to the source Git when that Knowledge Git is missing.
-3. **Record only durable engineering knowledge.** Only knowledge with future
+2. **Record only durable engineering knowledge.** Only knowledge with future
    decision value, high reconstruction cost, and stability across multiple source
    commits enters the formal knowledge base: architectural intent, design decisions,
    constraints, invariants, failure semantics, and cross-module contracts. File
    structure, symbol relations, call graphs, and similar source-rebuildable
    information belong in indexes or caches, not durable knowledge.
-4. **Treat source change as a review obligation.** A source change means related
+3. **Treat source change as a review obligation.** A source change means related
    knowledge must be re-verified, not that the prose must change. Semantic review has
    three outcomes: update the prose, keep the prose and refresh the validation
    baseline, or confirm the change is irrelevant. llmdoc never turns a source diff
    into an automatic knowledge changelog.
-5. **Make knowledge validity verifiable.** Every formal document declares its source
+4. **Make knowledge validity verifiable.** Every formal document declares its source
    scope, validated source revision, and the content-integrity information needed to
    distinguish `current`, `needs_review`, and `unverified` states. Retrieval
    returns content together with its validation evidence instead of relying on
    document update times.
-6. **Agents maintain knowledge; humans review conclusions.** Agents drive discovery,
+5. **Agents maintain knowledge; humans review conclusions.** Agents drive discovery,
    organization, editing, verification, and sealing. Humans can review agent
    conclusions and raise corrections, additions, or challenges; that feedback
    re-enters the agent's update flow, and llmdoc performs the formal edit and
    re-verification. Human review is an optional quality-control step, not a
    precondition for routine knowledge maintenance.
-7. **Keep knowledge separate from execution instructions.** llmdoc preserves
+6. **Keep knowledge separate from execution instructions.** llmdoc preserves
    readable, searchable, citable, and auditable reference knowledge. It does not
    distribute rules, skills, prompts, hooks, or other execution instructions, and no
    knowledge content may depend on hidden instructions or runtime behavior to hold.
 
-## Eight hard boundaries
+## Protocol boundaries
 
-1. **Read-only source.** The knowledge workflow never modifies the source
-   repository's files, index, history, or configuration. Source development is a
-   separate workflow.
-2. **Independent knowledge Git.** The Knowledge Repository must be its own Git
-   repository. It is external by default; a nested independent Git is supported
-   only when explicitly selected.
-3. **No upward fallback.** Persistent knowledge writes never fall back to the
-   source Git. With no binding or no independent Git, the CLI fails explicitly.
-   Read-only retrieval may read an explicitly named no-Git knowledge directory.
-4. **Valid, clean committed source snapshot.** Only a source commit with a valid
-   HEAD and a fully clean worktree/index counts. The source revision is the
-   validation basis; the knowledge revision is the Knowledge Git commit.
-5. **Review Manifest with a temporary index and CAS.** A Review Manifest binds
+These are enforced invariants: when one does not hold, the protected workflow must
+fail instead of guessing or weakening the protocol.
+
+1. **Source Git is read-only.** llmdoc must not modify its files, index, history,
+   or configuration. Source development is a separate workflow.
+2. **Knowledge Git is independent and never falls back.** The Knowledge Repository
+   must be its own Git repository, external by default and nested only when explicitly
+   selected. Persistent writes must fail when the binding or independent Git is
+   missing; only explicit read-only retrieval may use a no-Git knowledge directory.
+3. **Formal review uses a valid, clean committed source snapshot.** Only a source
+   commit with a valid HEAD and a fully clean worktree/index counts. The source
+   revision is the validation basis; the knowledge revision is the Knowledge Git
+   commit.
+4. **Knowledge publication is guarded and atomic.** A Review Manifest binds
    the source revision, content digests, and scope. Bodies, relations, and meta
    are published in one step through a temporary index and a compare-and-swap ref
    update; the knowledge index must have nothing staged, and it is synchronized
    on success together with llmdoc-owned generated files.
-6. **Agents own semantic maintenance.** Agents edit, verify, and seal formal
-   knowledge; humans review conclusions and return corrections to that workflow.
-   The CLI performs deterministic structure, scope, and commit checks. A passing
-   `validate` does not prove that the knowledge is correct.
-7. **Rebuildable indexes.** AST, symbol, and dependency graphs are rebuildable
-   indexes, not a committable code encyclopedia.
-8. **Reviewable standard Markdown.** Agents maintain formal knowledge through the
-   guarded validation and commit protocol. Humans review the same plain Markdown
-   and feed corrections back through the Agent workflow. Knowledge is reference
-   data, not executable rules or skills.
+5. **Only committed standard Markdown is formal knowledge.** Formal documents come
+   from committed `docs/**/*.md`; inbox candidates and rebuildable caches never enter
+   the formal knowledge surface or claim verified status.
 
 The "only write boundary" means the knowledge content and its Git. `bind` may
 write a user-level registry, and temporary files and caches are written under the
@@ -169,6 +161,30 @@ npx -y @vegetablebird6/llmdoc bind --source ./app --knowledge ../app-knowledge
 `init` never overwrites a non-empty target. Select `--nested` explicitly only
 when the outer Git does not track the knowledge subtree; formal review still
 requires the source worktree to be clean.
+
+### Move an existing knowledge repository
+
+This relocation flow applies only when the existing knowledge repository and
+the new environment both use a compatible v3-ng dual-repository format.
+Move the complete, clean Knowledge Git worktree, including its `.git/`, then
+bind its new absolute path to the new source clone. A path move does not use
+the legacy `migrate` command; moving V2/V3 knowledge into v3-ng is a format
+migration and must use the explicit migration workflow instead.
+
+```bash
+npx -y @vegetablebird6/llmdoc bind --source /path/to/new-source --knowledge /path/to/project-knowledge
+cd /path/to/new-source
+npx -y @vegetablebird6/llmdoc status
+npx -y @vegetablebird6/llmdoc validate
+npx -y @vegetablebird6/llmdoc delta
+```
+
+Keep the knowledge repository external by default; use `--nested` only when it
+lives inside the source worktree. The new clone must contain the source commits
+recorded by the knowledge ledger, ideally with its current HEAD at or descended
+from them. Missing or diverged history remains readable but is reported for
+review. If `bind` reports `E_BINDING_CONFLICT`, deliberately remove or update
+only the stale path entry in the user registry; `bind` never overwrites it.
 
 ### Retrieve the context the task needs
 
