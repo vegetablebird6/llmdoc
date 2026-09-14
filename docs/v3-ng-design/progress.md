@@ -2425,4 +2425,5 @@ Linux 无本机环境时：以现有 `ubuntu-latest` CI（`npm ci` → typecheck
 - 版本边界：`v3.6.0-ng` 指向 2026-09-13 最后提交 `63b9261`；2026-09-14 的文档边界、review projection 与命名修正进入 `3.6.1-ng`。npm 已发布的 `3.6.0-ng` 保留，不 unpublish，也不尝试复用不可覆盖的 `name@version`。
 - 五个受 release gate 校验的版本面已统一为 `3.6.1-ng`：root package、CLI package、Claude plugin、Claude marketplace、Codex plugin；root/CLI lockfile 同步。
 - 首次误打在 HEAD 的 `v3.6.0-ng` workflow 在 publish 前失败，没有生成 npm 包或 GitHub Release。失败原因是 Ubuntu 执行了仅适用于 Windows 的大小写路径断言；该测试改用文件内已有 `itOnWindows`，产品代码不变。
+- 前两次 `v3.6.1-ng` workflow 均在 publish 前失败：`knowledge-read` fixture 的提交隐式依赖开发机全局 Git identity，Ubuntu runner 首次在 seed commit 失败 15 例；只修 seed 后又暴露同一 fixture 后续 4 次 raw commit。最终改为给临时 Knowledge repo 配置本地测试 identity，覆盖该 fixture 的所有提交；产品代码不变。禁用 system/global Git config 后 focused 18/18 通过。
 - 发布前验证：Codex surface、版本一致性、typecheck、lint、registry focused 8/8、默认 quick 12 files / 99 tests + seal smoke 1/1、`npm pack --dry-run` 均通过；tarball identity 为 `@vegetablebird6/llmdoc@3.6.1-ng`。

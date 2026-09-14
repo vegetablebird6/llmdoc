@@ -98,6 +98,8 @@ async function setupKnowledge(
   const sourceHead = head(source);
   const init = await initKnowledgeRepository({ sourceInput: source, knowledgeInput: `${base}/knowledge`, registryDir });
   const knowledge = init.knowledgeRoot;
+  git(knowledge, ["config", "user.email", "test@example.com"]);
+  git(knowledge, ["config", "user.name", "Test User"]);
   for (const [id, raw] of Object.entries(files)) {
     writeFile(knowledge, `docs/${id}`, raw);
   }
@@ -134,7 +136,7 @@ async function setupKnowledge(
     )}\n`
   );
   git(knowledge, ["add", "-A"]);
-  git(knowledge, ["commit", "-m", "docs: seed knowledge"]);
+  git(knowledge, ["-c", "commit.gpgsign=false", "commit", "-m", "docs: seed knowledge"]);
   return { base, registryDir, source: realPath(source), knowledge, repositoryId: init.repositoryId, sourceHead };
 }
 
